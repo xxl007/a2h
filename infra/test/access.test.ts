@@ -4,6 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   dbCredentials,
+  executionRolePolicy,
+  previewDbCredentials,
   prDbSecretName,
   prDbUser,
   secretValueFrom,
@@ -104,5 +106,153 @@ test("pr storage needs a valid bucket name", () => {
   const pr = stageInfo("pr-12");
   for (const bad of [undefined, "", "Upper", "a2h/../x", "a2h-dev-uploads/*"]) {
     assert.throws(() => storageAccess(pr, bad), /bucket/, String(bad));
+  }
+});
+
+test("a preview's grant never covers a dev or prod object, even one keyed pr-<n>/...", () => {
+  const bucket = "a2h-dev-uploadsbucket-x7k2";
+  const access = storageAccess(stageInfo("pr-12"), bucket);
+  assert.equal(access.mode, "scoped");
+  if (access.mode !== "scoped") return;
+  const patterns = access.permissions.flatMap((p) => p.resources);
+  // IAM object ARNs here only use a trailing "*".
+  const covered = (key: string) =>
+    patterns.some((p) => `arn:aws:s3:::${bucket}/${key}`.startsWith(p.slice(0, -1)));
+  for (const owner of ["dev", "prod"]) {
+    const prefix = stageInfo(owner).storagePrefix;
+    for (const area of ["uploads", "tmp"]) {
+      assert.ok(!covered(`${area}/${prefix}pr-12/voice.webm`), `${owner} ${area}`);
+      assert.ok(!covered(`${area}/${prefix}x`), `${owner} ${area}`);
+    }
+  }
+  assert.ok(covered("uploads/pr-12/voice.webm"));
+  assert.ok(!covered("uploads/pr-120/voice.webm"));
+});
+
+test("pr-12 execution role reads only a2h/pr-12/db-*, nothing from SSM", () => {
+  const policy = executionRolePolicy(stageInfo("pr-12"), { kind: "pr-login", accountId: ACCOUNT });
+  assert.deepEqual(policy, {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Sid: "ReadDbPassword",
+        Effect: "Allow",
+        Action: ["secretsmanager:GetSecretValue"],
+        Resource: [`arn:aws:secretsmanager:eu-west-3:${ACCOUNT}:secret:a2h/pr-12/db-*`],
+      },
+    ],
+  });
+  // The looked-up secret matches the grant; pr-120's and the master's do not.
+  const resource = policy.Statement[0]?.Resource[0] ?? "";
+  const grants = (arn: string) => arn.startsWith(resource.slice(0, -1));
+  assert.ok(grants(PR12_SECRET_ARN));
+  assert.ok(!grants(PR12_SECRET_ARN.replace("pr-12", "pr-120")));
+  assert.ok(!grants(MASTER_SECRET_ARN));
+});
+
+test("dev and prod execution roles read only the Aurora master secret", () => {
+  for (const s of ["dev", "prod"]) {
+    const policy = executionRolePolicy(stageInfo(s), { kind: "master", secretArn: MASTER_SECRET_ARN });
+    assert.deepEqual(policy.Statement, [
+      {
+        Sid: "ReadDbPassword",
+        Effect: "Allow",
+        Action: ["secretsmanager:GetSecretValue"],
+        Resource: [MASTER_SECRET_ARN],
+      },
+    ]);
+  }
+});
+
+test("execution role policies: no wildcard resource, no SSM, no other action", () => {
+  const policies = [
+    executionRolePolicy(stageInfo("pr-12"), { kind: "pr-login", accountId: ACCOUNT }),
+    executionRolePolicy(stageInfo("dev"), { kind: "master", secretArn: MASTER_SECRET_ARN }),
+    executionRolePolicy(stageInfo("prod"), { kind: "master", secretArn: MASTER_SECRET_ARN }),
+  ];
+  for (const policy of policies) {
+    for (const st of policy.Statement) {
+      assert.deepEqual(st.Action, ["secretsmanager:GetSecretValue"]);
+      for (const r of st.Resource) assert.notEqual(r, "*");
+    }
+    assert.ok(!JSON.stringify(policy).includes("ssm:"));
+  }
+});
+
+test("execution role policy refuses mismatched sources and bad inputs", () => {
+  const pr = stageInfo("pr-12");
+  assert.throws(
+    () => executionRolePolicy(pr, { kind: "master", secretArn: MASTER_SECRET_ARN }),
+    /master/,
+  );
+  for (const bad of ["", "12345678901", "*", "123456789012:*"]) {
+    assert.throws(() => executionRolePolicy(pr, { kind: "pr-login", accountId: bad }), /account/, bad);
+  }
+  for (const s of ["dev", "prod"]) {
+    assert.throws(
+      () => executionRolePolicy(stageInfo(s), { kind: "pr-login", accountId: ACCOUNT }),
+      /pr/,
+      s,
+    );
+    for (const bad of ["*", "a2h/pr-12/db", `arn:aws:secretsmanager:eu-west-3:${ACCOUNT}:secret:*`]) {
+      assert.throws(
+        () => executionRolePolicy(stageInfo(s), { kind: "master", secretArn: bad }),
+        /ARN/,
+        bad,
+      );
+    }
+  }
+});
+
+// Item: `sst remove` must not fail when a2h/pr-<n>/db is absent (a PR that
+// never deployed, or a teardown re-run after pr-schema.sh drop). SST passes
+// the CLI command to the program as $cli.command.
+const MISSING = { found: false as const, cause: new Error("ResourceNotFoundException") };
+const FOUND = { found: true as const, arn: PR12_SECRET_ARN };
+
+test("pr secret found: same credentials on deploy and on remove", () => {
+  const pr = stageInfo("pr-12");
+  const expected = dbCredentials(pr, { kind: "pr-login", secretArn: PR12_SECRET_ARN });
+  for (const command of ["deploy", "remove", "diff", "refresh"]) {
+    assert.deepEqual(previewDbCredentials(pr, command, FOUND), { mode: "secret", credentials: expected }, command);
+  }
+});
+
+test("pr secret missing on remove: tolerated, no password reference at all", () => {
+  const result = previewDbCredentials(stageInfo("pr-12"), "remove", MISSING);
+  assert.deepEqual(result, {
+    mode: "removing-without-secret",
+    credentials: { environment: { DB_USER: "pr_12" }, ssm: {} },
+  });
+});
+
+test("pr secret missing on any other command: fails loudly, naming the secret and the fix", () => {
+  const pr = stageInfo("pr-12");
+  for (const command of ["deploy", "diff", "refresh", "dev", "", "Remove", "remove "]) {
+    assert.throws(
+      () => previewDbCredentials(pr, command, MISSING),
+      (err: Error) => {
+        assert.match(err.message, /a2h\/pr-12\/db/);
+        assert.match(err.message, /pr-schema\.sh create/);
+        assert.equal(err.cause, MISSING.cause);
+        return true;
+      },
+      JSON.stringify(command),
+    );
+  }
+});
+
+test("remove never relaxes the secret check: a wrong secret still fails", () => {
+  const pr13 = { found: true as const, arn: PR12_SECRET_ARN.replace("pr-12", "pr-13") };
+  assert.throws(() => previewDbCredentials(stageInfo("pr-12"), "remove", pr13), /a2h\/pr-12\/db/);
+  assert.throws(
+    () => previewDbCredentials(stageInfo("pr-12"), "remove", { found: true, arn: MASTER_SECRET_ARN }),
+    /a2h\/pr-12\/db/,
+  );
+});
+
+test("previewDbCredentials is for pr stages only", () => {
+  for (const s of ["dev", "prod"]) {
+    assert.throws(() => previewDbCredentials(stageInfo(s), "remove", MISSING), /pr-<n>/, s);
   }
 });

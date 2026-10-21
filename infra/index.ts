@@ -53,7 +53,7 @@ function ownResources(stage: StageInfo): Base {
  * pr-<n>: borrow dev's resources. Database login `pr_<n>` from secret
  * `a2h/pr-<n>/db`; bucket not linked, object access under the PR prefix only.
  */
-async function borrowedResources(stage: StageInfo): Promise<Base> {
+async function borrowedResources(stage: StageInfo, command: string): Promise<Base> {
   const ids = await readShared();
   const vpc = getVpc(ids.vpcId);
   const storage = storageAccess(stage, ids.uploadsBucket);
@@ -61,17 +61,21 @@ async function borrowedResources(stage: StageInfo): Promise<Base> {
   return {
     cluster: getCluster(ids.clusterId, vpc),
     alb: getAlb(ids.albArn),
-    db: await previewAccess(stage, ids.auroraClusterId),
+    db: await previewAccess(stage, ids.auroraClusterId, command),
     storage,
     email: getEmail(ids.emailSender),
   };
 }
 
-export async function deploy(stageName: string) {
+/**
+ * `command` is the SST CLI command running the program (`$cli.command`:
+ * "deploy", "remove", "diff", "refresh", …). Only previewAccess reads it.
+ */
+export async function deploy(stageName: string, command: string) {
   const stage = stageInfo(stageName);
   const { cluster, alb, db, storage, email, shared } = stage.ownsSharedResources
     ? ownResources(stage)
-    : await borrowedResources(stage);
+    : await borrowedResources(stage, command);
 
   const deps = { stage, cluster, db, storage, email };
   createMcp(deps, alb);

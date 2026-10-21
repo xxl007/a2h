@@ -2,7 +2,13 @@
 // dev: shared with pr-* (schema per stage, created/dropped by CI through the
 // RDS Data API), scales to 0 ACU and pauses after 10 minutes.
 // prod: its own cluster, min 0.5 ACU, never pauses, no Data API.
-import { dbCredentials, prDbSecretName, type DbCredentials } from "./access.ts";
+import {
+  dbCredentials,
+  executionRolePolicy,
+  prDbSecretName,
+  previewDbCredentials,
+  type SecretLookup,
+} from "./access.ts";
 import type { StageInfo } from "./config.ts";
 
 export function createDatabase(stage: StageInfo, vpc: sst.aws.Vpc): sst.aws.Aurora {
@@ -32,7 +38,13 @@ export interface DbEndpoint {
 export interface DbAccess {
   endpoint: DbEndpoint;
   environment: { DB_USER: $util.Input<string> };
-  ssm: { DB_PASSWORD: $util.Input<string> };
+  /** Empty only for a pr stage being removed whose secret is gone (access.ts previewDbCredentials). */
+  ssm: { DB_PASSWORD: $util.Input<string> } | Record<string, never>;
+  /**
+   * JSON inline policy of the Fargate execution role: GetSecretValue on the
+   * one secret DB_PASSWORD comes from (access.ts executionRolePolicy).
+   */
+  executionPolicy: $util.Input<string>;
 }
 
 function hostOnly(endpoint: string | undefined): string {
@@ -56,6 +68,9 @@ export function masterAccess(stage: StageInfo, db: sst.aws.Aurora): DbAccess {
     },
     environment: { DB_USER: creds.apply((c) => c.environment.DB_USER) },
     ssm: { DB_PASSWORD: creds.apply((c) => c.ssm.DB_PASSWORD) },
+    executionPolicy: db.secretArn.apply((secretArn) =>
+      JSON.stringify(executionRolePolicy(stage, { kind: "master", secretArn })),
+    ),
   };
 }
 
@@ -67,21 +82,27 @@ export function masterAccess(stage: StageInfo, db: sst.aws.Aurora): DbAccess {
  *
  * Credentials: login `pr_<n>` and secret `a2h/pr-<n>/db`, which the preview
  * workflow creates (pr-schema.sh create) before `sst deploy`. Looked up by
- * name at deploy time; a missing secret fails the deploy.
+ * name while the program runs; a missing secret fails every command except
+ * `sst remove` (`command` is SST's `$cli.command`), where it is absent for a
+ * PR that never deployed or for a teardown re-run after the drop.
  */
-export async function previewAccess(stage: StageInfo, clusterId: string): Promise<DbAccess> {
+export async function previewAccess(
+  stage: StageInfo,
+  clusterId: string,
+  command: string,
+): Promise<DbAccess> {
   const cluster = aws.rds.getClusterOutput({ clusterIdentifier: clusterId });
-  const secretName = prDbSecretName(stage);
-  let secretArn: string;
+  let lookup: SecretLookup;
   try {
-    secretArn = (await aws.secretsmanager.getSecret({ name: secretName })).arn;
+    const secret = await aws.secretsmanager.getSecret({ name: prDbSecretName(stage) });
+    lookup = { found: true, arn: secret.arn };
   } catch (cause) {
-    throw new Error(
-      `Secret ${secretName} is missing or unreadable. The preview workflow creates it with .github/scripts/pr-schema.sh create before sst deploy.`,
-      { cause },
-    );
+    lookup = { found: false, cause };
   }
-  const creds: DbCredentials = dbCredentials(stage, { kind: "pr-login", secretArn });
+  const { mode, credentials: creds } = previewDbCredentials(stage, command, lookup);
+  if (mode === "removing-without-secret") {
+    console.warn(`${prDbSecretName(stage)} not found; tolerated because the stage is being removed.`);
+  }
   return {
     endpoint: {
       host: cluster.endpoint.apply(hostOnly),
@@ -90,6 +111,11 @@ export async function previewAccess(stage: StageInfo, clusterId: string): Promis
     },
     environment: creds.environment,
     ssm: creds.ssm,
+    executionPolicy: aws
+      .getCallerIdentityOutput()
+      .accountId.apply((accountId) =>
+        JSON.stringify(executionRolePolicy(stage, { kind: "pr-login", accountId })),
+      ),
   };
 }
 
@@ -109,6 +135,6 @@ export function databaseEnv(access: DbAccess, stage: StageInfo) {
       DB_USER: access.environment.DB_USER,
       DB_SCHEMA: stage.dbSchema,
     },
-    ssm: { DB_PASSWORD: access.ssm.DB_PASSWORD },
+    ssm: access.ssm,
   };
 }

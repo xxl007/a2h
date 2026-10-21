@@ -33,6 +33,18 @@ export function containerConfig({ stage, db, storage, email }: ServiceDeps) {
     // `link` grants the task role least-privilege IAM on these resources.
     link: [...store.link, ...(email ? [email] : [])],
     permissions: store.permissions,
+    transform: {
+      // Object form: SST merges it over its defaults (`{ ...args, ...transform }`,
+      // component.ts), so only `inlinePolicies` changes. It replaces SST's
+      // `ReadSsmAndSecrets` (GetSecretValue and ssm:GetParameter* on `*`)
+      // with GetSecretValue on the one DB secret. `managedPolicyArns`
+      // (AmazonECSTaskExecutionRolePolicy: ECR pull, logs) and
+      // `assumeRolePolicy` stay as SST sets them; the boundary still comes
+      // from the $transform in sst.config.ts.
+      executionRole: {
+        inlinePolicies: [{ name: "inline", policy: db.executionPolicy }],
+      },
+    },
   };
 }
 

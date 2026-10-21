@@ -17,11 +17,16 @@ export const WORKLOAD_BOUNDARY_POLICY_NAME = "a2h-workload-boundary";
 
 const AWS_ACCOUNT_ID = /^[0-9]{12}$/;
 
-/** Boundary ARN for the caller's account; sst.config.ts feeds it the account ID. */
-export function workloadBoundaryArn(accountId: string): string {
+export function assertAccountId(accountId: string): string {
   if (!AWS_ACCOUNT_ID.test(accountId)) {
     throw new Error(`Not an AWS account ID: "${accountId}" (expected 12 digits).`);
   }
+  return accountId;
+}
+
+/** Boundary ARN for the caller's account; sst.config.ts feeds it the account ID. */
+export function workloadBoundaryArn(accountId: string): string {
+  assertAccountId(accountId);
   return `arn:aws:iam::${accountId}:policy/${WORKLOAD_BOUNDARY_POLICY_NAME}`;
 }
 
@@ -117,6 +122,11 @@ export interface StageInfo {
   mcpBasePath: string;
   /** ALB health check path: `healthPathFor(mcpBasePath)` from apps/mcp. */
   healthPath: string;
+  /**
+   * Key prefix inside each storage area: `dev/`, `prod/`, `pr-<n>/`. Every
+   * stage has one, and none is a prefix of another, so a preview's scoped
+   * grant (`<area>/pr-<n>/*`) can never reach a dev object.
+   */
   storagePrefix: string;
   /** Appended to Fargate component names on pr-* (ECS names are per cluster). */
   componentSuffix: string;
@@ -141,7 +151,9 @@ export function stageInfo(stage: string): StageInfo {
       dbSchema: "public",
       mcpBasePath: "/mcp",
       healthPath: healthPathFor("/mcp"),
-      storagePrefix: "",
+      // Never "": a dev key at the area root such as `uploads/pr-12/x` would
+      // fall inside a preview's `uploads/pr-12/*` grant.
+      storagePrefix: `${stage}/`,
       componentSuffix: "",
       warm: 1,
       spot: false,

@@ -2,7 +2,7 @@
 // Pure: no SST globals, no I/O, unit-tested in infra/test/access.test.ts.
 // Contract: openspec/changes/m0-foundation/tasks.md, contract amendment 1
 // ("Per-PR database login", "Scoped storage on previews").
-import { STORAGE_AREAS, type StageInfo } from "./config.ts";
+import { assertAccountId, REGION, STORAGE_AREAS, type StageInfo } from "./config.ts";
 
 /** JSON key of the password in both the Aurora master secret and `a2h/pr-<n>/db`. */
 export const DB_PASSWORD_KEY = "password";
@@ -72,6 +72,112 @@ export function dbCredentials(stage: StageInfo, source: DbCredentialSource): DbC
     environment: { DB_USER: source.username },
     ssm: { DB_PASSWORD: secretValueFrom(source.secretArn, DB_PASSWORD_KEY) },
   };
+}
+
+export type ExecutionSecretSource =
+  /** dev and prod (M0): the Aurora master secret, by its full ARN. */
+  | { kind: "master"; secretArn: string }
+  /**
+   * pr-<n>: every version of `a2h/pr-<n>/db` in this account and region. By
+   * name pattern, not by the looked-up ARN, so the grant does not depend on
+   * the lookup (which may be absent on `sst remove`) nor on the random suffix
+   * of a re-created secret.
+   */
+  | { kind: "pr-login"; accountId: string };
+
+export interface PolicyDocument {
+  Version: "2012-10-17";
+  Statement: {
+    Sid: string;
+    Effect: "Allow";
+    Action: string[];
+    Resource: string[];
+  }[];
+}
+
+/**
+ * Inline policy of the Fargate task execution role (the role the ECS agent
+ * uses to pull the image, write logs and resolve `secrets.valueFrom`). It
+ * replaces SST's default `ReadSsmAndSecrets`, which allows
+ * `secretsmanager:GetSecretValue` and `ssm:GetParameter*` on `*`. The only
+ * task secret is DB_PASSWORD (databaseEnv), so the role reads exactly that
+ * secret and nothing from SSM. ECR pull and logs stay with the managed
+ * `AmazonECSTaskExecutionRolePolicy`. Both secrets use the AWS-managed
+ * `aws/secretsmanager` key, so no `kms:Decrypt` grant is needed.
+ */
+export function executionRolePolicy(stage: StageInfo, source: ExecutionSecretSource): PolicyDocument {
+  let resource: string;
+  if (stage.kind === "pr") {
+    if (source.kind !== "pr-login") {
+      throw new Error(`Stage "${stage.name}" must never read the Aurora master secret.`);
+    }
+    const account = assertAccountId(source.accountId);
+    // Secrets Manager appends "-" and six random characters to the name.
+    resource = `arn:aws:secretsmanager:${REGION}:${account}:secret:${prDbSecretName(stage)}-*`;
+  } else {
+    if (source.kind !== "master") {
+      throw new Error(`Stage "${stage.name}" reads the master secret in M0, not a pr login secret.`);
+    }
+    if (!SECRET_ARN.test(source.secretArn)) {
+      throw new Error(`Not a Secrets Manager secret ARN: "${source.secretArn}".`);
+    }
+    resource = source.secretArn;
+  }
+  return {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Sid: "ReadDbPassword",
+        Effect: "Allow",
+        Action: ["secretsmanager:GetSecretValue"],
+        Resource: [resource],
+      },
+    ],
+  };
+}
+
+/** Result of looking up `a2h/pr-<n>/db` by name (database.ts previewAccess). */
+export type SecretLookup = { found: true; arn: string } | { found: false; cause: unknown };
+
+/** SST CLI command that removes a stage (`$cli.command`, pkg/project/run.go). */
+export const REMOVE_COMMAND = "remove";
+
+export type PreviewDbCredentials =
+  | { mode: "secret"; credentials: DbCredentials }
+  /**
+   * Only on `sst remove`: the secret is absent (the PR never deployed, or a
+   * teardown re-run after `pr-schema.sh drop`). Nothing will be deployed, so
+   * the task gets no password reference at all, never a placeholder.
+   */
+  | {
+      mode: "removing-without-secret";
+      credentials: { environment: { DB_USER: string }; ssm: Record<string, never> };
+    };
+
+/**
+ * pr-<n>: credentials from the lookup of `a2h/pr-<n>/db`. A missing or
+ * unreadable secret fails on every command (deploy, diff, refresh, dev)
+ * except exactly `remove`. A found secret is always checked by dbCredentials.
+ */
+export function previewDbCredentials(
+  stage: StageInfo,
+  command: string,
+  lookup: SecretLookup,
+): PreviewDbCredentials {
+  const name = prDbSecretName(stage);
+  if (lookup.found) {
+    return { mode: "secret", credentials: dbCredentials(stage, { kind: "pr-login", secretArn: lookup.arn }) };
+  }
+  if (command === REMOVE_COMMAND) {
+    return {
+      mode: "removing-without-secret",
+      credentials: { environment: { DB_USER: prDbUser(stage) }, ssm: {} },
+    };
+  }
+  throw new Error(
+    `Secret ${name} is missing or unreadable. The preview workflow creates it with .github/scripts/pr-schema.sh create before sst deploy.`,
+    { cause: lookup.cause },
+  );
 }
 
 export interface PermissionStatement {
