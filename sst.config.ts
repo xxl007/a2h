@@ -35,6 +35,9 @@ export default $config({
     });
 
     const { deploy } = await import("./infra/index.ts");
-    return deploy($app.stage);
+    // $cli.command is the SST CLI command ("deploy", "remove", …), injected
+    // by SST as an esbuild define (pkg/project/run.go). It lets a pr stage be
+    // removed after its database secret is gone (infra/database.ts).
+    return deploy($app.stage, $cli.command);
   },
 });

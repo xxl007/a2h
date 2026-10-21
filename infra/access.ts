@@ -136,6 +136,50 @@ export function executionRolePolicy(stage: StageInfo, source: ExecutionSecretSou
   };
 }
 
+/** Result of looking up `a2h/pr-<n>/db` by name (database.ts previewAccess). */
+export type SecretLookup = { found: true; arn: string } | { found: false; cause: unknown };
+
+/** SST CLI command that removes a stage (`$cli.command`, pkg/project/run.go). */
+export const REMOVE_COMMAND = "remove";
+
+export type PreviewDbCredentials =
+  | { mode: "secret"; credentials: DbCredentials }
+  /**
+   * Only on `sst remove`: the secret is absent (the PR never deployed, or a
+   * teardown re-run after `pr-schema.sh drop`). Nothing will be deployed, so
+   * the task gets no password reference at all, never a placeholder.
+   */
+  | {
+      mode: "removing-without-secret";
+      credentials: { environment: { DB_USER: string }; ssm: Record<string, never> };
+    };
+
+/**
+ * pr-<n>: credentials from the lookup of `a2h/pr-<n>/db`. A missing or
+ * unreadable secret fails on every command (deploy, diff, refresh, dev)
+ * except exactly `remove`. A found secret is always checked by dbCredentials.
+ */
+export function previewDbCredentials(
+  stage: StageInfo,
+  command: string,
+  lookup: SecretLookup,
+): PreviewDbCredentials {
+  const name = prDbSecretName(stage);
+  if (lookup.found) {
+    return { mode: "secret", credentials: dbCredentials(stage, { kind: "pr-login", secretArn: lookup.arn }) };
+  }
+  if (command === REMOVE_COMMAND) {
+    return {
+      mode: "removing-without-secret",
+      credentials: { environment: { DB_USER: prDbUser(stage) }, ssm: {} },
+    };
+  }
+  throw new Error(
+    `Secret ${name} is missing or unreadable. The preview workflow creates it with .github/scripts/pr-schema.sh create before sst deploy.`,
+    { cause: lookup.cause },
+  );
+}
+
 export interface PermissionStatement {
   actions: string[];
   resources: string[];

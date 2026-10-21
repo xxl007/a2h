@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import {
   dbCredentials,
   executionRolePolicy,
+  previewDbCredentials,
   prDbSecretName,
   prDbUser,
   secretValueFrom,
@@ -200,5 +201,58 @@ test("execution role policy refuses mismatched sources and bad inputs", () => {
         bad,
       );
     }
+  }
+});
+
+// Item: `sst remove` must not fail when a2h/pr-<n>/db is absent (a PR that
+// never deployed, or a teardown re-run after pr-schema.sh drop). SST passes
+// the CLI command to the program as $cli.command.
+const MISSING = { found: false as const, cause: new Error("ResourceNotFoundException") };
+const FOUND = { found: true as const, arn: PR12_SECRET_ARN };
+
+test("pr secret found: same credentials on deploy and on remove", () => {
+  const pr = stageInfo("pr-12");
+  const expected = dbCredentials(pr, { kind: "pr-login", secretArn: PR12_SECRET_ARN });
+  for (const command of ["deploy", "remove", "diff", "refresh"]) {
+    assert.deepEqual(previewDbCredentials(pr, command, FOUND), { mode: "secret", credentials: expected }, command);
+  }
+});
+
+test("pr secret missing on remove: tolerated, no password reference at all", () => {
+  const result = previewDbCredentials(stageInfo("pr-12"), "remove", MISSING);
+  assert.deepEqual(result, {
+    mode: "removing-without-secret",
+    credentials: { environment: { DB_USER: "pr_12" }, ssm: {} },
+  });
+});
+
+test("pr secret missing on any other command: fails loudly, naming the secret and the fix", () => {
+  const pr = stageInfo("pr-12");
+  for (const command of ["deploy", "diff", "refresh", "dev", "", "Remove", "remove "]) {
+    assert.throws(
+      () => previewDbCredentials(pr, command, MISSING),
+      (err: Error) => {
+        assert.match(err.message, /a2h\/pr-12\/db/);
+        assert.match(err.message, /pr-schema\.sh create/);
+        assert.equal(err.cause, MISSING.cause);
+        return true;
+      },
+      JSON.stringify(command),
+    );
+  }
+});
+
+test("remove never relaxes the secret check: a wrong secret still fails", () => {
+  const pr13 = { found: true as const, arn: PR12_SECRET_ARN.replace("pr-12", "pr-13") };
+  assert.throws(() => previewDbCredentials(stageInfo("pr-12"), "remove", pr13), /a2h\/pr-12\/db/);
+  assert.throws(
+    () => previewDbCredentials(stageInfo("pr-12"), "remove", { found: true, arn: MASTER_SECRET_ARN }),
+    /a2h\/pr-12\/db/,
+  );
+});
+
+test("previewDbCredentials is for pr stages only", () => {
+  for (const s of ["dev", "prod"]) {
+    assert.throws(() => previewDbCredentials(stageInfo(s), "remove", MISSING), /pr-<n>/, s);
   }
 });

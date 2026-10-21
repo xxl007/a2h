@@ -6,7 +6,8 @@ import {
   dbCredentials,
   executionRolePolicy,
   prDbSecretName,
-  type DbCredentials,
+  previewDbCredentials,
+  type SecretLookup,
 } from "./access.ts";
 import type { StageInfo } from "./config.ts";
 
@@ -37,7 +38,8 @@ export interface DbEndpoint {
 export interface DbAccess {
   endpoint: DbEndpoint;
   environment: { DB_USER: $util.Input<string> };
-  ssm: { DB_PASSWORD: $util.Input<string> };
+  /** Empty only for a pr stage being removed whose secret is gone (access.ts previewDbCredentials). */
+  ssm: { DB_PASSWORD: $util.Input<string> } | Record<string, never>;
   /**
    * JSON inline policy of the Fargate execution role: GetSecretValue on the
    * one secret DB_PASSWORD comes from (access.ts executionRolePolicy).
@@ -80,21 +82,27 @@ export function masterAccess(stage: StageInfo, db: sst.aws.Aurora): DbAccess {
  *
  * Credentials: login `pr_<n>` and secret `a2h/pr-<n>/db`, which the preview
  * workflow creates (pr-schema.sh create) before `sst deploy`. Looked up by
- * name at deploy time; a missing secret fails the deploy.
+ * name while the program runs; a missing secret fails every command except
+ * `sst remove` (`command` is SST's `$cli.command`), where it is absent for a
+ * PR that never deployed or for a teardown re-run after the drop.
  */
-export async function previewAccess(stage: StageInfo, clusterId: string): Promise<DbAccess> {
+export async function previewAccess(
+  stage: StageInfo,
+  clusterId: string,
+  command: string,
+): Promise<DbAccess> {
   const cluster = aws.rds.getClusterOutput({ clusterIdentifier: clusterId });
-  const secretName = prDbSecretName(stage);
-  let secretArn: string;
+  let lookup: SecretLookup;
   try {
-    secretArn = (await aws.secretsmanager.getSecret({ name: secretName })).arn;
+    const secret = await aws.secretsmanager.getSecret({ name: prDbSecretName(stage) });
+    lookup = { found: true, arn: secret.arn };
   } catch (cause) {
-    throw new Error(
-      `Secret ${secretName} is missing or unreadable. The preview workflow creates it with .github/scripts/pr-schema.sh create before sst deploy.`,
-      { cause },
-    );
+    lookup = { found: false, cause };
   }
-  const creds: DbCredentials = dbCredentials(stage, { kind: "pr-login", secretArn });
+  const { mode, credentials: creds } = previewDbCredentials(stage, command, lookup);
+  if (mode === "removing-without-secret") {
+    console.warn(`${prDbSecretName(stage)} not found; tolerated because the stage is being removed.`);
+  }
   return {
     endpoint: {
       host: cluster.endpoint.apply(hostOnly),
@@ -127,6 +135,6 @@ export function databaseEnv(access: DbAccess, stage: StageInfo) {
       DB_USER: access.environment.DB_USER,
       DB_SCHEMA: stage.dbSchema,
     },
-    ssm: { DB_PASSWORD: access.ssm.DB_PASSWORD },
+    ssm: access.ssm,
   };
 }
