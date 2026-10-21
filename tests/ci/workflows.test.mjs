@@ -6,7 +6,10 @@
 // Run: node --test tests/ci/workflows.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import process from "node:process";
 import { URL, fileURLToPath } from "node:url";
 import { join } from "node:path";
 import YAML from "yaml";
@@ -161,4 +164,152 @@ test("a preview run that finds the PR not open, at either check, runs the teardo
   assert.ok(needsOf(c).includes(deployId), `${cid} does not need ${deployId}`);
   assert.match(String(c.if ?? ""), new RegExp(`needs\\.${deployId}\\.outputs\\.closed == 'true'`));
   assert.match(String(c.if ?? ""), /!cancelled\(\)/);
+});
+
+// --- PR state reads: retried, fail closed, and re-read by the teardown -------
+// Every step that reads the PR state (`gh api .../pulls/<n> --jq .state`) is
+// extracted from the YAML and executed with bash the way the runner does
+// (bash --noprofile --norc -eo pipefail), against a fake gh and a fake sleep.
+
+const isStateRead = (s) => runs(s, "gh api") && runs(s, "/pulls/") && runs(s, ".state");
+const teardownJob = () => jobsRunning("sst remove").find(({ f }) => f === "preview-teardown.yml").j;
+/** [{ f, id, s, key }] for every state-read step; key is the output it sets. */
+const stateReads = () =>
+  files.flatMap((f) =>
+    jobs(f).flatMap(([, j]) =>
+      steps(j)
+        .filter(isStateRead)
+        .map((s) => ({ f, id: s.id, s, key: f === "preview-teardown.yml" ? "proceed" : "open" })),
+    ),
+  );
+
+function runStateRead(script, { fails = 0, state = "closed", env = {} } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "a2h-state-read-"));
+  try {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "gh"),
+      [
+        "#!/usr/bin/env bash",
+        `n=$(cat "${dir}/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${dir}/count"`,
+        `if [ "$n" -le "$FAKE_GH_FAILS" ]; then echo "gh: HTTP 502: Bad Gateway" >&2; exit 1; fi`,
+        `printf '%s\\n' "$FAKE_GH_STATE"`,
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, "sleep"), `#!/usr/bin/env bash\necho "$1" >> "${dir}/sleeps"\n`, { mode: 0o755 });
+    writeFileSync(join(dir, "step.sh"), script);
+    writeFileSync(join(dir, "out"), "");
+    const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", join(dir, "step.sh")], {
+      encoding: "utf8",
+      env: {
+        PATH: `${bin}:${process.env.PATH}`,
+        GITHUB_REPOSITORY: "example/a2h",
+        GITHUB_OUTPUT: join(dir, "out"),
+        PR_NUMBER: "42",
+        FAKE_GH_FAILS: String(fails),
+        FAKE_GH_STATE: state,
+        ...env,
+      },
+    });
+    const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), "utf8") : "");
+    return {
+      status: r.status,
+      stdout: r.stdout + r.stderr,
+      out: read("out").trim(),
+      calls: Number(read("count") || 0),
+      sleeps: read("sleeps").split("\n").filter(Boolean).map(Number),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("there are three PR state reads: two in preview.yml, one in preview-teardown.yml; none interpolates ${{ }}", () => {
+  const reads = stateReads();
+  assert.deepEqual(reads.map(({ f }) => f).sort(), ["preview-teardown.yml", "preview.yml", "preview.yml"]);
+  for (const { f, id, s } of reads) {
+    assert.ok(id, `${f}: state read without id`);
+    assert.doesNotMatch(s.run, /\$\{\{/, `${f} ${id}: pass values through env, not \${{ }} in run`);
+  }
+});
+
+test("every PR state read retries a transient gh failure, with backoff, and then succeeds", () => {
+  for (const { f, id, s, key } of stateReads()) {
+    const env = { REQUIRE_CLOSED: "true" };
+    const r = runStateRead(s.run, { fails: 4, state: "closed", env });
+    assert.equal(r.status, 0, `${f} ${id} did not survive 4 transient failures:\n${r.stdout}`);
+    assert.equal(r.calls, 5, `${f} ${id}: expected 5 gh calls, got ${r.calls}`);
+    assert.equal(r.sleeps.length, 4, `${f} ${id}: expected 4 waits between attempts`);
+    for (let i = 1; i < r.sleeps.length; i++) assert.ok(r.sleeps[i] > r.sleeps[i - 1], `${f} ${id}: no backoff ${r.sleeps}`);
+    assert.equal(r.out, key === "open" ? "open=false" : "proceed=true", `${f} ${id} output`);
+  }
+});
+
+test("every PR state read fails the step, loudly and with no output, when gh never answers", () => {
+  for (const [label, opts] of [
+    ["gh always fails", { fails: 99 }],
+    ["gh answers nothing", { state: "" }],
+    ["gh answers an unknown state", { state: "merged-ish" }],
+  ]) {
+    for (const { f, id, s } of stateReads()) {
+      const r = runStateRead(s.run, { ...opts, env: { REQUIRE_CLOSED: "true" } });
+      assert.notEqual(r.status, 0, `${f} ${id} (${label}) must fail, not assume a state`);
+      assert.equal(r.out, "", `${f} ${id} (${label}) wrote outputs: ${r.out}`);
+      assert.equal(r.calls, 5, `${f} ${id} (${label}): expected 5 attempts, got ${r.calls}`);
+      assert.match(r.stdout, /::error::/, `${f} ${id} (${label}) does not report an ::error::`);
+    }
+  }
+});
+
+test("preview.yml state reads report open=true for an open PR", () => {
+  for (const { id, s } of stateReads().filter(({ f }) => f === "preview.yml")) {
+    const r = runStateRead(s.run, { state: "open" });
+    assert.equal(r.status, 0, r.stdout);
+    assert.equal(r.out, "open=true", `${id} output`);
+    assert.equal(r.calls, 1);
+  }
+});
+
+test("a preview run whose state read failed hands over to the teardown, which decides on its own re-read", () => {
+  const { j } = jobsRunning("sst deploy").find(({ f }) => f === "preview.yml");
+  const closed = String(j.outputs?.closed ?? "");
+  for (const s of steps(j).filter(isStateRead)) {
+    assert.ok(closed.includes(`steps.${s.id}.outcome == 'failure'`), `outputs.closed ignores a failed ${s.id}`);
+  }
+});
+
+test("preview-teardown.yml takes a require-closed input; preview.yml passes true, teardown.yml does not", () => {
+  const input = wf["preview-teardown.yml"].on?.workflow_call?.inputs?.["require-closed"];
+  assert.ok(input, "preview-teardown.yml has no require-closed input");
+  assert.equal(input.type, "boolean");
+  assert.equal(input.default, false);
+  const [[, fromPreview]] = callers("preview.yml", TEARDOWN_CALL);
+  assert.equal(fromPreview.with?.["require-closed"], true, "preview.yml must pass require-closed: true");
+  const [[, fromClosed]] = callers("teardown.yml", TEARDOWN_CALL);
+  assert.notEqual(fromClosed.with?.["require-closed"], true, "teardown.yml (closed event) must not require a re-read");
+});
+
+test("called with require-closed, the teardown re-reads the state first and touches nothing for an open PR", () => {
+  const j = teardownJob();
+  const gate = steps(j)[0];
+  assert.ok(isStateRead(gate), "the first step of the teardown job is not the PR state read");
+  assert.ok(gate.id, "the state read has no id");
+  assert.match(String(gate.env?.REQUIRE_CLOSED ?? ""), /inputs\.require-closed/, "REQUIRE_CLOSED is not the input");
+  const proceed = `steps.${gate.id}.outputs.proceed == 'true'`;
+  for (const [i, s] of steps(j).entries()) {
+    if (i === 0) continue;
+    assert.ok(String(s.if ?? "").includes(proceed), `step ${s.name ?? s.uses} is not gated on ${proceed}`);
+  }
+  // Behaviour of the gate itself.
+  const open = runStateRead(gate.run, { state: "open", env: { REQUIRE_CLOSED: "true" } });
+  assert.equal(open.status, 0, open.stdout);
+  assert.equal(open.out, "proceed=false", "an open PR must not be torn down");
+  const closedPr = runStateRead(gate.run, { state: "closed", env: { REQUIRE_CLOSED: "true" } });
+  assert.equal(closedPr.out, "proceed=true");
+  const fromClosedEvent = runStateRead(gate.run, { fails: 99, env: { REQUIRE_CLOSED: "false" } });
+  assert.equal(fromClosedEvent.status, 0, fromClosedEvent.stdout);
+  assert.equal(fromClosedEvent.out, "proceed=true", "teardown.yml's behaviour must not change");
+  assert.equal(fromClosedEvent.calls, 0, "teardown.yml's run must not depend on the GitHub API");
 });
