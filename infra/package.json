@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "pnpm --dir .. exec sst install && tsc --noEmit -p tsconfig.json",
+    "lint": "pnpm --dir .. exec sst install && eslint . ../sst.config.ts",
     "test": "node --test 'test/*.test.ts'"
   },
   "devDependencies": {

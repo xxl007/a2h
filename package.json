@@ -16,8 +16,11 @@
     "dev": "turbo run dev"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.13.0",
     "sst": "4.17.2",
     "turbo": "^2.11.10",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "8.72.0"
   }
 }
