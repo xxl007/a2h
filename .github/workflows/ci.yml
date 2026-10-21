@@ -74,7 +74,9 @@ jobs:
       # The preview/teardown script is tested here because a broken script only
       # shows up after a deploy otherwise: against a stubbed aws CLI (statements,
       # order, secret, masking), against a real Postgres 17 in Docker (isolation
-      # of two PRs, drop), and against the names in infra/config.ts.
+      # of two PRs, drop), and against the names in infra/config.ts. The
+      # workflows' structure and infra/bootstrap/*.json are checked by parsing
+      # them (tests/ci/*.test.mjs; yaml is a devDependency of @a2h/tests).
       - name: Check CI scripts
         env:
           PR_SCHEMA_PG_REQUIRED: "1"
@@ -83,3 +85,4 @@ jobs:
           bash tests/ci/pr-schema.test.sh
           bash tests/ci/infra-consistency.test.sh
           bash tests/ci/pr-schema.pg.test.sh
+          node --test tests/ci/*.test.mjs
