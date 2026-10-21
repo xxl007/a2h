@@ -1,9 +1,14 @@
-# Preview environment per pull request: stage pr-<n>, schema pr_<n>.
+# Preview environment per pull request: stage pr-<n>, schema and login pr_<n>.
 # Spec: openspec/.../preview-environments/spec.md
 #   "PR opened", "PR updated", "Two PRs open", "Typecheck fails", "Secrets inventory".
 # Deploys only when the repository variable A2H_DEPLOY_ENABLED is 'true'
-# (set by the owner after docs/runbooks/aws-bootstrap.md) and only for
-# same-repository PRs (forked PRs get no OIDC token and a read-only GITHUB_TOKEN).
+# (set by the owner after docs/runbooks/aws-bootstrap.md), only for
+# same-repository PRs (forked PRs get no OIDC token and a read-only GITHUB_TOKEN),
+# and never for Dependabot.
+#
+# Role: vars.AWS_PREVIEW_ROLE_ARN (gha-a2h-preview), trusted only for
+# repo:xxl007/a2h:pull_request (contract amendment 1). Actions in the job holding
+# id-token: write are pinned by commit SHA, tag in the comment.
 name: Preview
 
 on:
@@ -28,7 +33,9 @@ jobs:
     needs: check
     if: >-
       vars.A2H_DEPLOY_ENABLED == 'true' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -43,41 +50,78 @@ jobs:
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       STAGE: pr-${{ github.event.pull_request.number }}
+      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v7
+      # No resurrection after close. The PR may have been closed, and its teardown
+      # finished, while CI ran: then nothing is created, not even the database login.
+      - name: Check the PR is still open
+        id: open
+        run: |
+          state=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)
+          echo "PR #$PR_NUMBER is $state"
+          if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::PR #$PR_NUMBER is $state: no preview is created."; fi
 
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.open.outputs.open == 'true'
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        if: steps.open.outputs.open == 'true'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.open.outputs.open == 'true'
         with:
           node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install
+        if: steps.open.outputs.open == 'true'
         run: pnpm install --frozen-lockfile
 
       # SST builds the mcp and worker images for linux/arm64 with Docker.
-      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+        if: steps.open.outputs.open == 'true'
         with:
           platforms: arm64
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        if: steps.open.outputs.open == 'true'
 
       - name: Configure AWS credentials (OIDC, no long-lived keys)
-        uses: aws-actions/configure-aws-credentials@v6
+        if: steps.open.outputs.open == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ vars.AWS_PREVIEW_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: a2h-preview-pr-${{ github.event.pull_request.number }}
 
-      - name: Create schema pr_${{ github.event.pull_request.number }}
+      # Secret a2h/pr-<n>/db, login role and schema pr_<n> (contract amendment 1).
+      - name: Create database login and schema pr_${{ github.event.pull_request.number }}
+        if: steps.open.outputs.open == 'true'
         run: .github/scripts/pr-schema.sh create "$PR_NUMBER"
 
+      # Re-read immediately before the deploy: a close during the steps above
+      # queues the teardown behind this job (same concurrency group), and a
+      # deploy now would only be removed again. The teardown drops the login.
+      - name: Re-read the PR state
+        id: state
+        if: steps.open.outputs.open == 'true'
+        run: |
+          state=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)
+          echo "PR #$PR_NUMBER is $state"
+          if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::PR #$PR_NUMBER is $state: deploy and PR comment skipped."; fi
+
       - name: Deploy stage ${{ env.STAGE }}
+        id: deploy
+        if: steps.state.outputs.open == 'true'
         run: pnpm exec sst deploy --stage "$STAGE" --print-logs
 
       - name: Read outputs
         id: outputs
+        if: steps.state.outputs.open == 'true'
         run: |
           test -f .sst/outputs.json || { echo "::error::.sst/outputs.json missing after deploy"; exit 1; }
           {
@@ -87,6 +131,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Write PR comment
+        if: steps.state.outputs.open == 'true'
         env:
           OUT_STAGE: ${{ steps.outputs.outputs.stage }}
           OUT_WEB: ${{ steps.outputs.outputs.web }}
@@ -115,16 +160,18 @@ jobs:
           MD
 
       - name: Comment on PR
-        uses: marocchino/sticky-pull-request-comment@v3
+        if: steps.state.outputs.open == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: a2h-preview
           path: ${{ runner.temp }}/preview-comment.md
 
       # A failed deploy must not leave a comment advertising URLs that now serve
       # an older commit (or nothing): replace it with the failure and the run link.
+      # Not on a PR found closed at the start, whose comment belongs to the teardown.
       - name: Comment on PR (deploy failed)
-        if: failure()
-        uses: marocchino/sticky-pull-request-comment@v3
+        if: failure() && steps.open.outputs.open == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: a2h-preview
           message: |
@@ -138,14 +185,16 @@ jobs:
     name: previews not enabled
     if: >-
       vars.A2H_DEPLOY_ENABLED != 'true' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       pull-requests: write
     steps:
       - name: Comment on PR
-        uses: marocchino/sticky-pull-request-comment@v3
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: a2h-preview
           message: |
@@ -155,6 +204,7 @@ jobs:
             (repository variable `A2H_DEPLOY_ENABLED` is not `true`).
 
             The owner enables them by completing `docs/runbooks/aws-bootstrap.md`
-            (AWS account, OIDC role, first `dev` deploy) and setting the repository
-            variables `AWS_DEPLOY_ROLE_ARN` and `A2H_DEPLOY_ENABLED=true`.
+            (AWS account, OIDC roles `gha-a2h-dev` and `gha-a2h-preview`, first `dev`
+            deploy) and setting the repository variables `AWS_DEV_ROLE_ARN`,
+            `AWS_PREVIEW_ROLE_ARN` and `A2H_DEPLOY_ENABLED=true`.
             This comment is replaced by the preview URLs on the next push once enabled.

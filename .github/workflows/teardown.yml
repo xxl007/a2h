@@ -1,5 +1,11 @@
-# Teardown of a pull request's preview: drop schema pr_<n>, then remove stage pr-<n>.
+# Teardown of a pull request's preview: remove stage pr-<n>, then drop the
+# database login, schema and secret pr_<n> (contract amendment 1: remove first,
+# so no service still holds a connection; the drop runs even if remove failed).
 # Spec: openspec/.../preview-environments/spec.md, "PR closed".
+#
+# Role: vars.AWS_PREVIEW_ROLE_ARN (gha-a2h-preview), trusted only for
+# repo:xxl007/a2h:pull_request. Actions in the job holding id-token: write are
+# pinned by commit SHA, tag in the comment.
 name: Teardown
 
 on:
@@ -17,7 +23,9 @@ jobs:
     name: remove pr-${{ github.event.pull_request.number }}
     if: >-
       vars.A2H_DEPLOY_ENABLED == 'true' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -33,15 +41,26 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       STAGE: pr-${{ github.event.pull_request.number }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           # The merge ref may be gone once the PR is closed; use the head commit,
           # which is the sst.config.ts that was deployed.
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      # Credentials before the install, so the drop can still run if the
+      # install (and therefore sst remove) fails.
+      - name: Configure AWS credentials (OIDC, no long-lived keys)
+        id: aws
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: ${{ vars.AWS_PREVIEW_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: a2h-teardown-pr-${{ github.event.pull_request.number }}
 
-      - uses: actions/setup-node@v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -49,29 +68,25 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Configure AWS credentials (OIDC, no long-lived keys)
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: a2h-teardown-pr-${{ github.event.pull_request.number }}
+      # 1. Remove the stage first: its services hold connections as pr_<n>.
+      - name: Remove stage ${{ env.STAGE }}
+        id: remove
+        continue-on-error: true
+        run: pnpm exec sst remove --stage "$STAGE" --print-logs
 
-      # Drop before remove (contract). If the drop fails, still remove the stage;
-      # the failure is surfaced in the PR comment and in the job status below.
-      - name: Drop schema pr_${{ github.event.pull_request.number }}
+      # 2. Drop login, schema and secret even if the remove failed (the drop
+      #    terminates any session left), as long as we hold AWS credentials.
+      - name: Drop database login, schema and secret pr_${{ github.event.pull_request.number }}
         id: drop
+        if: ${{ !cancelled() && steps.aws.outcome == 'success' }}
         continue-on-error: true
         run: .github/scripts/pr-schema.sh drop "$PR_NUMBER"
 
-      - name: Remove stage ${{ env.STAGE }}
-        id: remove
-        run: pnpm exec sst remove --stage "$STAGE" --print-logs
-
-      - name: Update PR comment
+      - name: Write PR comment
         if: always()
         env:
-          DROP_OUTCOME: ${{ steps.drop.outcome }}
-          REMOVE_OUTCOME: ${{ steps.remove.outcome }}
+          DROP_OUTCOME: ${{ steps.drop.outcome || 'not run' }}
+          REMOVE_OUTCOME: ${{ steps.remove.outcome || 'not run' }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           {
@@ -83,8 +98,8 @@ jobs:
             echo
             echo "| | |"
             echo "|---|---|"
-            echo "| Stage \`$STAGE\` | $REMOVE_OUTCOME |"
-            echo "| Schema \`pr_$PR_NUMBER\` | $DROP_OUTCOME |"
+            echo "| 1. Stage \`$STAGE\` (\`sst remove\`) | $REMOVE_OUTCOME |"
+            echo "| 2. Login, schema \`pr_$PR_NUMBER\` and secret \`a2h/pr-$PR_NUMBER/db\` | $DROP_OUTCOME |"
             echo "| Teardown run | $RUN_URL |"
             if [ "$DROP_OUTCOME" != "success" ] || [ "$REMOVE_OUTCOME" != "success" ]; then
               echo
@@ -94,15 +109,18 @@ jobs:
 
       - name: Comment on PR
         if: always()
-        uses: marocchino/sticky-pull-request-comment@v3
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: a2h-preview
           path: ${{ runner.temp }}/teardown-comment.md
 
-      - name: Fail if the schema drop failed
-        if: always() && steps.drop.outcome != 'success'
+      # continue-on-error keeps the job going to the drop and the comment; this
+      # step makes the job red when either part failed.
+      - name: Fail if the teardown is incomplete
+        if: always() && (steps.remove.outcome != 'success' || steps.drop.outcome != 'success')
         env:
-          REMOVE_OUTCOME: ${{ steps.remove.outcome }}
+          DROP_OUTCOME: ${{ steps.drop.outcome || 'not run' }}
+          REMOVE_OUTCOME: ${{ steps.remove.outcome || 'not run' }}
         run: |
-          echo "::error::Schema pr_$PR_NUMBER was not dropped; sst remove was still attempted (outcome: $REMOVE_OUTCOME)."
+          echo "::error::Teardown of pr-$PR_NUMBER incomplete: sst remove $REMOVE_OUTCOME, drop $DROP_OUTCOME."
           exit 1
