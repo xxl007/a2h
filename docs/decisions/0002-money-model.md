@@ -1,6 +1,6 @@
 # ADR 0002: Money model
 
-- Status: proposed (awaiting product-owner approval at M0 checkpoint 2)
+- Status: accepted (product owner, 2026-10-21)
 - Date: 2026-10-21
 - Deciders: product owner (Galem L.), PM agent
 - Scope: how money is represented, held, cleared, charged and paid out in A2H. Governs `packages/protocol` money shapes, `packages/db` ledger, `apps/worker` settlement jobs, and all money copy.

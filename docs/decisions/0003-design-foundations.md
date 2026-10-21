@@ -1,6 +1,6 @@
 # ADR 0003: Design foundations: base library and visual role model
 
-- Status: proposed (awaiting product-owner approval)
+- Status: accepted (product owner, 2026-10-21)
 - Date: 2026-10-21
 - Deciders: product owner (Galem L.), PM agent, Design agent
 - Scope: the component base for `packages/ui` and `apps/web`, the colour role model, the neutral, typography sourcing, and the guest rules for the MCP App card. Governs the rewrite of `.claude/skills/a2h-design` §2–§3 and every `design.md` from M2 on.
@@ -29,7 +29,7 @@ The owner decided on 21 Oct 2026: human words plain, the machine carries the col
 
 - `.claude/skills/a2h-design` §2 (tokens) and §3 (colour convention) are rewritten from this ADR by the Design agent; §4 patterns are re-read so that the human answer card, the answer form transcript and the profile paragraph follow the plain-human rule, and "teal/ochre never inverted" becomes "human plain, machine coloured; no hue is ever applied to a human's words".
 - `.claude/agents/design.md` and `web-dev.md` change their colour-convention line accordingly.
-- Roughly a milestone of design-system work (tokens, 35–40 styled components, Storybook, contrast CI) precedes the first M2 screen; M1 has no rendered UI and is unaffected. **Sequencing (open, owner's decision):** the PM proposes running it as the first OpenSpec change of M2 (`m2-design-foundations`), not as a new milestone in PRD §10, validated at its Gate 2 on a deployed Storybook preview stage plus three screens recomposed from the new components (participant request email, answer form, principal answer card), with an early owner checkpoint on tokens and those three screens before the remaining components are styled. The alternative is to run it in parallel with M1 under an exception to one-change-at-a-time, which needs the Storybook preview stage in `infra/` during M0 step 4.
+- Roughly a milestone of design-system work (tokens, 35–40 styled components, Storybook, contrast CI) precedes the first M2 screen; M1 has no rendered UI and is unaffected. **Sequencing (decided by the owner, 2026-10-21):** it runs as the first OpenSpec change of M2 (`m2-design-foundations`), not as a new milestone in PRD §10, validated at its Gate 2 on a deployed Storybook preview stage plus three screens recomposed from the new components (participant request email, answer form, principal answer card), with an early owner checkpoint on tokens and those three screens before the remaining components are styled. M1 is unaffected.
 - The two prototypes remain the reference for product behaviour and copy; their colours and fonts are no longer normative.
 - Open for the Design agent to settle in the design-foundations change, inside these rules: the exact OKLCH ladder values, the accent hue for the platform (teal remains the default candidate; it must read on Claude's warm paper and not collide with the host's own accent), the status hues, and the one optional web typeface.
 

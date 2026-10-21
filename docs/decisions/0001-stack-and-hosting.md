@@ -1,6 +1,6 @@
 # ADR 0001: Stack and hosting
 
-- Status: proposed (awaiting product-owner approval at M0 checkpoint 2)
+- Status: accepted (product owner, 2026-10-21)
 - Date: 2026-10-21
 - Deciders: product owner (Galem L.), PM agent
 - Scope: the runtime stack, the AWS layout in eu-west-3, and the hosting choice for `apps/web` (Amplify Hosting vs OpenNext on CloudFront + Lambda) that CLAUDE.md §Stack left to SST and this ADR.

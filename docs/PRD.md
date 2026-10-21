@@ -1,6 +1,6 @@
 # A2H — Product Requirements Document
 
-Version 0.1 · 20 October 2026 · Owner: Galem L. · Status: draft for implementation
+Version 0.2 · 21 October 2026 · Owner: Galem L. · Status: draft for implementation
 
 ## 1. Summary
 
@@ -108,7 +108,7 @@ Pending by expiry, paid, declined, blocked-on-your-behalf count. Earnings and pa
 - **Hold = bid**, authorised on the principal's wallet at send. Clearing price = sealed-bid, ask-side: the platform clears between reserve and bid using a published rule (v1: second-price style, clearing at reserve + a fixed share of the spread; rule documented in an ADR and shown to both sides). Difference between bid and clearing returns to the wallet.
 - Bounties (sensor lane): fixed price per answer, first N accepted answers paid.
 - Free lanes: €0, no hold.
-- Platform fee: a percentage of the cleared price, taken from the participant side, shown before acceptance.
+- Platform fee: a percentage of the cleared price, taken from the participant side. Participants publish and see net amounts (what they receive); principals see gross amounts (fee included) in `find_humans`, on the request card, as the hold and as the cleared price; the breakdown (gross, net, fee %) is available to both sides before any commitment and the percentage is published in the terms (ADR 0002).
 - Expiry unanswered → hold released, nothing charged. Declined → same. Cancelled after acceptance → participant receives a cancellation fee from the hold.
 - Ledger: append-only entries; balances derived. Money in minor-unit integers.
 
@@ -125,7 +125,7 @@ Each milestone ends at a product-owner validation on a preview deployment.
 
 - **M0 Foundation**: monorepo, CI, CLAUDE.md, agents and skills, OpenSpec initialised; AWS account baseline in eu-west-3 (VPC, ALB, Aurora Serverless v2 dev cluster, SES domain verified and out of sandbox, S3 buckets, Secrets Manager, IAM roles); SST stacks with per-PR preview stages and a schema per PR; ADR 0001 (stack and hosting), ADR 0002 (money model). Gate: a hello-world PR gets a working preview URL for web and a reachable MCP endpoint.
 - **M1 Protocol and connector**: `packages/protocol` complete; MCP server with mocked participants; `find_humans`, `request_human` via elicitation, `check_requests`; verified in Claude Code and one web host.
-- **M2 Participant onboarding**: magic link, LinkedIn/X import, topics with evidence, rules of engagement, published profile, pause.
+- **M2 Participant onboarding**: first change `m2-design-foundations` (tokens, React Aria-based components, Storybook preview, three recomposed screens; ADR 0003), then magic link, LinkedIn/X import, topics with evidence, rules of engagement, published profile, pause.
 - **M3 Request delivery and answer**: manifest validation against rules, summary email, request page, accept/decline, answer form with voice, attestation and signature.
 - **M4 Money**: wallet via Stripe, hold = bid, clearing rule, ledger, Friday payouts, Identity lagging until payout, expiry/cancel handling, disputes.
 - **M5 Principal surface**: contact policy, notification email with deep link, ledger dashboard, REST API and webhooks.

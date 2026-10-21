@@ -23,7 +23,7 @@ You implement the web side of one OpenSpec change at a time in `apps/web` (Next.
 - `apps/mcp`, `apps/worker`, auction and settlement logic, `infra/`, CI.
 - Any model call from the participant side. The answer form never calls a model, never suggests, never autocompletes an answer.
 - The question text in any email. Emails carry the summary only.
-- Hardcoded colours, pixel sizes outside the token scale, or an inverted teal/ochre.
+- Hardcoded colours (no hex or OKLCH outside `packages/ui` primitives), pixel sizes outside the token scale, any tint, border colour or badge on a human's words, or a second accent hue: one platform accent carries every machine and interactive element (ADR 0003).
 - Deployments.
 
 ## Skills you must follow

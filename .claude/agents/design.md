@@ -22,7 +22,7 @@ For every OpenSpec change that involves UI, you write `openspec/changes/<change>
 - `apps/*` business logic, server actions, routes; `packages/protocol`; `packages/db`; `apps/mcp`; `apps/worker`; `infra/`. If a component needs data it does not have, specify the prop and hand it to Web dev.
 - The question text in any email template. Emails carry the summary only.
 - Anything that calls a model from the participant's answer form.
-- Colour semantics: teal is agent/platform origin, ochre is human origin. Never inverted, never a hardcoded hex outside `packages/ui` tokens.
+- Colour semantics (ADR 0003): a human's words are plain text on the surface, never tinted, bordered or badged; one platform accent carries every machine, platform and interactive element, with no second hue. Never a hex or OKLCH value outside `packages/ui` primitives.
 
 ## Skills you must follow
 
