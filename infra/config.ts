@@ -2,6 +2,7 @@
 // so it is unit-tested with `node --test` (infra/test/config.test.ts).
 // Contract: openspec/changes/m0-foundation/tasks.md §Step 4 and amendment 1.
 // The health path comes from apps/mcp (pure, no SST), the one derivation.
+import { createHash } from "node:crypto";
 import { healthPathFor } from "../apps/mcp/src/health-path.ts";
 
 export const APP_NAME = "a2h";
@@ -28,6 +29,42 @@ export function assertAccountId(accountId: string): string {
 export function workloadBoundaryArn(accountId: string): string {
   assertAccountId(accountId);
   return `arn:aws:iam::${accountId}:policy/${WORKLOAD_BOUNDARY_POLICY_NAME}`;
+}
+
+/** IAM's limit on role names. */
+export const ROLE_NAME_MAX = 64;
+const ROLE_NAME_HASH_LENGTH = 8;
+
+/**
+ * Physical name of every IAM role this app creates, set by the
+ * `$transform(aws.iam.Role, …)` in sst.config.ts:
+ * `a2h-<stage>-<readable>-<hash>`, at most 64 characters.
+ *
+ * SST's own `physicalName(64, …)` drops or truncates the `a2h-` prefix when
+ * the logical name plus the stage is long (the Next.js revalidation
+ * subscriber role comes out as `a-dev-…`, `prod-…`, `pr-12-…`), and the deploy
+ * roles may only create `role/a2h-*`.
+ *
+ * - `<stage>` is kept whole (validated by `stageInfo`; `pr-48899` is the longest).
+ * - `<readable>` is the logical name with non-alphanumerics removed, cut to fit.
+ * - `<hash>` is the first 8 hex characters of SHA-256 over the full logical
+ *   name: deterministic, and distinct for names that only differ past the
+ *   cut, in removed characters or in case (IAM role names are unique
+ *   case-insensitively).
+ *
+ * NEVER change this function after the first deploy without a migration
+ * note: see infra/README.md, "IAM role names".
+ */
+export function roleName(stage: string, logicalName: string): string {
+  const { name } = stageInfo(stage);
+  const readable = logicalName.replace(/[^A-Za-z0-9]/g, "");
+  if (readable === "") {
+    throw new Error(`Role logical name "${logicalName}" has no alphanumeric character.`);
+  }
+  const hash = createHash("sha256").update(logicalName, "utf8").digest("hex").slice(0, ROLE_NAME_HASH_LENGTH);
+  const prefix = `${APP_NAME}-${name}-`;
+  const room = ROLE_NAME_MAX - prefix.length - 1 - hash.length;
+  return `${prefix}${readable.slice(0, room)}-${hash}`;
 }
 
 /**
