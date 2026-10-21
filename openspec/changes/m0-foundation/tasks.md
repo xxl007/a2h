@@ -13,6 +13,20 @@ Contract between the two owners (fixed by the PM; change it only through the PM)
 - Routing on the shared ALB: `dev` MCP at `/mcp` (health `/healthz`), `pr-<n>` MCP at `/pr-<n>/mcp` (health `/pr-<n>/healthz`). Services receive `MCP_BASE_PATH`. Listener-rule priorities: `dev` 49000, `pr-<n>` = 100 + n.
 - `sst deploy` outputs (`.sst/outputs.json`): `stage`, `web` (web URL), `mcp` (full MCP endpoint URL).
 - GitHub repository **variables** (not secrets): `AWS_DEPLOY_ROLE_ARN`, `A2H_DEPLOY_ENABLED` (`true` only after the owner's bootstrap). No AWS key ever appears in GitHub secrets.
+- GitHub repository **variables** (not secrets): `AWS_DEV_ROLE_ARN`, `AWS_PREVIEW_ROLE_ARN`, `A2H_DEPLOY_ENABLED` (`true` only after the owner's bootstrap). No AWS key ever appears in GitHub secrets.
+
+### Contract amendment 1 (after the cold review of PR #6, 2026-10-21)
+
+- **Two deploy roles, neither named `a2h-*`.** `gha-a2h-dev` is trusted only for `repo:xxl007/a2h:ref:refs/heads/main` (push to main and `workflow_dispatch` on main): `deploy.yml` uses it. `gha-a2h-preview` is trusted only for `repo:xxl007/a2h:pull_request`: `preview.yml` and `teardown.yml` use it. Policies in `infra/bootstrap/`.
+- **Permissions boundary on every workload role.** The deploy roles may create or modify `role/a2h-*` only when the role carries the boundary `arn:aws:iam::<account>:policy/a2h-workload-boundary`, which denies all IAM and STS role assumption. `sst.config.ts` applies it to every `aws.iam.Role` through a global `$transform`. The boundary ARN is built from the caller's account ID, not hard-coded.
+- **Per-PR database login.** `pr-schema.sh create <n>` creates or reuses the Secrets Manager secret `a2h/pr-<n>/db` (`{"username":"pr_<n>","password":…}`, random password, value masked in logs). It then creates or updates login role `pr_<n>`, creates schema `pr_<n>` with `AUTHORIZATION pr_<n>`, revokes `CREATE` and `USAGE` on schema `public` and `CONNECT` on database `a2h` from `PUBLIC`, grants `CONNECT` to `pr_<n>`, and sets the role's `search_path` to `pr_<n>`. The `pr-<n>` stage injects `DB_USER=pr_<n>` and `DB_PASSWORD` from that secret, and **never** the master credentials. `dev` keeps the master user for M0.
+- **Teardown order is reversed:** `sst remove --stage pr-<n>` first, then `pr-schema.sh drop <n>`. The drop terminates the remaining `pr_<n>` sessions, drops the schema with `CASCADE`, drops the role, and deletes the secret without recovery. Teardown still attempts the drop if `remove` fails.
+- **Scoped storage on previews.** `pr-*` stages do not `link` the uploads bucket. They get `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on `uploads/pr-<n>/*` and `tmp/pr-<n>/*` only, plus env `UPLOADS_BUCKET`.
+- **Deploys wait for health:** every Service sets `wait: true`, so an unhealthy deploy fails the job.
+- **No resurrection after close:** `preview.yml` re-reads the PR state immediately before `sst deploy` and skips if it is not open.
+- **Supply chain:** actions in jobs holding `id-token: write` are pinned by commit SHA with the tag in a comment. `actions/checkout` uses `persist-credentials: false`. Deploy and teardown skip `dependabot[bot]`. CI runs `actionlint`.
+- **Lint is real before Gate 2:** task 4.11.
+
 
 | # | Task | Owner | Acceptance |
 |---|---|---|---|
@@ -26,6 +40,7 @@ Contract between the two owners (fixed by the PM; change it only through the PM)
 | 4.8 | `.github/scripts/pr-schema.sh create|drop <n>` used by 4.5 and 4.6 | qa | `shellcheck` clean; identifier validated as an integer before use |
 | 4.9 | `docs/runbooks/aws-bootstrap.md`: account, OIDC provider and role (least privilege for SST bootstrap + deploy), first `dev` deploy by `workflow_dispatch`, SES identity verification and production access, domain, Stripe test keys as SST secrets, GitHub variables, key rotation | pm | Reviewed by the owner at CHECKPOINT 3 |
 | 4.10 | Cold review of the PR | reviewer | No blocking finding open |
+| 4.11 | ESLint (typescript-eslint, flat config) with a `lint` script in every workspace package, so `pnpm lint` runs real tasks | qa | `pnpm lint` runs ≥ 1 task per package and is green; CI fails on a lint error |
 
 CHECKPOINT 3: the owner reviews the stacks and the runbook, decides the open items listed in the PR, and runs the bootstrap.
 
