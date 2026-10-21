@@ -106,3 +106,23 @@ test("pr storage needs a valid bucket name", () => {
     assert.throws(() => storageAccess(pr, bad), /bucket/, String(bad));
   }
 });
+
+test("a preview's grant never covers a dev or prod object, even one keyed pr-<n>/...", () => {
+  const bucket = "a2h-dev-uploadsbucket-x7k2";
+  const access = storageAccess(stageInfo("pr-12"), bucket);
+  assert.equal(access.mode, "scoped");
+  if (access.mode !== "scoped") return;
+  const patterns = access.permissions.flatMap((p) => p.resources);
+  // IAM object ARNs here only use a trailing "*".
+  const covered = (key: string) =>
+    patterns.some((p) => `arn:aws:s3:::${bucket}/${key}`.startsWith(p.slice(0, -1)));
+  for (const owner of ["dev", "prod"]) {
+    const prefix = stageInfo(owner).storagePrefix;
+    for (const area of ["uploads", "tmp"]) {
+      assert.ok(!covered(`${area}/${prefix}pr-12/voice.webm`), `${owner} ${area}`);
+      assert.ok(!covered(`${area}/${prefix}x`), `${owner} ${area}`);
+    }
+  }
+  assert.ok(covered("uploads/pr-12/voice.webm"));
+  assert.ok(!covered("uploads/pr-120/voice.webm"));
+});

@@ -1,8 +1,9 @@
 // Uploads bucket (voice notes, attachments; presigned uploads come later).
-// Key layout: `<area>/<STORAGE_PREFIX><key>` with area `tmp` or `uploads`, so
-// the lifecycle rules below also cover the objects of pr-* stages, which
-// share dev's bucket with STORAGE_PREFIX `pr-<n>/`. pr-* stages do not link
-// the bucket: they get object access under their own prefix (access.ts).
+// Key layout: `<area>/<STORAGE_PREFIX><key>` with area `tmp` or `uploads` and
+// STORAGE_PREFIX `dev/`, `prod/` or `pr-<n>/`, so the lifecycle rules below
+// (one per area root) cover every stage, including pr-* stages that share
+// dev's bucket. pr-* stages do not link the bucket: they get object access
+// under their own prefix only (access.ts).
 import {
   STORAGE_AREAS,
   TMP_RETENTION_DAYS,
@@ -16,6 +17,15 @@ const RETENTION_DAYS: Record<StorageArea, number> = {
   tmp: TMP_RETENTION_DAYS,
 };
 
+/** Expiry rules, one per area root; pure (infra/test/storage.test.ts). */
+export function lifecycleRules() {
+  return STORAGE_AREAS.map((area) => ({
+    id: `${area}-expiry`,
+    prefix: `${area}/`,
+    expiresIn: `${RETENTION_DAYS[area]} days` as const,
+  }));
+}
+
 export function createUploads() {
   return new sst.aws.Bucket("Uploads", {
     enforceHttps: true,
@@ -26,11 +36,7 @@ export function createUploads() {
       allowOrigins: ["*"],
       allowHeaders: ["*"],
     },
-    lifecycle: STORAGE_AREAS.map((area) => ({
-      id: `${area}-expiry`,
-      prefix: `${area}/`,
-      expiresIn: `${RETENTION_DAYS[area]} days` as const,
-    })),
+    lifecycle: lifecycleRules(),
   });
 }
 

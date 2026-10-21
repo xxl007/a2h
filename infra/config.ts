@@ -117,6 +117,11 @@ export interface StageInfo {
   mcpBasePath: string;
   /** ALB health check path: `healthPathFor(mcpBasePath)` from apps/mcp. */
   healthPath: string;
+  /**
+   * Key prefix inside each storage area: `dev/`, `prod/`, `pr-<n>/`. Every
+   * stage has one, and none is a prefix of another, so a preview's scoped
+   * grant (`<area>/pr-<n>/*`) can never reach a dev object.
+   */
   storagePrefix: string;
   /** Appended to Fargate component names on pr-* (ECS names are per cluster). */
   componentSuffix: string;
@@ -141,7 +146,9 @@ export function stageInfo(stage: string): StageInfo {
       dbSchema: "public",
       mcpBasePath: "/mcp",
       healthPath: healthPathFor("/mcp"),
-      storagePrefix: "",
+      // Never "": a dev key at the area root such as `uploads/pr-12/x` would
+      // fall inside a preview's `uploads/pr-12/*` grant.
+      storagePrefix: `${stage}/`,
       componentSuffix: "",
       warm: 1,
       spot: false,

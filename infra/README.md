@@ -27,7 +27,7 @@ With `domain` set: prod web `<domain>`, ALB `mcp.<domain>`; dev web `dev.<domain
 ## What each service receives
 
 MCP and worker (arm64, 0.25 vCPU / 0.5 GB; MCP scales 1-2 on dev/prod, 1-1 on pr; worker 1-1):
-`PORT=3000`, `STAGE`, `MCP_BASE_PATH` (`/mcp` or `/pr-<n>/mcp`), `STORAGE_PREFIX` (`""` or `pr-<n>/`), `UPLOADS_BUCKET`, `DB_SCHEMA` (`public` or `pr_<n>`), `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` injected by ECS from Secrets Manager (`ssm` -> task `secrets.valueFrom` `<secretArn>:password::`; never in plain `environment`). Both services set **`wait: true`** on every stage: `sst deploy` waits for ECS steady state, so an unhealthy or crash-looping deploy fails the job.
+`PORT=3000`, `STAGE`, `MCP_BASE_PATH` (`/mcp` or `/pr-<n>/mcp`), `STORAGE_PREFIX` (`dev/`, `prod/` or `pr-<n>/`), `UPLOADS_BUCKET`, `DB_SCHEMA` (`public` or `pr_<n>`), `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` injected by ECS from Secrets Manager (`ssm` -> task `secrets.valueFrom` `<secretArn>:password::`; never in plain `environment`). Both services set **`wait: true`** on every stage: `sst deploy` waits for ECS steady state, so an unhealthy or crash-looping deploy fails the job.
 
 | | `dev`, `prod` | `pr-<n>` |
 |---|---|---|
@@ -44,7 +44,7 @@ The mapping is pure and unit-tested (`access.ts`, `infra/test/access.test.ts`): 
 
 Web (`sst.aws.Nextjs`, Node 22, arm64, 1024 MB, 20 s, `warm` 1 on dev/prod and 0 on pr, no `regions`): `STAGE`, `DB_SCHEMA`, `STORAGE_PREFIX`, `MCP_URL`, `UPLOADS_BUCKET`; storage as in the table above (dev/prod `link` to `Uploads`; pr the same three object permissions on the server function's role, no link). Web is created only when `apps/web` contains `next.config.{ts,mjs,js}`; until then the `web` output reads "not deployed (apps/web has no Next.js app yet)". Step 5 adds the app; nothing here changes.
 
-Storage keys: `<tmp|uploads>/<STORAGE_PREFIX><key>` (`STORAGE_AREAS` in `config.ts`, shared by the lifecycle rules and the preview grants), so lifecycle rules (`tmp/` 7 days, `uploads/` `UPLOAD_RETENTION_DAYS` = 180) cover preview objects too.
+Storage keys: `<tmp|uploads>/<STORAGE_PREFIX><key>` with `STORAGE_PREFIX` `dev/`, `prod/` or `pr-<n>/` (`STORAGE_AREAS` in `config.ts`, shared by the lifecycle rules and the preview grants). Every stage has a prefix and none is a prefix of another, so a preview's grant on `uploads/pr-<n>/*` can never reach a `dev` object (a dev key is `uploads/dev/…`, never `uploads/pr-<n>/…`; tested in `infra/test/access.test.ts` and `config.test.ts`). The lifecycle rules sit at the area roots (`tmp/` 7 days, `uploads/` `UPLOAD_RETENTION_DAYS` = 180; `lifecycleRules()` in `storage.ts`) and so cover every stage's objects (`infra/test/storage.test.ts`).
 
 ## Permissions boundary on every workload role
 

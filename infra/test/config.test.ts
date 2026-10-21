@@ -19,7 +19,7 @@ test("dev stage: shared owner, public schema, /mcp routing at 49000", () => {
   assert.equal(s.dbSchema, "public");
   assert.equal(s.mcpBasePath, "/mcp");
   assert.equal(s.healthPath, "/healthz");
-  assert.equal(s.storagePrefix, "");
+  assert.equal(s.storagePrefix, "dev/");
   assert.equal(s.warm, 1);
   assert.deepEqual(s.mcpScaling, { min: 1, max: 2 });
   assert.equal(s.spot, false);
@@ -39,6 +39,7 @@ test("prod stage: owns everything, one-year logs, warm", () => {
   assert.equal(s.kind, "prod");
   assert.equal(s.ownsSharedResources, true);
   assert.equal(s.dbSchema, "public");
+  assert.equal(s.storagePrefix, "prod/");
   assert.equal(s.warm, 1);
   assert.equal(s.logRetention, "1 year");
   assert.deepEqual(s.mcpScaling, { min: 1, max: 2 });
@@ -121,6 +122,23 @@ test("pr stages read only the shared identifiers they use, never the Aurora mast
 
 test("storage areas match the lifecycle prefixes", () => {
   assert.deepEqual(STORAGE_AREAS, ["uploads", "tmp"]);
+});
+
+test("every stage has a non-empty storage prefix, and no stage's prefix contains another's", () => {
+  // A dev object under uploads/pr-<n>/... must never be reachable by a
+  // preview's grant on uploads/pr-<n>/*: so dev and prod keys live under
+  // dev/ and prod/, never at the area root.
+  const stages = ["dev", "prod", "pr-1", "pr-12", "pr-120", "pr-48899"].map(stageInfo);
+  for (const s of stages) {
+    assert.match(s.storagePrefix, /^[a-z0-9-]+\/$/, s.name);
+    assert.equal(s.storagePrefix, `${s.name}/`, s.name);
+  }
+  for (const a of stages) {
+    for (const b of stages) {
+      if (a === b) continue;
+      assert.ok(!b.storagePrefix.startsWith(a.storagePrefix), `${a.name} prefix covers ${b.name}`);
+    }
+  }
 });
 
 test("one health-path source: the stage model and the MCP server agree", () => {
