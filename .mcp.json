@@ -1,0 +1,68 @@
+{
+  "$comment": "Shared MCP servers for A2H agents (CLAUDE.md §Shared MCP tools). Credentials are environment variables, never literals; see docs/runbooks/mcp-setup.md. Deploys never run from an agent shell: every AWS server here is read-only.",
+  "mcpServers": {
+    "github": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_MCP_PAT}"
+      }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest",
+        "--headless",
+        "--isolated",
+        "--viewport-size=1280x720",
+        "--output-dir=${A2H_PLAYWRIGHT_OUTPUT_DIR:-/tmp/a2h-playwright-mcp}"
+      ]
+    },
+    "stripe": {
+      "type": "http",
+      "url": "https://mcp.stripe.com",
+      "headers": {
+        "Authorization": "Bearer ${STRIPE_AGENT_API_KEY_TEST}"
+      }
+    },
+    "postgres-readonly": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["postgres-mcp", "--access-mode=restricted"],
+      "env": {
+        "DATABASE_URI": "${A2H_DATABASE_URI_READONLY}"
+      }
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${CONTEXT7_API_KEY}"
+      }
+    },
+    "aws-cloudwatch": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["awslabs.cloudwatch-mcp-server@latest"],
+      "env": {
+        "AWS_PROFILE": "${A2H_AWS_PROFILE:-a2h}",
+        "AWS_REGION": "eu-west-3",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    },
+    "aws-api-readonly": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["awslabs.aws-api-mcp-server@latest"],
+      "env": {
+        "AWS_REGION": "eu-west-3",
+        "AWS_API_MCP_PROFILE_NAME": "${A2H_AWS_PROFILE:-a2h}",
+        "READ_OPERATIONS_ONLY": "true",
+        "REQUIRE_MUTATION_CONSENT": "true",
+        "AWS_API_MCP_WORKING_DIR": "${A2H_AWS_MCP_WORKDIR:-/tmp/a2h-aws-mcp}",
+        "FASTMCP_LOG_LEVEL": "ERROR"
+      }
+    }
+  }
+}

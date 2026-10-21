@@ -1,0 +1,14 @@
+{
+  "$comment": "Project settings committed for every clone. Methodology plugins (CLAUDE.md §Roles). Credentials never live here.",
+  "enabledPlugins": {
+    "superpowers@superpowers-marketplace": true
+  },
+  "extraKnownMarketplaces": {
+    "superpowers-marketplace": {
+      "source": {
+        "source": "github",
+        "repo": "obra/superpowers-marketplace"
+      }
+    }
+  }
+}
