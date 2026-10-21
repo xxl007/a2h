@@ -1,8 +1,20 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist"
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "declaration": false,
+    "sourceMap": false,
+    "types": ["node"],
+    // tsc follows sst.config.ts into SST's TypeScript sources under
+    // .sst/platform/src (skipLibCheck does not cover .ts files), which are
+    // not written for these four flags. Everything else stays strict.
+    "verbatimModuleSyntax": false,
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": false,
+    "noImplicitOverride": false
   },
-  "include": ["src"]
+  "include": ["*.ts", "test/**/*.ts", "../sst.config.ts", "../.sst/platform/config.d.ts"]
 }
