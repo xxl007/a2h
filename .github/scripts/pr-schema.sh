@@ -16,8 +16,14 @@
 #   3. Grants pr_<n> to the master user, which must be able to SET ROLE pr_<n>
 #      to create a schema it owns (PostgreSQL 16+) and to drop that schema later.
 #   4. CREATE SCHEMA IF NOT EXISTS pr_<n> AUTHORIZATION pr_<n>.
-#   5. Revokes CREATE and USAGE on schema public, and CONNECT on database a2h,
-#      from PUBLIC; grants CONNECT on a2h to pr_<n>.
+#   5. Revokes CREATE and USAGE on schema public, and CONNECT on databases a2h
+#      and postgres, from PUBLIC; grants CONNECT on a2h to pr_<n>. Databases are
+#      cluster-wide objects, so the postgres REVOKE is valid while connected to
+#      a2h; it needs the master user to own database postgres, as on Aurora/RDS
+#      (a non-owner's REVOKE is a silent no-op, so a following statement fails
+#      the run if PUBLIC can still connect to postgres).
+#      Any future role that must reach database postgres (for example a
+#      read-only MCP or debugging role) must be granted CONNECT on it explicitly.
 #   6. ALTER ROLE pr_<n> SET search_path = pr_<n>.
 #
 # drop <n> (run after `sst remove`, so nothing should still be connected)
@@ -223,6 +229,18 @@ END
     run_sql "CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION ${role}"
     run_sql "REVOKE CREATE, USAGE ON SCHEMA public FROM PUBLIC"
     run_sql "REVOKE CONNECT ON DATABASE ${DATABASE} FROM PUBLIC"
+    # Its own call, still on database a2h. A future read-only role (MCP,
+    # debugging) that needs database postgres must be granted CONNECT explicitly.
+    run_sql "REVOKE CONNECT ON DATABASE postgres FROM PUBLIC"
+    # A REVOKE by a non-owner only warns and changes nothing: fail instead of
+    # leaving database postgres open to every login.
+    run_sql "DO \$\$
+BEGIN
+  IF has_database_privilege('public', 'postgres', 'CONNECT') THEN
+    RAISE EXCEPTION 'PUBLIC still has CONNECT on database postgres: the master user must own it';
+  END IF;
+END
+\$\$"
     run_sql "GRANT CONNECT ON DATABASE ${DATABASE} TO ${role}"
     run_sql "ALTER ROLE ${role} SET search_path = ${schema}"
     ;;

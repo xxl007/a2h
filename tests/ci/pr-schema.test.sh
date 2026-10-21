@@ -94,6 +94,8 @@ GRANT pr_$n TO CURRENT_USER
 CREATE SCHEMA IF NOT EXISTS pr_$n AUTHORIZATION pr_$n
 REVOKE CREATE, USAGE ON SCHEMA public FROM PUBLIC
 REVOKE CONNECT ON DATABASE a2h FROM PUBLIC
+REVOKE CONNECT ON DATABASE postgres FROM PUBLIC
+DO \\\$\\\$ BEGIN IF has_database_privilege\\('public', 'postgres', 'CONNECT'\\) THEN RAISE EXCEPTION 'PUBLIC still has CONNECT on database postgres: the master user must own it'; END IF; END \\\$\\\$
 GRANT CONNECT ON DATABASE a2h TO pr_$n
 ALTER ROLE pr_$n SET search_path = pr_$n
 EOF
@@ -135,7 +137,7 @@ for args in "" "truncate 12" "create 12 extra"; do
   else nok "usage error for '$args'" "rc=$RC calls=$CALLS"; fi
 done
 
-echo "# 2. create, no secret yet: secret created, then the seven statements in order"
+echo "# 2. create, no secret yet: secret created, then the nine statements in order"
 run ok create 12
 check "create 12 exits 0" test "$RC" -eq 0
 check "reads both ARNs from SSM once" \
@@ -148,8 +150,10 @@ check "secret value is {username: pr_12, password: <generated>}" \
   test "$(jq -c '{username, password}' <<<"$SECRET")" = "$(secret_json pr_12 "$PW")"
 check "secret is created before any statement runs" \
   test "$(grep -n 'create-secret' <<<"$CALLS" | cut -d: -f1)" -lt "$(grep -n 'execute-statement' <<<"$CALLS" | head -1 | cut -d: -f1)"
-check "statements, in order: role (create or alter, LOGIN, password), GRANT to master, CREATE SCHEMA AUTHORIZATION, REVOKE public, REVOKE CONNECT, GRANT CONNECT, search_path" \
+check "statements, in order: role (create or alter, LOGIN, password), GRANT to master, CREATE SCHEMA AUTHORIZATION, REVOKE public, REVOKE CONNECT a2h, REVOKE CONNECT postgres, check postgres revoked, GRANT CONNECT, search_path" \
   matches_in_order "$WORK/create12-new"
+check "REVOKE CONNECT ON DATABASE postgres is its own Data API call, sent to database a2h" \
+  test "$(awk -F'\t' '$4 == "REVOKE CONNECT ON DATABASE postgres FROM PUBLIC" { print $1 }' <<<"$RDS")" = a2h
 check "every statement on database a2h with the SSM ARNs" all_on_a2h
 check "one statement per Data API call, no --schema, SQL not on the command line" no_schema_flag
 check "password not in stdout/stderr" no_password_in_output "$PW"
@@ -162,7 +166,7 @@ check "create 12 with existing secret exits 0" test "$RC" -eq 0
 check "secret only read, never created" test "$NAMES" = "get a2h/pr-12/db"
 check "no new password generated" test "$(count get-random-password "$CALLS")" -eq 0
 check "secret value unchanged" test "$SECRET" = "$(secret_json pr_12 "$PW_OLD")"
-check "same seven statements, ALTER/CREATE ROLE with the stored password" matches_in_order "$WORK/create12-reused"
+check "same nine statements, ALTER/CREATE ROLE with the stored password" matches_in_order "$WORK/create12-reused"
 check "reports reuse" grep -q 'reusing secret a2h/pr-12/db' <<<"$OUT"
 check "stored password not in stdout/stderr" no_password_in_output "$PW_OLD"
 check "stored password not in any aws command line" no_password_in_argv "$PW_OLD"
@@ -230,8 +234,8 @@ check "drop: failed statement stops the run before the secret is deleted" \
 
 echo "# 8. retry while the cluster resumes or the API throttles"
 run resume-twice create 7
-check "retries the first statement twice on DatabaseResumingException, then completes (7 + 2 calls)" \
-  bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 9 ]' _ "$RC" "$(rds_calls)"
+check "retries the first statement twice on DatabaseResumingException, then completes (9 + 2 calls)" \
+  bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 11 ]' _ "$RC" "$(rds_calls)"
 run throttle-once drop 7
 check "retries on ThrottlingException, then completes (5 + 1 calls)" \
   bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 6 ]' _ "$RC" "$(rds_calls)"
