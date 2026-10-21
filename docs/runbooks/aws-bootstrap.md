@@ -10,8 +10,8 @@ Read with: `docs/decisions/0001-stack-and-hosting.md` (what gets deployed), `inf
 |---|---|
 | AWS account | `725960317785`, home region `eu-west-3` |
 | Local IAM user | `galem`, policy `AdministratorAccess`, one active access key created 2026-10-21 10:06 UTC (the key pasted in chat; rotate it, §2) |
-| GitHub OIDC provider | **Already exists**: `arn:aws:iam::725960317785:oidc-provider/token.actions.githubusercontent.com` (created 2026-06-30, used by the `playboox-ci-deploy` role for `xxl007/playboox`). Do not create a second one. |
-| IAM role for A2H CI | Does not exist yet (§3) |
+| GitHub OIDC provider | **Already exists**: `arn:aws:iam::725960317785:oidc-provider/token.actions.githubusercontent.com` (created 2026-06-30 for another project). Do not create a second one. |
+| IAM roles for A2H CI | Do not exist yet (§3) |
 | SES (eu-west-3) | Sandbox, sending enabled, 200 messages / 24 h, no verified identity |
 | Route 53 | One hosted zone `aiplayboox.com.` belonging to another project; A2H has no domain yet (§8) |
 | SST state / bootstrap buckets | None yet (`sst-state-*`, `sst-asset-*` appear on the first deploy) |
@@ -28,61 +28,85 @@ Decisions you need to make before §7: see "Decide first" in the step-4 PR descr
 ```sh
 aws budgets create-budget --profile a2h --account-id 725960317785 \
   --budget '{"BudgetName":"a2h-monthly","BudgetLimit":{"Amount":"80","Unit":"EUR"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
-  --notifications-with-subscribers '[{"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"galem@automi.ai"}]}]'
+  --notifications-with-subscribers '[{"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"<your email>"}]}]'
 ```
 
 Approximate steady cost of the `dev` stage while idle (eu-west-3 list prices, no reserved capacity): one ALB about €18/month, two Fargate tasks (0.25 vCPU / 0.5 GB, arm64) about €16/month, Aurora Serverless v2 at 0 ACU when idle about €0 plus storage, CloudMap €0.50, CloudFront/Lambda/S3 near zero at M0 traffic. Each open preview adds two more tasks (Fargate Spot) for as long as the PR is open. There is no NAT gateway: the Fargate tasks run in public subnets with public IPs and the VPC default security group, which is SST's default (see `infra/README.md` and the open items in the step-4 PR).
 
-## 2. Rotate the bootstrap access key (5 minutes)
+## 2. Rotate the bootstrap access key (do this now, 5 minutes)
 
-The key for IAM user `galem` was pasted in a chat and must be treated as exposed. It is needed only on your machine for this runbook.
+The access key of IAM user `galem` was pasted in a chat and must be treated as exposed. Rotate it before anything else, not after this PR is reviewed.
 
 ```sh
-aws iam create-access-key --profile a2h --user-name galem            # note the new pair
-aws configure --profile a2h                                            # paste the new pair, region eu-west-3, output json
-aws sts get-caller-identity --profile a2h                              # confirms the new key works
-aws iam update-access-key --profile a2h --user-name galem --access-key-id AKIA2SBU3LNMQ32NZS2P --status Inactive
-aws iam delete-access-key --profile a2h --user-name galem --access-key-id AKIA2SBU3LNMQ32NZS2P
+aws iam list-access-keys --profile a2h --user-name galem      # note the current key id
+aws iam create-access-key --profile a2h --user-name galem      # note the new pair
+aws configure --profile a2h                                     # paste the new pair, region eu-west-3, output json
+aws sts get-caller-identity --profile a2h                       # confirms the new key works
+aws iam update-access-key --profile a2h --user-name galem --access-key-id <old key id> --status Inactive
+aws iam delete-access-key --profile a2h --user-name galem --access-key-id <old key id>
 ```
 
 After §7 succeeds, downgrade this user (§10). Long-term, prefer IAM Identity Center (`aws sso login`) over access keys for humans.
 
-## 3. Create the deploy role for GitHub Actions (10 minutes)
+## 3. Create the boundary and the two deploy roles (15 minutes)
 
-The provider exists (§0). Create a role that only workflows of `xxl007/a2h` can assume. Trust and IAM policies are in `infra/bootstrap/` so they are reviewed like code.
+The OIDC provider exists already (§0). The policies are in `infra/bootstrap/` so they are reviewed like code. IAM Access Analyzer `validate-policy` reported no findings on them on 2026-10-21, apart from the preview trust's wildcard-subject warning explained below.
+
+| Role | Who can assume it | Used by |
+|---|---|---|
+| `gha-a2h-dev` | Workflows running on `main` only (subject `repo:xxl007/a2h:ref:refs/heads/main`) | `deploy.yml` (push to `main`, and the manual first deploy) |
+| `gha-a2h-preview` | Workflows triggered by a pull request of this repository (subject `repo:xxl007/a2h:pull_request`) | `preview.yml`, `teardown.yml` |
 
 ```sh
-aws iam create-role --profile a2h --role-name a2h-github-deploy \
-  --assume-role-policy-document file://infra/bootstrap/github-deploy-trust.json \
-  --description "Assumed by GitHub Actions of xxl007/a2h through OIDC to run SST deploys" \
-  --max-session-duration 7200
+# 1. The ceiling every role SST creates must carry: no IAM, no role assumption.
+aws iam create-policy --profile a2h --policy-name a2h-workload-boundary \
+  --policy-document file://infra/bootstrap/a2h-workload-boundary.json \
+  --description "Permissions boundary for every a2h-* workload role created by SST"
 
-aws iam attach-role-policy --profile a2h --role-name a2h-github-deploy \
-  --policy-arn arn:aws:iam::aws:policy/PowerUserAccess
+# 2. The two deploy roles. Their names start with gha-, so they can never touch themselves.
+for r in dev preview; do
+  aws iam create-role --profile a2h --role-name gha-a2h-$r \
+    --assume-role-policy-document file://infra/bootstrap/gha-a2h-$r-trust.json \
+    --max-session-duration 7200
+  aws iam attach-role-policy --profile a2h --role-name gha-a2h-$r \
+    --policy-arn arn:aws:iam::aws:policy/PowerUserAccess
+  aws iam put-role-policy --profile a2h --role-name gha-a2h-$r \
+    --policy-name a2h-sst-iam --policy-document file://infra/bootstrap/gha-a2h-deploy-iam.json
+done
 
-aws iam put-role-policy --profile a2h --role-name a2h-github-deploy \
-  --policy-name a2h-sst-iam --policy-document file://infra/bootstrap/github-deploy-iam.json
-
-aws iam get-role --profile a2h --role-name a2h-github-deploy --query Role.Arn --output text
+aws iam get-role --profile a2h --role-name gha-a2h-dev     --query Role.Arn --output text
+aws iam get-role --profile a2h --role-name gha-a2h-preview --query Role.Arn --output text
 ```
 
-Why this shape: `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but denies IAM. The inline policy adds IAM only for roles and policies whose names start with `a2h-` (SST names roles `a2h-<stage>-<component>-<hash>`; checked in SST 4.17.2 `naming.ts`, with a fallback that drops the prefix only for names longer than 64 characters) plus the service-linked roles ECS, ELB, RDS and autoscaling need. It is still broad. Narrow it after a few deploys with IAM Access Analyzer policy generation from CloudTrail, as SST's own guidance recommends.
+Why this shape:
 
-Session length: `sst deploy` of a fresh stage with two container builds takes 10 to 25 minutes; the OIDC session defaults to 1 hour, so the 2-hour maximum above is headroom, not a requirement.
+- `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but no IAM.
+- The inline policy adds IAM only for roles named `a2h-*`, which is how SST names roles (`a2h-<stage>-<component>-<hash>`, checked in SST 4.17.2). It may create or change those roles **only if they carry the boundary** `a2h-workload-boundary`. `sst.config.ts` puts the boundary on every role it creates. It can pass them only to ECS tasks and Lambda. It can never remove a boundary, edit the boundary policy, or touch the `gha-*` roles.
+- So a workflow cannot turn its own role into an administrator. A workload role cannot change identities either.
 
-## 4. GitHub repository variables and protection (5 minutes)
+Residual risks you accept by approving this for M0:
 
-Variables, not secrets. There is no AWS key anywhere in GitHub, which is what the `preview-environments` spec scenario "Secrets inventory" checks.
+- **The preview role is as powerful as the dev role outside IAM.** A same-repository pull request that edits its own workflow could deploy over the `dev` stage, or change other resources in the account, including those of your other project. Only you and the A2H agents push to this repository, and forks get no OIDC token. The clean fix is a separate AWS account for A2H, or for previews, under AWS Organizations; it is worth doing before M3, when real participant data exists.
+- **The preview trust cannot be pinned to a branch.** GitHub's pull-request token has no branch in its subject. Access Analyzer warns about exactly this, and it is the reason for the first point.
+- **The `dev` stage still connects to Postgres as the master user** (previews do not, see `infra/README.md`). A dedicated application role is a task for the first database change in M1.
+- **Choosing an EC2 NAT instance or a bastion later** (`infra/vpc.ts`) would need `iam:CreateInstanceProfile` added to the inline policy.
+
+Session length: `sst deploy` of a fresh stage with two arm64 container builds under emulation takes 10 to 30 minutes. The 2-hour maximum session is headroom.
+
+## 4. GitHub repository variables (5 minutes)
+
+These are variables, not secrets. No AWS key exists anywhere in GitHub, which is what the `preview-environments` spec scenario "Secrets inventory" checks.
 
 ```sh
-gh variable set AWS_DEPLOY_ROLE_ARN --repo xxl007/a2h --body "arn:aws:iam::725960317785:role/a2h-github-deploy"
+gh variable set AWS_DEV_ROLE_ARN     --repo xxl007/a2h --body "arn:aws:iam::725960317785:role/gha-a2h-dev"
+gh variable set AWS_PREVIEW_ROLE_ARN --repo xxl007/a2h --body "arn:aws:iam::725960317785:role/gha-a2h-preview"
 gh variable list --repo xxl007/a2h
 gh secret list --repo xxl007/a2h          # must list no AWS_* entry
 ```
 
 Leave `A2H_DEPLOY_ENABLED` unset for now: the deploy jobs skip themselves until it is `true` (§7).
 
-Protect `main` so that the CI job must pass before merge (adjust the check name if the workflow's job name differs; it is `check` in `.github/workflows/ci.yml`):
+**Branch protection is not available on this plan.** For a private repository on a GitHub Free personal account, the API returns 403 ("Upgrade to GitHub Pro or make this repository public"); the cold reviewer checked this on 2026-10-21. Rulesets have the same limit. Without it, nothing technically stops a merge with red CI. The preview and `dev` deploys still require a green `check` in their own run. Options are listed in the step-4 PR under "Decide first". If you choose GitHub Pro or a public repository, run:
 
 ```sh
 gh api -X PUT repos/xxl007/a2h/branches/main/protection \
@@ -94,7 +118,7 @@ JSON
 
 ## 5. Merge the step-4 PR
 
-With `A2H_DEPLOY_ENABLED` unset, merging deploys nothing. CI runs lint, typecheck and tests only.
+With `A2H_DEPLOY_ENABLED` unset, merging deploys nothing. CI runs lint, typecheck, tests and the workflow checks only.
 
 ## 6. SST state and passphrase: what the first deploy creates
 
@@ -118,9 +142,12 @@ ALB_DNS=$(aws elbv2 describe-load-balancers --profile a2h --load-balancer-arns "
 curl -si "http://$ALB_DNS/healthz" | head -1                                           # expect HTTP/1.1 200
 aws elbv2 describe-load-balancer-attributes --profile a2h --load-balancer-arn "$ALB_ARN" \
   --query "Attributes[?Key=='idle_timeout.timeout_seconds'].Value" --output text      # expect 3600
+aws iam list-roles --profile a2h --query "Roles[?starts_with(RoleName, 'a2h-')].[RoleName, PermissionsBoundary.PermissionsBoundaryArn]" --output table   # every row must show a2h-workload-boundary
 ```
 
-The eight `/a2h/shared/*` parameters are what every `pr-<n>` stage reads; if they are missing, previews cannot deploy. From now on every pull request from this repository gets a preview and a comment with its URLs; closing it tears the stage down and drops its schema.
+If the deploy fails with `AccessDenied` on `iam:CreateRole`, a role was created without the boundary: send the PM the run URL; do not widen the policy by hand.
+
+The eight `/a2h/shared/*` parameters are what every `pr-<n>` stage reads; if they are missing, previews cannot deploy. From now on every pull request from this repository gets a preview and a comment with its URLs; closing it tears the stage down, then drops its schema, its database login and its secret.
 
 Also make the Postgres read-only role for the `postgres-readonly` MCP server (see `docs/runbooks/mcp-setup.md`) once you want agents to inspect data. It is not needed for M0.
 
@@ -146,7 +173,7 @@ aws sesv2 put-account-details --profile a2h --region eu-west-3 \
   --mail-type TRANSACTIONAL \
   --website-url https://<domain> \
   --use-case-description "A2H sends transactional notifications (request summaries, decline links, answer notifications, payout notices) to participants who created an account and opted in. Bounces and complaints are processed through SES event notifications and suppress the address." \
-  --additional-contact-email-addresses galem@automi.ai \
+  --additional-contact-email-addresses <your email> \
   --contact-language EN
 ```
 
@@ -188,4 +215,4 @@ Then re-run the failed workflow from the Actions tab. Only unlock when no run fo
 
 ## 13. Report back
 
-Tell the PM: the role ARN, that the variables are set, the `deploy.yml` run URL, the eight SSM parameters, the `healthz` result, and your decisions on domain, sender and upload retention. Step 5 (hello world, GATE 2) starts after that.
+Tell the PM: the two role ARNs, that the key was rotated, that the variables are set, the boundary check from §7, the `deploy.yml` run URL, the eight SSM parameters, the `healthz` result, and your decisions on the items under "Decide first" in the step-4 PR. Step 5 (hello world, GATE 2) starts after that.
