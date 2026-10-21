@@ -1,0 +1,160 @@
+# Preview environment per pull request: stage pr-<n>, schema pr_<n>.
+# Spec: openspec/.../preview-environments/spec.md
+#   "PR opened", "PR updated", "Two PRs open", "Typecheck fails", "Secrets inventory".
+# Deploys only when the repository variable A2H_DEPLOY_ENABLED is 'true'
+# (set by the owner after docs/runbooks/aws-bootstrap.md) and only for
+# same-repository PRs (forked PRs get no OIDC token and a read-only GITHUB_TOKEN).
+name: Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+
+jobs:
+  check:
+    # The CI gate, defined once in ci.yml. A red check means no deploy is attempted.
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  deploy:
+    name: deploy pr-${{ github.event.pull_request.number }}
+    needs: check
+    if: >-
+      vars.A2H_DEPLOY_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    # One deploy at a time per PR and never cancelled: SST holds a state lock,
+    # and a cancelled deploy leaves the stage locked. teardown.yml shares the group.
+    concurrency:
+      group: preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      STAGE: pr-${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # SST builds the mcp and worker images for linux/arm64 with Docker.
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Configure AWS credentials (OIDC, no long-lived keys)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: a2h-preview-pr-${{ github.event.pull_request.number }}
+
+      - name: Create schema pr_${{ github.event.pull_request.number }}
+        run: .github/scripts/pr-schema.sh create "$PR_NUMBER"
+
+      - name: Deploy stage ${{ env.STAGE }}
+        run: pnpm exec sst deploy --stage "$STAGE" --print-logs
+
+      - name: Read outputs
+        id: outputs
+        run: |
+          test -f .sst/outputs.json || { echo "::error::.sst/outputs.json missing after deploy"; exit 1; }
+          {
+            echo "stage=$(jq -er '.stage' .sst/outputs.json)"
+            echo "web=$(jq -er '.web' .sst/outputs.json)"
+            echo "mcp=$(jq -er '.mcp' .sst/outputs.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write PR comment
+        env:
+          OUT_STAGE: ${{ steps.outputs.outputs.stage }}
+          OUT_WEB: ${{ steps.outputs.outputs.web }}
+          OUT_MCP: ${{ steps.outputs.outputs.mcp }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          cat > "$RUNNER_TEMP/preview-comment.md" <<MD
+          ## Preview \`$OUT_STAGE\`
+
+          | | |
+          |---|---|
+          | Web | $OUT_WEB |
+          | MCP endpoint | \`$OUT_MCP\` |
+          | Stage | \`$OUT_STAGE\` |
+          | Commit | \`$HEAD_SHA\` |
+          | Deploy run | $RUN_URL |
+
+          List the MCP tools from your terminal:
+
+          \`\`\`sh
+          npx -y @modelcontextprotocol/inspector --cli $OUT_MCP --method tools/list
+          \`\`\`
+
+          Redeployed on every push to this PR; the URLs do not change. Removed when the PR is closed.
+          MD
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: a2h-preview
+          path: ${{ runner.temp }}/preview-comment.md
+
+      # A failed deploy must not leave a comment advertising URLs that now serve
+      # an older commit (or nothing): replace it with the failure and the run link.
+      - name: Comment on PR (deploy failed)
+        if: failure()
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: a2h-preview
+          message: |
+            ## Preview `pr-${{ github.event.pull_request.number }}` failed to deploy
+
+            Commit `${{ github.event.pull_request.head.sha }}` did not deploy. Any URLs posted
+            earlier may serve an older commit or nothing. Run log:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  skipped:
+    name: previews not enabled
+    if: >-
+      vars.A2H_DEPLOY_ENABLED != 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: a2h-preview
+          message: |
+            ## Preview not deployed
+
+            Preview environments are not enabled yet for this repository
+            (repository variable `A2H_DEPLOY_ENABLED` is not `true`).
+
+            The owner enables them by completing `docs/runbooks/aws-bootstrap.md`
+            (AWS account, OIDC role, first `dev` deploy) and setting the repository
+            variables `AWS_DEPLOY_ROLE_ARN` and `A2H_DEPLOY_ENABLED=true`.
+            This comment is replaced by the preview URLs on the next push once enabled.

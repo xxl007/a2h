@@ -1,0 +1,17 @@
+# Keeps GitHub Actions majors current. No npm ecosystem entry yet: the PM decides
+# the dependency update policy for the workspace later.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+      include: scope
+    labels:
+      - role:qa
+    groups:
+      github-actions:
+        patterns:
+          - "*"
