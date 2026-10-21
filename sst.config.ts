@@ -1,3 +1,6 @@
+// SST declares $config, $app, $transform, aws and sst as ambient globals in
+// this generated file; they cannot be imported, so the reference is required.
+// eslint-disable-next-line @typescript-eslint/triple-slash-reference
 /// <reference path="./.sst/platform/config.d.ts" />
 // Thin entry point. The stacks live in infra/ (see infra/README.md).
 // SST forbids top-level imports here; infra is imported inside run().

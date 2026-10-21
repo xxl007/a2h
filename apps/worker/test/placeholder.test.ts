@@ -17,7 +17,7 @@ test("logs one structured line, stays alive, exits 0 on SIGTERM", async () => {
   assert.equal(child.exitCode, null, "worker exited early");
   const lines = stdout.trim().split("\n");
   assert.equal(lines.length, 1);
-  const log = JSON.parse(lines[0]!);
+  const log = JSON.parse(lines[0]!) as { level?: unknown; stage?: unknown };
   assert.equal(log.level, "info");
   assert.equal(log.stage, "test");
 

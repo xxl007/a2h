@@ -15,7 +15,7 @@ const entries = Object.entries(SHARED_PARAMETERS) as [SharedKey, string][];
 /** dev only: publish the identifiers of the shared resources as SSM String parameters. */
 export function publishShared(values: Record<SharedKey, $util.Input<string>>) {
   for (const [key, param] of entries) {
-    new aws.ssm.Parameter(`Shared${key[0]!.toUpperCase()}${key.slice(1)}`, {
+    new aws.ssm.Parameter(`Shared${key[0].toUpperCase()}${key.slice(1)}`, {
       name: sharedParameterName(param),
       type: "String",
       value: values[key],
