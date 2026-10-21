@@ -2,7 +2,7 @@
   "name": "@a2h/email",
   "version": "0.0.0",
   "private": true,
-  "description": "React Email templates, rendered and sent by the worker through the configured email provider.",
+  "description": "React Email templates, rendered by the worker and sent through SES (behind a provider-neutral interface).",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",

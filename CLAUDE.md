@@ -53,7 +53,7 @@ infra/          SST v3 stacks: web, mcp, worker, database, email, storage, previ
 packages/protocol  Zod schemas + JSON Schema export for profile, manifest, request types, answers, attestation, settlement. Pure, no I/O.
 packages/db     Drizzle schema + migrations (Postgres).
 packages/ui     Design tokens, components, Storybook.
-packages/email  React Email templates (Resend).
+packages/email  React Email templates, sent through SES.
 tests/          Playwright e2e, MCP contract tests (MCP Inspector scripted), adversarial suite.
 openspec/       specs/ (truth) and changes/ (in flight).
 docs/           PRD.md, decisions/, runbooks/.
