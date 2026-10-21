@@ -79,7 +79,7 @@ jobs:
         env:
           PR_SCHEMA_PG_REQUIRED: "1"
         run: |
-          shellcheck .github/scripts/*.sh tests/ci/*.sh tests/ci/lib/bin/aws
+          shellcheck -x .github/scripts/*.sh tests/ci/*.sh tests/ci/lib/fixtures.sh tests/ci/lib/bin/aws
           bash tests/ci/pr-schema.test.sh
           bash tests/ci/infra-consistency.test.sh
           bash tests/ci/pr-schema.pg.test.sh
