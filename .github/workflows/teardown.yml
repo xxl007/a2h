@@ -1,0 +1,108 @@
+# Teardown of a pull request's preview: drop schema pr_<n>, then remove stage pr-<n>.
+# Spec: openspec/.../preview-environments/spec.md, "PR closed".
+name: Teardown
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+
+jobs:
+  teardown:
+    name: remove pr-${{ github.event.pull_request.number }}
+    if: >-
+      vars.A2H_DEPLOY_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    # Same group as preview.yml so a teardown waits for an in-flight deploy
+    # instead of racing it for the SST state lock.
+    concurrency:
+      group: preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      STAGE: pr-${{ github.event.pull_request.number }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The merge ref may be gone once the PR is closed; use the head commit,
+          # which is the sst.config.ts that was deployed.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Configure AWS credentials (OIDC, no long-lived keys)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: a2h-teardown-pr-${{ github.event.pull_request.number }}
+
+      # Drop before remove (contract). If the drop fails, still remove the stage;
+      # the failure is surfaced in the PR comment and in the job status below.
+      - name: Drop schema pr_${{ github.event.pull_request.number }}
+        id: drop
+        continue-on-error: true
+        run: .github/scripts/pr-schema.sh drop "$PR_NUMBER"
+
+      - name: Remove stage ${{ env.STAGE }}
+        id: remove
+        run: pnpm exec sst remove --stage "$STAGE" --print-logs
+
+      - name: Update PR comment
+        if: always()
+        env:
+          DROP_OUTCOME: ${{ steps.drop.outcome }}
+          REMOVE_OUTCOME: ${{ steps.remove.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            if [ "$DROP_OUTCOME" = "success" ] && [ "$REMOVE_OUTCOME" = "success" ]; then
+              echo "## Preview removed"
+            else
+              echo "## Preview teardown incomplete"
+            fi
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Stage \`$STAGE\` | $REMOVE_OUTCOME |"
+            echo "| Schema \`pr_$PR_NUMBER\` | $DROP_OUTCOME |"
+            echo "| Teardown run | $RUN_URL |"
+            if [ "$DROP_OUTCOME" != "success" ] || [ "$REMOVE_OUTCOME" != "success" ]; then
+              echo
+              echo "Some step did not succeed; see the run log. Manual cleanup may be needed (docs/runbooks/aws-bootstrap.md)."
+            fi
+          } > "$RUNNER_TEMP/teardown-comment.md"
+
+      - name: Comment on PR
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@v3
+        with:
+          header: a2h-preview
+          path: ${{ runner.temp }}/teardown-comment.md
+
+      - name: Fail if the schema drop failed
+        if: always() && steps.drop.outcome != 'success'
+        env:
+          REMOVE_OUTCOME: ${{ steps.remove.outcome }}
+        run: |
+          echo "::error::Schema pr_$PR_NUMBER was not dropped; sst remove was still attempted (outcome: $REMOVE_OUTCOME)."
+          exit 1

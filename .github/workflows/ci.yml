@@ -1,0 +1,58 @@
+# CI gate: lint, typecheck, test.
+# Runs on every pull request and on pushes to main, and is reused by
+# preview.yml and deploy.yml through workflow_call so the gate is defined once.
+# Spec: openspec/.../preview-environments/spec.md, "CI gates every PR".
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+# github.workflow is the caller's name when reused, so CI, Preview and Deploy
+# never share a group. Superseded PR runs are cancelled; runs on main are not
+# (a cancelled check on main would silently skip that commit's dev deploy).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        # version omitted on purpose: read from "packageManager" in package.json
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # The preview/teardown schema script is tested here, against a stubbed
+      # aws CLI, because a broken script only shows up after a deploy otherwise.
+      - name: Check CI scripts
+        run: |
+          command -v shellcheck >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck; }
+          shellcheck .github/scripts/*.sh tests/ci/*.sh
+          bash tests/ci/pr-schema.test.sh
