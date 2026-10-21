@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   dbCredentials,
+  executionRolePolicy,
   prDbSecretName,
   prDbUser,
   secretValueFrom,
@@ -125,4 +126,79 @@ test("a preview's grant never covers a dev or prod object, even one keyed pr-<n>
   }
   assert.ok(covered("uploads/pr-12/voice.webm"));
   assert.ok(!covered("uploads/pr-120/voice.webm"));
+});
+
+test("pr-12 execution role reads only a2h/pr-12/db-*, nothing from SSM", () => {
+  const policy = executionRolePolicy(stageInfo("pr-12"), { kind: "pr-login", accountId: ACCOUNT });
+  assert.deepEqual(policy, {
+    Version: "2012-10-17",
+    Statement: [
+      {
+        Sid: "ReadDbPassword",
+        Effect: "Allow",
+        Action: ["secretsmanager:GetSecretValue"],
+        Resource: [`arn:aws:secretsmanager:eu-west-3:${ACCOUNT}:secret:a2h/pr-12/db-*`],
+      },
+    ],
+  });
+  // The looked-up secret matches the grant; pr-120's and the master's do not.
+  const resource = policy.Statement[0]?.Resource[0] ?? "";
+  const grants = (arn: string) => arn.startsWith(resource.slice(0, -1));
+  assert.ok(grants(PR12_SECRET_ARN));
+  assert.ok(!grants(PR12_SECRET_ARN.replace("pr-12", "pr-120")));
+  assert.ok(!grants(MASTER_SECRET_ARN));
+});
+
+test("dev and prod execution roles read only the Aurora master secret", () => {
+  for (const s of ["dev", "prod"]) {
+    const policy = executionRolePolicy(stageInfo(s), { kind: "master", secretArn: MASTER_SECRET_ARN });
+    assert.deepEqual(policy.Statement, [
+      {
+        Sid: "ReadDbPassword",
+        Effect: "Allow",
+        Action: ["secretsmanager:GetSecretValue"],
+        Resource: [MASTER_SECRET_ARN],
+      },
+    ]);
+  }
+});
+
+test("execution role policies: no wildcard resource, no SSM, no other action", () => {
+  const policies = [
+    executionRolePolicy(stageInfo("pr-12"), { kind: "pr-login", accountId: ACCOUNT }),
+    executionRolePolicy(stageInfo("dev"), { kind: "master", secretArn: MASTER_SECRET_ARN }),
+    executionRolePolicy(stageInfo("prod"), { kind: "master", secretArn: MASTER_SECRET_ARN }),
+  ];
+  for (const policy of policies) {
+    for (const st of policy.Statement) {
+      assert.deepEqual(st.Action, ["secretsmanager:GetSecretValue"]);
+      for (const r of st.Resource) assert.notEqual(r, "*");
+    }
+    assert.ok(!JSON.stringify(policy).includes("ssm:"));
+  }
+});
+
+test("execution role policy refuses mismatched sources and bad inputs", () => {
+  const pr = stageInfo("pr-12");
+  assert.throws(
+    () => executionRolePolicy(pr, { kind: "master", secretArn: MASTER_SECRET_ARN }),
+    /master/,
+  );
+  for (const bad of ["", "12345678901", "*", "123456789012:*"]) {
+    assert.throws(() => executionRolePolicy(pr, { kind: "pr-login", accountId: bad }), /account/, bad);
+  }
+  for (const s of ["dev", "prod"]) {
+    assert.throws(
+      () => executionRolePolicy(stageInfo(s), { kind: "pr-login", accountId: ACCOUNT }),
+      /pr/,
+      s,
+    );
+    for (const bad of ["*", "a2h/pr-12/db", `arn:aws:secretsmanager:eu-west-3:${ACCOUNT}:secret:*`]) {
+      assert.throws(
+        () => executionRolePolicy(stageInfo(s), { kind: "master", secretArn: bad }),
+        /ARN/,
+        bad,
+      );
+    }
+  }
 });

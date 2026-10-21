@@ -2,7 +2,12 @@
 // dev: shared with pr-* (schema per stage, created/dropped by CI through the
 // RDS Data API), scales to 0 ACU and pauses after 10 minutes.
 // prod: its own cluster, min 0.5 ACU, never pauses, no Data API.
-import { dbCredentials, prDbSecretName, type DbCredentials } from "./access.ts";
+import {
+  dbCredentials,
+  executionRolePolicy,
+  prDbSecretName,
+  type DbCredentials,
+} from "./access.ts";
 import type { StageInfo } from "./config.ts";
 
 export function createDatabase(stage: StageInfo, vpc: sst.aws.Vpc): sst.aws.Aurora {
@@ -33,6 +38,11 @@ export interface DbAccess {
   endpoint: DbEndpoint;
   environment: { DB_USER: $util.Input<string> };
   ssm: { DB_PASSWORD: $util.Input<string> };
+  /**
+   * JSON inline policy of the Fargate execution role: GetSecretValue on the
+   * one secret DB_PASSWORD comes from (access.ts executionRolePolicy).
+   */
+  executionPolicy: $util.Input<string>;
 }
 
 function hostOnly(endpoint: string | undefined): string {
@@ -56,6 +66,9 @@ export function masterAccess(stage: StageInfo, db: sst.aws.Aurora): DbAccess {
     },
     environment: { DB_USER: creds.apply((c) => c.environment.DB_USER) },
     ssm: { DB_PASSWORD: creds.apply((c) => c.ssm.DB_PASSWORD) },
+    executionPolicy: db.secretArn.apply((secretArn) =>
+      JSON.stringify(executionRolePolicy(stage, { kind: "master", secretArn })),
+    ),
   };
 }
 
@@ -90,6 +103,11 @@ export async function previewAccess(stage: StageInfo, clusterId: string): Promis
     },
     environment: creds.environment,
     ssm: creds.ssm,
+    executionPolicy: aws
+      .getCallerIdentityOutput()
+      .accountId.apply((accountId) =>
+        JSON.stringify(executionRolePolicy(stage, { kind: "pr-login", accountId })),
+      ),
   };
 }
 

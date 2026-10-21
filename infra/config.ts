@@ -17,11 +17,16 @@ export const WORKLOAD_BOUNDARY_POLICY_NAME = "a2h-workload-boundary";
 
 const AWS_ACCOUNT_ID = /^[0-9]{12}$/;
 
-/** Boundary ARN for the caller's account; sst.config.ts feeds it the account ID. */
-export function workloadBoundaryArn(accountId: string): string {
+export function assertAccountId(accountId: string): string {
   if (!AWS_ACCOUNT_ID.test(accountId)) {
     throw new Error(`Not an AWS account ID: "${accountId}" (expected 12 digits).`);
   }
+  return accountId;
+}
+
+/** Boundary ARN for the caller's account; sst.config.ts feeds it the account ID. */
+export function workloadBoundaryArn(accountId: string): string {
+  assertAccountId(accountId);
   return `arn:aws:iam::${accountId}:policy/${WORKLOAD_BOUNDARY_POLICY_NAME}`;
 }
 
