@@ -1,0 +1,12 @@
+{
+  "name": "@a2h/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A2H MCP server. Streamable HTTP, stateless.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

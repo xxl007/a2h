@@ -1,0 +1,375 @@
+<title>A2H Principal Walkthrough</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+<style>
+/* Layout: a storyboard. Left rail = steps of the story; centre = the principal's chat client, re-rendered per step;
+   right = protocol trace + design notes. Agent-side UI is cool slate/teal; anything that comes from a human is warm ochre. */
+:root{
+  --bg:#f3f4f6; --paper:#ffffff; --fg:#17202b; --muted:#5d6b7a; --line:#d8dde4;
+  --accent:#0f6f73; --accent-ink:#ffffff; --accent-soft:#dcefef;
+  --human:#a85e12; --human-soft:#fbead6; --human-ink:#5a3106;
+  --pend:#b7791f; --pend-soft:#fdf1d5; --ok:#2f7a3d; --ok-soft:#dff2e1; --warn:#9c2f2f; --warn-soft:#f8dede;
+  --sidebar:#e9ecf0; --chip:#eef1f4;
+  --display:"Newsreader",Georgia,serif; --body:"Public Sans",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --bg:#10151b; --paper:#171d25; --fg:#e6eaef; --muted:#97a3b0; --line:#2b353f;
+  --accent:#4fb8bb; --accent-ink:#06282a; --accent-soft:#16363a;
+  --human:#e0a35c; --human-soft:#3a2a15; --human-ink:#f7d9b3;
+  --pend:#e0b25a; --pend-soft:#3a2f16; --ok:#6cc77c; --ok-soft:#163a1d; --warn:#e07a7a; --warn-soft:#3f1d1d;
+  --sidebar:#131920; --chip:#222b35; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#10151b; --paper:#171d25; --fg:#e6eaef; --muted:#97a3b0; --line:#2b353f;
+  --accent:#4fb8bb; --accent-ink:#06282a; --accent-soft:#16363a;
+  --human:#e0a35c; --human-soft:#3a2a15; --human-ink:#f7d9b3;
+  --pend:#e0b25a; --pend-soft:#3a2f16; --ok:#6cc77c; --ok-soft:#163a1d; --warn:#e07a7a; --warn-soft:#3f1d1d;
+  --sidebar:#131920; --chip:#222b35; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+a{color:var(--accent)}
+button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+header.top{max-width:1240px;margin:0 auto 20px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 24px}
+header.top h1{font:500 34px/1.1 var(--display);margin:0;text-wrap:balance}
+header.top p{margin:0;color:var(--muted);max-width:62ch}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+
+.board{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:220px minmax(0,1fr) 300px;gap:20px}
+@media (max-width:980px){.board{grid-template-columns:1fr}}
+
+/* step rail */
+.rail{display:flex;flex-direction:column;gap:4px}
+.rail .eyebrow{margin:0 0 6px 10px}
+.step-btn{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;color:var(--fg)}
+.step-btn:hover{background:var(--chip)}
+.step-btn[aria-current="step"]{background:var(--paper);box-shadow:inset 3px 0 0 var(--accent)}
+.step-btn .n{font:500 12px/20px var(--mono);color:var(--muted)}
+.step-btn[aria-current="step"] .n{color:var(--accent)}
+.step-btn b{font-weight:600;display:block;font-size:14px}
+.step-btn small{display:block;color:var(--muted);font-size:12px}
+@media (max-width:980px){.rail{flex-direction:row;overflow-x:auto;padding-bottom:4px}.step-btn{min-width:150px}.rail .eyebrow{display:none}}
+
+/* stage = the principal's screen */
+.stage{min-width:0;display:flex;flex-direction:column;gap:14px}
+.screen{background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;min-height:560px;display:grid;grid-template-rows:auto 1fr}
+.titlebar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--sidebar);font-size:12px;color:var(--muted)}
+.titlebar .dots{display:flex;gap:5px}.titlebar .dots i{width:10px;height:10px;border-radius:50%;background:var(--line);display:block}
+.titlebar .where{font-family:var(--mono);margin-left:auto}
+.client{display:grid;grid-template-columns:180px minmax(0,1fr)}
+@media (max-width:700px){.client{grid-template-columns:1fr}.client .cside{display:none}}
+.cside{background:var(--sidebar);border-right:1px solid var(--line);padding:12px;font-size:12px;color:var(--muted)}
+.cside .thread{padding:6px 8px;border-radius:6px;margin-top:4px}
+.cside .thread.on{background:var(--paper);color:var(--fg);font-weight:500}
+.cmain{padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.msg{max-width:62ch;font-size:14px}
+.msg.user{align-self:flex-end;background:var(--chip);border-radius:14px 14px 4px 14px;padding:10px 14px}
+.msg.agent{padding:2px 0}
+.msg p{margin:0 0 8px}.msg p:last-child{margin:0}
+.tool{font:12px/1.5 var(--mono);color:var(--muted);border-left:2px solid var(--line);padding:4px 10px;max-width:62ch}
+.tool b{color:var(--fg);font-weight:500}
+.tool .arrow{color:var(--accent)}
+
+/* cards inside the client */
+.card{border:1px solid var(--line);border-radius:10px;padding:14px 16px;max-width:60ch;background:var(--paper)}
+.card .head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.card .head .eyebrow{margin-right:auto}
+.card h4{margin:0;font-size:15px;font-weight:600}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:13px;margin:0}
+.kv dt{color:var(--muted)}.kv dd{margin:0}
+.pill{display:inline-block;font:500 11px/1 var(--mono);letter-spacing:.04em;padding:5px 8px;border-radius:999px;background:var(--chip);color:var(--muted)}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}.pill.pend{background:var(--pend-soft);color:var(--pend)}
+.pill.human{background:var(--human-soft);color:var(--human-ink)}.pill.accent{background:var(--accent-soft);color:var(--accent)}
+.pill.prov{background:var(--warn-soft);color:var(--warn)}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btn{border:1px solid var(--line);background:var(--paper);color:var(--fg);border-radius:8px;padding:7px 12px;font-size:13px;font-weight:500}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.ghost{background:none}
+.btn:disabled{opacity:.5;cursor:default}
+textarea.q{width:100%;min-height:92px;font:14px/1.5 var(--body);color:var(--fg);background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:10px;resize:vertical}
+textarea.q:read-only{background:var(--paper)}
+.expert{display:grid;grid-template-columns:36px 1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.expert:first-of-type{border-top:0}
+.avatar{width:36px;height:36px;border-radius:50%;background:var(--human-soft);color:var(--human-ink);display:grid;place-items:center;font:500 13px var(--mono)}
+.expert .price{font-family:var(--mono);font-size:12px;text-align:right;font-variant-numeric:tabular-nums}
+.expert small{display:block;color:var(--muted)}
+.human-card{border-color:var(--human);background:var(--human-soft)}
+.human-card .quote{font:400 16px/1.45 var(--display);margin:6px 0 10px;color:var(--fg)}
+.human-card .kv dt{color:var(--human-ink)}
+.notice{display:flex;gap:10px;align-items:flex-start;background:var(--chip);border-radius:8px;padding:10px 12px;font-size:13px;max-width:60ch}
+.notice .pill{flex:none}
+
+/* settings / inbox / dashboard mocks */
+.settings{padding:22px 24px;display:flex;flex-direction:column;gap:18px;max-width:640px}
+.settings h3{margin:0;font:500 22px/1.2 var(--display)}
+.field{display:grid;grid-template-columns:150px 1fr;gap:4px 16px;font-size:13px;align-items:start}
+@media (max-width:600px){.field{grid-template-columns:1fr}}
+.field label{color:var(--muted);padding-top:6px}
+.opt{display:flex;flex-wrap:wrap;gap:8px}
+.opt span{border:1px solid var(--line);border-radius:999px;padding:5px 11px;font-size:13px}
+.opt span.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);font-weight:500}
+.input{border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13px;background:var(--chip);font-family:var(--mono)}
+.inbox{display:grid;grid-template-columns:220px minmax(0,1fr)}
+@media (max-width:700px){.inbox{grid-template-columns:1fr}.inbox .list{display:none}}
+.inbox .list{border-right:1px solid var(--line);background:var(--sidebar);padding:8px;font-size:13px}
+.inbox .list div{padding:8px 10px;border-radius:6px;color:var(--muted)}
+.inbox .list div.on{background:var(--paper);color:var(--fg)}
+.mail{padding:22px 26px;max-width:62ch}
+.mail h3{margin:0 0 4px;font-size:18px;font-weight:600}
+.mail .from{font-size:12px;color:var(--muted);margin-bottom:16px}
+.mail p{font-size:14px;margin:0 0 12px}
+table.reqs{width:100%;border-collapse:collapse;font-size:13px}
+table.reqs th{text-align:left;font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}
+table.reqs td{padding:10px;border-bottom:1px solid var(--line);vertical-align:top}
+table.reqs td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tscroll{overflow-x:auto}
+.stats{display:flex;gap:10px;flex-wrap:wrap;padding:18px 20px 0}
+.stat{border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+.stat b{display:block;font:500 22px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.stat small{color:var(--muted);font-size:12px}
+
+/* nav */
+.nav{display:flex;align-items:center;gap:10px}
+.nav .pos{font:500 12px var(--mono);color:var(--muted);margin-left:auto}
+
+/* right column */
+.aside{display:flex;flex-direction:column;gap:16px;min-width:0}
+.trace{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.trace ol{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.trace li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+.trace li i{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+.trace li.done{color:var(--fg)}.trace li.done i{background:var(--ok)}
+.trace li.now{color:var(--fg);font-weight:600}.trace li.now i{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.trace li code{font:11px var(--mono);margin-left:auto;color:var(--muted)}
+.notes{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+.notes h3{margin:0 0 8px;font:500 19px/1.2 var(--display)}
+.notes p{margin:0 0 10px}.notes p:last-child{margin:0}
+.notes ul{margin:0 0 10px;padding-left:18px}.notes li{margin-bottom:4px}
+.open{border-left:3px solid var(--warn);padding:6px 10px;background:var(--warn-soft);border-radius:0 6px 6px 0;margin-top:10px}
+.open b{display:block;font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--warn);margin-bottom:4px}
+.legend{font-size:12px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.legend .a::before{background:var(--accent)}.legend .h::before{background:var(--human)}
+</style>
+
+<header class="top">
+  <div>
+    <div class="eyebrow">A2H protocol · principal side · look-like prototype</div>
+    <h1>One expert consult, start to finish</h1>
+  </div>
+  <p>A product manager asks her agent to draft patient instructions. The agent decides it needs a diabetes nurse educator, and the protocol carries that request out to a real person and brings the answer back. Click through the steps; the chat window re-renders at each one.</p>
+</header>
+
+<div class="board">
+  <nav class="rail" id="rail" aria-label="Story steps"><div class="eyebrow">Story</div></nav>
+
+  <section class="stage">
+    <div class="screen" id="screen"></div>
+    <div class="nav">
+      <button class="btn" id="prev">← Back</button>
+      <button class="btn primary" id="next">Next →</button>
+      <span class="pos" id="pos"></span>
+    </div>
+  </section>
+
+  <aside class="aside">
+    <div class="trace">
+      <div class="eyebrow">Protocol trace</div>
+      <ol id="trace"></ol>
+    </div>
+    <div class="notes" id="notes"></div>
+    <div class="legend"><span class="a">Agent / platform</span><span class="h">Came from a human</span></div>
+  </aside>
+</div>
+
+<script>
+const PHASES=[["Discover","find_humans"],["Manifest","request_human"],["Consent","review + approve"],["Escrow","wallet hold"],["Elicit","delivered to human"],["Respond","attested answer"],["Settle","release + receipt"]];
+
+const titlebar=(where,app)=>`<div class="titlebar"><span class="dots"><i></i><i></i><i></i></span><span>${app}</span><span class="where">${where}</span></div>`;
+const side=(on)=>`<div class="cside"><div class="eyebrow">Threads</div>
+  <div class="thread ${on==1?'on':''}">Glucomate patient leaflet</div>
+  <div class="thread">Q4 roadmap draft</div><div class="thread">Competitor teardown</div>
+  <div style="margin-top:18px" class="eyebrow">Connectors</div>
+  <div class="thread">Drive</div><div class="thread">Linear</div><div class="thread" style="color:var(--accent);font-weight:500">A2H · humans</div></div>`;
+
+const userMsg=`<div class="msg user">Draft the first-use instructions for the Glucomate home glucose monitor. Patient-facing, reading age 12, EU market. I'm worried the "when to call your doctor" section sounds alarming.</div>`;
+const agentWork=`<div class="tool"><b>Read</b> glucomate_ifu_v3.docx · <b>Read</b> MDR 2017/745 annex I notes</div>
+<div class="msg agent"><p>Draft is ready (attached). The "when to call your doctor" section is the part I'm least sure about. Readability tools can't tell me whether a patient would find it frightening, and nothing in your files settles it. A diabetes nurse educator could judge that in two minutes.</p></div>`;
+
+const expertList=`<div class="tool"><span class="arrow">→</span> <b>a2h.find_humans</b> {topic:"diabetes patient education", attested:true, latency:"≤24h", max_price:40}</div>
+<div class="card">
+  <div class="head"><span class="eyebrow">3 reachable experts</span><span class="pill accent">verified profiles</span></div>
+  <div class="expert"><span class="avatar">MV</span><div><b>Marieke V.</b> · Diabetes nurse educator, Utrecht<small>14 yrs clinical · 48 answers · 4.8 · answers within ~6h · free for questions about her own publications</small></div><div class="price">asks €25<br><small>reserve</small></div></div>
+  <div class="expert"><span class="avatar">TO</span><div><b>Tomasz O.</b> · Endocrinology registrar, Kraków<small>6 yrs · 12 answers · 4.6 · answers within ~20h</small></div><div class="price">asks €18<br><small>reserve</small></div></div>
+  <div class="expert"><span class="avatar">PA</span><div><b>Patient panel</b> · 60 people living with T2 diabetes<small>Sensor lane · 3-option poll · typical return 9 of 10 within a day</small></div><div class="price">€2 / answer<br><small>bounty</small></div></div>
+</div>
+<div class="msg agent"><p>I'd go to Marieke V.: she's a certified educator, fastest, and her profile accepts short wording reviews. Here's the request I'd send. Change anything before it goes out.</p></div>`;
+
+const DRAFT=`Below is the "When to call your doctor" section of a first-use leaflet for a home glucose monitor (EU, reading age 12). Would a newly diagnosed patient find this wording alarming? If so, which sentence, and how would you soften it without losing the safety message?
+
+[section text, 140 words, attached]`;
+const requestCard=()=>`<div class="card" id="reqcard">
+  <div class="head"><span class="eyebrow">A2H · approve before sending</span><span class="pill pend">not sent</span></div>
+  <h4>Marieke V. <span style="font-weight:400;color:var(--muted)">· Diabetes nurse educator · ~6h</span></h4>
+  <label for="qtext" class="eyebrow" style="display:block;margin:12px 0 6px">Your question, sent as written</label>
+  <textarea class="q" id="qtext" oninput="onQ(this)" aria-describedby="qmeta">${window.__q??DRAFT}</textarea>
+  <div id="qmeta" style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:4px"><span id="qreset">${(window.__q&&window.__q!==DRAFT)?'<a href="#" onclick="resetQ();return false">Restore agent draft</a>':'Agent draft'}</span><span id="qcount">${(window.__q??DRAFT).length} / 2000 · 1 attachment</span></div>
+  <details style="margin-top:12px;font-size:13px"><summary style="cursor:pointer;color:var(--muted)">Bid €30 · yes/no + short text + confidence · expires in 24h · stored privately</summary>
+  <dl class="kv" style="margin-top:8px">
+    <dt>Bid</dt><dd>€30, held now. You pay what clears, never more. Her reserve is €25.</dd>
+    <dt>Answer format</dt><dd>Yes/no, short free text, confidence 1–5</dd>
+    <dt>Effort for her</dt><dd>2–5 minutes</dd>
+    <dt>Expires</dt><dd>Wed 21 Oct 16:42 · unanswered means nothing charged</dd>
+    <dt>Data terms</dt><dd>Stored in your workspace · not attributed · not used for training</dd>
+  </dl></details>
+  <div class="btnrow">
+    <button class="btn primary" id="sendbtn" onclick="go(6)">Send · hold €30</button>
+    <button class="btn ghost">Don't send</button>
+  </div>
+</div>`;
+function onQ(t){window.__q=t.value;document.getElementById('qcount').textContent=t.value.length+' / 2000 · 1 attachment';document.getElementById('qreset').innerHTML=(t.value!==DRAFT)?'<a href="#" onclick="resetQ();return false">Restore agent draft</a>':'Agent draft';document.getElementById('sendbtn').disabled=!t.value.trim()}
+function resetQ(){window.__q=DRAFT;render()}
+
+const approved=`<div class="card">
+  <div class="head"><span class="eyebrow">Request sent</span><span class="pill ok">A2H-7f3c · in flight</span></div>
+  <dl class="kv">
+    <dt>To</dt><dd>Marieke V. · delivered to her inbox and her own agent</dd>
+    <dt>Held</dt><dd>€30, your bid (€164 left this month). You pay what clears, never more.</dd>
+    <dt>Expected</dt><dd>By Wed 21 Oct 16:42 · likely tonight</dd>
+    <dt>You'll be told by</dt><dd>Email to g.l@automi.ai, with a link back to this thread</dd>
+  </dl>
+</div>
+<div class="msg agent"><p>I'll keep going on the rest of the leaflet and the regulatory checklist in the meantime. When her answer arrives it will show up here as a new message, and I'll revise the section the same turn.</p></div>`;
+
+const waiting=`<div class="notice"><span class="pill pend">1 request pending</span><span>Marieke V. accepted at 17:05 and has it open. Nothing is charged until she answers. <a href="#" onclick="go(10);return false">All requests</a></span></div>
+<div class="msg user">Fine. Also start the checklist for MDR labelling.</div>
+<div class="tool"><b>Write</b> mdr_labelling_checklist.md</div>
+<div class="msg agent"><p>Checklist drafted, 14 items, 3 need a decision from you. I'll flag them tomorrow with Marieke's reply so you can do both in one pass.</p></div>`;
+
+const answer=`<div class="card human-card">
+  <div class="head"><span class="eyebrow" style="color:var(--human-ink)">Answer from a human · A2H-7f3c</span><span class="pill human">attested · answered personally</span></div>
+  <h4>Marieke V. · Diabetes nurse educator</h4>
+  <p class="quote">Yes, one sentence will frighten people: "Readings above 15 mmol/L can lead to a diabetic coma." New patients fixate on the word coma. Keep the threshold, drop the outcome: "If your reading is above 15 mmol/L twice in a row, call your care team today." The rest reads fine for a twelve-year-old.</p>
+  <dl class="kv">
+    <dt>Alarming?</dt><dd>Yes · confidence 4 / 5</dd>
+    <dt>Answered</dt><dd>Wed 21 Oct 09:10 · 16h after sending</dd>
+    <dt>Cleared at</dt><dd>€28 · €2 of the €30 hold returned</dd>
+    <dt>Signature</dt><dd><code style="font:11px var(--mono)">a2h:sig:…c91e</code> · citable as "reviewed by M.V., 21 Oct 2026"</dd>
+  </dl>
+  <div class="btnrow"><button class="btn">Ask a follow-up (€10)</button><button class="btn ghost">Rate</button><button class="btn ghost">Dispute</button></div>
+</div>
+<div class="msg agent"><p>I've rewritten the section with her suggested sentence and removed the outcome clause. The safety threshold is unchanged. The revised leaflet and the MDR checklist with your 3 decisions are attached. Her review is recorded in the document's change log.</p></div>`;
+
+function chat(where,parts){return titlebar(where,"Chat client")+`<div class="client">${side(1)}<div class="cmain">${parts.join("")}</div></div>`}
+
+const STEPS=[
+ {t:"Connect",s:"Install the capability",phase:-1,
+  screen:()=>titlebar("Settings › Connectors","Chat client")+`<div class="settings">
+   <h3>Add connector</h3>
+   <div class="card" style="max-width:none">
+     <div class="head"><h4>A2H · reach a human</h4><span class="pill accent">MCP</span></div>
+     <p style="font-size:13px;color:var(--muted);margin:0 0 10px">Lets your agents find consenting people, send them questions on your behalf, and bring back attested answers.</p>
+     <div class="eyebrow" style="margin-bottom:6px">This connector will be able to</div>
+     <dl class="kv"><dt>find_humans</dt><dd>Search published reachability profiles</dd><dt>request_human</dt><dd>Send a request, always within your contact policy</dd><dt>check_requests</dt><dd>Read answers and status</dd><dt>wallet</dt><dd>Hold funds up to your per-request cap</dd></dl>
+     <p style="font-size:12px;color:var(--muted);margin:10px 0 0">Approvals use MCP elicitation. Payment details never pass through the client (Stripe, URL mode).</p>
+     <div class="btnrow"><button class="btn primary" onclick="go(1)">Connect and set my contact policy</button><button class="btn ghost">Cancel</button></div>
+   </div>
+   <p style="font-size:13px;color:var(--muted);max-width:62ch">The same tool set is exposed to ChatGPT, Codex, Claude Code, Cursor and any MCP client. App developers get it as a REST API with webhooks, so an end user of a research or CRM product never sees the connector at all.</p></div>`,
+  notes:`<h3>One install, every agent</h3><p>MCP is the only surface all the major clients share, so the capability ships as a connector first and an SDK second. The tool descriptions carry the policy that keeps the human side sane: a human is a last resort, not a search fallback.</p><p>Four MCP mechanisms carry the whole flow:</p><ul><li><b>Elicitation (form)</b> for approval and wording review. Works in every client, terminals included.</li><li><b>Elicitation (URL)</b> for funding the wallet through Stripe; the spec requires it for payment credentials.</li><li><b>MCP Apps</b> (<code style="font:11px var(--mono)">ui://</code> resource) for the rich card in hosts that render iframes, with a text result alongside for hosts that don't.</li><li><b>Tasks</b> only for short waits (minutes). Long waits leave MCP: email plus <code style="font:11px var(--mono)">check_requests</code>.</li></ul>`},
+ {t:"Contact policy",s:"Set standing rules once",phase:-1,
+  screen:()=>titlebar("a2h.dev › Your contact policy","A2H")+`<div class="settings">
+   <h3>How your agents may reach people</h3>
+   <div class="field"><label>Shown to humans as</label><div class="opt"><span class="on">Galem L., Automi (real name)</span><span>Verified organisation only</span><span>Verified person, pseudonymous</span></div></div>
+   <div class="field"><label>Monthly budget</label><div><span class="input">€ 200</span> <span style="color:var(--muted);font-size:12px">· per request max</span> <span class="input">€ 40</span></div></div>
+   <div class="field"><label>Ask me before</label><div class="opt"><span class="on">Any expert request</span><span class="on">Anything over €10</span><span class="on">Any campaign to many people</span><span>Every single request</span></div></div>
+   <div class="field"><label>Auto-approve</label><div class="opt"><span class="on">Sensor polls under €10</span><span class="on">Free lanes</span></div></div>
+   <div class="field"><label>Wording review</label><div class="opt"><span class="on">Always show me the exact question</span><span>Only when I'm asked to approve</span></div></div>
+   <div class="field"><label>Answers reach me by</label><div><span class="input">email · g.l@automi.ai</span></div></div>
+   <div class="field"><label>Data terms I offer</label><div class="opt"><span class="on">Stored in my workspace</span><span>Attributed publicly</span><span>May be used for training</span></div></div>
+   <div class="field"><label>Wallet</label><div><span class="input">€ 200 · Visa ···· 4421</span> <span style="color:var(--muted);font-size:12px">· funded through Stripe, opened in your browser</span></div></div>
+   <div class="btnrow"><button class="btn primary" onclick="go(2)">Save policy</button></div></div>`,
+  notes:`<h3>The policy makes approvals cheap</h3><p>Everything decided here is what lets the per-request moment later be two actions instead of a form. Identity is chosen once, here, and never re-asked on a request; the human always sees something accountable.</p><p>Email is the only update channel for launch. Campaigns to N people are approved once, as a campaign, never per contact.</p><p>Funding goes through Stripe in the browser (URL-mode elicitation), so card details never touch the agent or the chat client.</p>`},
+ {t:"The task",s:"Agent hits the limit of search",phase:-1,
+  screen:()=>chat("Tue 20 Oct · 16:38",[userMsg,agentWork,`<div class="msg agent"><p>Shall I find one? It would cost roughly €25–30 and I'd show you the question first.</p></div>`]),
+  notes:`<h3>The agent asks before it discovers</h3><p>The connector's guidance makes the agent justify the human in one sentence: what it tried, why no tool can answer, what kind of person can. The principal sees the price range before any search happens.</p><p>Nothing has reached a human yet. Discovery itself is silent on the human side; only a manifest is.</p>`},
+ {t:"Discover",s:"Who can answer",phase:0,
+  screen:()=>chat("Tue 20 Oct · 16:40",[`<div class="msg user">Yes, find one.</div>`,expertList]),
+  notes:`<h3>Profiles, not people</h3><p>Search returns handles with the terms the person published: expertise, attestation, latency, reserve price, free lanes. No contact details ever reach the agent.</p><p>Both markets appear side by side: two experts and a patient panel in the sensor lane. The agent recommends, the principal decides.</p><p>Pricing is a reserve-plus-bid auction. The hold is the bid, so the principal's worst case is always the number on the button.</p>`},
+ {t:"Review & send",s:"Edit the question, one action",phase:1,
+  screen:()=>chat("Tue 20 Oct · 16:41",[`<div class="msg user">Yes, find one.</div>`,`<div class="tool"><span class="arrow">→</span> <b>a2h.find_humans</b> · 3 results, Marieke V. selected</div>`,`<div class="msg agent"><p>Here's what I'd send to Marieke V. Edit it if you like, then send.</p></div>`,requestCard()]),
+  notes:`<h3>The question is the card</h3><p>Rethought from first principles: the only thing the principal must judge is the wording, so it is the body of the card and always editable, like a message composer. Everything else (bid, format, expiry, data terms) is one collapsed summary line, opened only if wanted.</p><ul><li>No edit mode to enter or leave. Typing is editing; "Restore agent draft" appears once the text differs.</li><li>The primary button states the consequence: <b>Send · hold €30</b>. It disables on an empty question.</li><li>Identity is not re-asked; it was set once in the policy.</li><li>In MCP terms this card is a form-mode elicitation with one pre-filled string field and an accept/decline, rendered as an MCP App where the host can, and as a plain prompt where it can't.</li></ul>`},
+ {t:"In a terminal",s:"Same step in Claude Code / Codex",phase:1,
+  screen:()=>titlebar("~/glucomate · claude","Terminal")+`<div style="padding:18px 20px;font:12.5px/1.6 var(--mono);white-space:pre-wrap;color:var(--fg);min-width:0">
+<span style="color:var(--muted)">⏺</span> I need a diabetes nurse educator to judge whether the "when to call
+  your doctor" wording is alarming. Searching A2H…
+
+<span style="color:var(--muted)">⏺</span> <b>a2h · find_humans</b>(topic: "diabetes patient education", max_price: 40)
+  <span style="color:var(--muted)">⎿</span> 3 reachable · Marieke V. (nurse educator, ~6h, reserve €25) selected
+
+<span style="color:var(--accent)">┌ A2H wants to send a question to Marieke V. ─────────────────────┐</span>
+<span style="color:var(--accent)">│</span> From: Galem L., Automi · Bid €30 (held) · expires in 24h
+<span style="color:var(--accent)">│</span>
+<span style="color:var(--accent)">│</span> Question (edit before sending):
+<span style="color:var(--accent)">│</span> <span style="background:var(--chip)">Below is the "When to call your doctor" section of a first-use   </span>
+<span style="color:var(--accent)">│</span> <span style="background:var(--chip)">leaflet for a home glucose monitor (EU, reading age 12). Would a  </span>
+<span style="color:var(--accent)">│</span> <span style="background:var(--chip)">newly diagnosed patient find this wording alarming? If so, which  </span>
+<span style="color:var(--accent)">│</span> <span style="background:var(--chip)">sentence, and how would you soften it…                           </span>
+<span style="color:var(--accent)">│</span>
+<span style="color:var(--accent)">│</span> <b>❯ Send · hold €30</b>      Edit in $EDITOR      Don't send
+<span style="color:var(--accent)">└──────────────────────────────────────────────────────────────────┘</span>
+
+<span style="color:var(--muted)">⏺</span> Sent (A2H-7f3c). You'll get an email when she answers; run
+  <b>/a2h</b> or just ask me to check. Continuing with the MDR checklist.</div>`,
+  notes:`<h3>Nothing is lost without an iframe</h3><p>Terminal clients render elicitation natively as a prompt. The same manifest arrives as a text result with the question in an editable field, and "Edit in $EDITOR" is the terminal's version of in-place editing.</p><ul><li>The flow is identical: one approval, the question first, the cost on the button.</li><li>While the request is out, the session can end. The answer is picked up later with <code style="font:11px var(--mono)">check_requests</code>, or the email's deep link opens a new session with the request id.</li></ul>`},
+ {t:"Approve & hold",s:"Escrow and carry on",phase:3,
+  screen:()=>chat("Tue 20 Oct · 16:42",[`<div class="tool"><span class="arrow">→</span> <b>a2h.request_human</b> {to:"mv-7f3c", bid:30, expires:"2026-10-21T16:42+02:00"} · approved by you</div>`,approved]),
+  notes:`<h3>Asynchronous by design</h3><p><code style="font:11px var(--mono)">request_human</code> returns a request id and an ETA within a second. MCP Tasks can't carry a day-long wait (poll-based, TTLs in minutes), so the request lives on the platform and the session is free to end.</p><p>Funds are held, not paid. The hold is the bid. The human's acceptance is the next event.</p>`},
+ {t:"Waiting",s:"Later that day",phase:4,
+  screen:()=>chat("Tue 20 Oct · 18:20",[waiting]),
+  notes:`<h3>Pending state is visible, not nagging</h3><p>A single chip in the thread shows the request's state (accepted, opened). The conversation continues normally. Nothing pings the principal until there's an answer.</p><p>If the principal closes the client, the request lives on the platform, not in the session.</p>`},
+ {t:"Notified",s:"Next morning, inbox",phase:5,
+  screen:()=>titlebar("Wed 21 Oct · 09:12","Mail")+`<div class="inbox"><div class="list"><div class="on">A2H · Marieke V. answered</div><div>Linear · 3 issues updated</div><div>Calendar · 11:00 moved</div></div>
+   <div class="mail"><h3>Marieke V. answered your request</h3><div class="from">A2H ‹notify@a2h.dev› · to g.l@automi.ai · 09:10</div>
+   <p>Your request <code style="font:12px var(--mono)">A2H-7f3c</code> about the Glucomate leaflet wording has an answer. Marieke V. answered personally, confidence 4/5, cleared at €28.</p>
+   <p>Open the thread <b>Glucomate patient leaflet</b> and your agent will pick the answer up and continue from it.</p>
+   <div class="btnrow"><button class="btn primary" onclick="go(9)">Open the thread</button><button class="btn">View answer here</button></div>
+   <p style="font-size:12px;color:var(--muted);margin-top:16px">You received this because A2H requests from your agents notify you by email. Change channel · Stop all A2H requests</p></div></div>`,
+  notes:`<h3>Email is the one channel</h3><p>The notification is the bridge between an async platform and a synchronous chat client. It carries enough to act on (who, confidence, cost) and a deep link back to the originating thread.</p><p>The link reopens the thread; the agent then fetches the answer with <code style="font:11px var(--mono)">check_requests</code> on that turn. No client needs to be woken externally, which is why email alone is enough for launch.</p>`},
+ {t:"Answer lands",s:"Back in the thread",phase:6,
+  screen:()=>chat("Wed 21 Oct · 09:14",[`<div class="tool"><span class="arrow">→</span> <b>a2h.check_requests</b> {id:"A2H-7f3c"} · answered</div>`,answer]),
+  notes:`<h3>A human answer is a first-class turn</h3><p>It is rendered in its own colour, carries attestation metadata (personal vs via her agent, time, confidence, signature), and the agent continues from it in the same turn. The principal can follow up, rate, or dispute from the card.</p><p>The signature lets the fact be cited later: "reviewed by M.V., 21 Oct 2026."</p>`},
+ {t:"Ledger",s:"All requests, all agents",phase:6,
+  screen:()=>titlebar("a2h.dev › Requests","A2H")+`<div class="stats"><div class="stat"><b>7</b><small>requests this month</small></div><div class="stat"><b>€96</b><small>spent of €200</small></div><div class="stat"><b>13h</b><small>median answer time</small></div><div class="stat"><b>1</b><small>pending</small></div></div>
+   <div class="tscroll" style="padding:14px 20px"><table class="reqs"><thead><tr><th>Id</th><th>To</th><th>From agent / thread</th><th>Status</th><th>Cleared</th><th>Answered</th></tr></thead><tbody>
+   <tr><td class="num">7f3c</td><td>Marieke V.</td><td>Chat · Glucomate leaflet</td><td><span class="pill ok">answered</span></td><td class="num">€28</td><td class="num">21 Oct 09:10</td></tr>
+   <tr><td class="num">6a91</td><td>Patient panel ×60</td><td>App · onboarding survey</td><td><span class="pill pend">54 / 60</span></td><td class="num">€108 held</td><td class="num">—</td></tr>
+   <tr><td class="num">5d20</td><td>Tomasz O.</td><td>Claude Code · dosage table</td><td><span class="pill ok">answered</span></td><td class="num">€18</td><td class="num">17 Oct 14:02</td></tr>
+   <tr><td class="num">4c77</td><td>R. Dubois</td><td>Chat · shop opening hours</td><td><span class="pill">free lane</span></td><td class="num">€0</td><td class="num">15 Oct 10:40</td></tr>
+   <tr><td class="num">3b02</td><td>K. Anand</td><td>Chat · tax question</td><td><span class="pill prov">disputed</span></td><td class="num">€40 → refunded</td><td class="num">12 Oct 19:55</td></tr>
+   </tbody></table></div>`,
+  notes:`<h3>One place for everything async</h3><p>Every agent the principal runs, in any client, writes to the same ledger. This is where campaigns are watched, disputes are raised, and the budget is reconciled. It is also the only view that survives a client that can't be woken.</p><p>The patient-panel row is the sensor market in the same protocol: one campaign approval, 60 deliveries, one hold.</p>`},
+];
+
+let cur=0;
+const rail=document.getElementById('rail'),screen=document.getElementById('screen'),notes=document.getElementById('notes'),trace=document.getElementById('trace'),pos=document.getElementById('pos');
+STEPS.forEach((s,i)=>{const b=document.createElement('button');b.className='step-btn';b.innerHTML=`<span class="n">${String(i).padStart(2,'0')}</span><span><b>${s.t}</b><small>${s.s}</small></span>`;b.onclick=()=>go(i);rail.appendChild(b)});
+
+function go(i){cur=Math.max(0,Math.min(STEPS.length-1,i));render()}
+function render(){
+  const s=STEPS[cur];
+  screen.innerHTML=s.screen();
+  notes.innerHTML=s.notes;
+  [...rail.querySelectorAll('.step-btn')].forEach((b,i)=>{if(i===cur)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+  trace.innerHTML=PHASES.map((p,i)=>`<li class="${i<s.phase?'done':i===s.phase?'now':''}"><i></i>${p[0]}<code>${p[1]}</code></li>`).join('');
+  pos.textContent=`${cur+1} / ${STEPS.length}`;
+  document.getElementById('prev').disabled=cur===0;document.getElementById('next').disabled=cur===STEPS.length-1;
+  try{history.replaceState(null,'','#s'+cur)}catch(e){}
+  screen.scrollIntoView({block:'nearest'});
+}
+document.getElementById('prev').onclick=()=>go(cur-1);document.getElementById('next').onclick=()=>go(cur+1);
+document.addEventListener('keydown',e=>{if(e.target.tagName==='TEXTAREA')return;if(e.key==='ArrowRight')go(cur+1);if(e.key==='ArrowLeft')go(cur-1)});
+const m=(location.hash||'').match(/^#s(\d+)$/);go(m?+m[1]:0);
+</script>

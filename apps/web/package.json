@@ -1,0 +1,12 @@
+{
+  "name": "@a2h/web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Next.js (App Router). Participant PWA + principal dashboard.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

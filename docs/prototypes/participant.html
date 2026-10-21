@@ -1,0 +1,295 @@
+<title>A2H Participant Walkthrough</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=JetBrains+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap">
+<style>
+/* Same storyboard frame as the principal walkthrough; the stage is now a phone, because the participant side is a PWA.
+   Warm ochre marks the participant's own actions; teal marks what the platform/agent side sends. */
+:root{
+  --bg:#f5f3ef; --paper:#ffffff; --fg:#1d1a16; --muted:#6a6259; --line:#dcd6cd;
+  --accent:#0f6f73; --accent-soft:#dcefef;
+  --human:#a85e12; --human-ink:#ffffff; --human-soft:#fbead6; --human-deep:#5a3106;
+  --pend:#b7791f; --pend-soft:#fdf1d5; --ok:#2f7a3d; --ok-soft:#dff2e1; --warn:#9c2f2f; --warn-soft:#f8dede;
+  --chip:#f0ece5; --rail:#ebe6de;
+  --display:"Newsreader",Georgia,serif; --body:"Public Sans",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --bg:#171411; --paper:#201c18; --fg:#eee8df; --muted:#a49a8e; --line:#36302a;
+  --accent:#4fb8bb; --accent-soft:#16363a;
+  --human:#e0a35c; --human-ink:#2a1706; --human-soft:#3a2a15; --human-deep:#f7d9b3;
+  --pend:#e0b25a; --pend-soft:#3a2f16; --ok:#6cc77c; --ok-soft:#163a1d; --warn:#e07a7a; --warn-soft:#3f1d1d;
+  --chip:#2a2521; --rail:#1c1815; color-scheme:dark }}
+:root[data-theme="dark"]{
+  --bg:#171411; --paper:#201c18; --fg:#eee8df; --muted:#a49a8e; --line:#36302a;
+  --accent:#4fb8bb; --accent-soft:#16363a;
+  --human:#e0a35c; --human-ink:#2a1706; --human-soft:#3a2a15; --human-deep:#f7d9b3;
+  --pend:#e0b25a; --pend-soft:#3a2f16; --ok:#6cc77c; --ok-soft:#163a1d; --warn:#e07a7a; --warn-soft:#3f1d1d;
+  --chip:#2a2521; --rail:#1c1815; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 48px}
+a{color:var(--accent)} button{font:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.eyebrow{font:500 11px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+header.top{max-width:1240px;margin:0 auto 20px;display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 24px}
+header.top h1{font:500 34px/1.1 var(--display);margin:0;text-wrap:balance}
+header.top p{margin:0;color:var(--muted);max-width:62ch}
+.board{max-width:1240px;margin:0 auto;display:grid;grid-template-columns:220px minmax(0,1fr) 320px;gap:20px}
+@media (max-width:980px){.board{grid-template-columns:1fr}}
+.rail{display:flex;flex-direction:column;gap:4px}
+.rail .eyebrow{margin:0 0 6px 10px}
+.step-btn{display:grid;grid-template-columns:22px 1fr;gap:8px;align-items:start;text-align:left;background:none;border:0;border-radius:8px;padding:8px 10px;color:var(--fg)}
+.step-btn:hover{background:var(--chip)}
+.step-btn[aria-current="step"]{background:var(--paper);box-shadow:inset 3px 0 0 var(--human)}
+.step-btn .n{font:500 12px/20px var(--mono);color:var(--muted)}
+.step-btn[aria-current="step"] .n{color:var(--human)}
+.step-btn b{font-weight:600;display:block;font-size:14px}.step-btn small{display:block;color:var(--muted);font-size:12px}
+@media (max-width:980px){.rail{flex-direction:row;overflow-x:auto;padding-bottom:4px}.step-btn{min-width:150px}.rail .eyebrow{display:none}}
+
+/* phone stage */
+.stage{min-width:0;display:flex;flex-direction:column;gap:14px;align-items:center}
+.phone{width:min(100%,390px);background:var(--paper);border:1px solid var(--line);border-radius:28px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.08);display:grid;grid-template-rows:auto 1fr auto;min-height:720px}
+.status{display:flex;justify-content:space-between;padding:10px 20px 4px;font:500 12px var(--mono);color:var(--muted)}
+.scr{padding:12px 20px 20px;display:flex;flex-direction:column;gap:14px;min-width:0;overflow:hidden}
+.appbar{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);min-height:24px}
+.appbar b{color:var(--fg);font-weight:600;font-size:15px}
+.appbar .back{color:var(--accent)}
+.appbar .step{margin-left:auto;font:500 11px var(--mono)}
+h2.s{font:500 24px/1.15 var(--display);margin:0;text-wrap:balance}
+p.lead{margin:0;color:var(--muted);font-size:14px}
+.btn{border:1px solid var(--line);background:var(--paper);color:var(--fg);border-radius:12px;padding:12px 16px;font-size:15px;font-weight:600;width:100%;text-align:center}
+.btn.primary{background:var(--human);color:var(--human-ink);border-color:var(--human)}
+.btn.ghost{background:none;border-color:transparent;color:var(--muted);font-weight:500}
+.btn.sm{width:auto;padding:8px 12px;font-size:13px;border-radius:9px}
+.btn:disabled{opacity:.5;cursor:default}
+.bottom{padding:12px 20px calc(16px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);display:flex;flex-direction:column;gap:8px;background:var(--paper)}
+.pill{display:inline-block;font:500 11px/1 var(--mono);letter-spacing:.04em;padding:5px 8px;border-radius:999px;background:var(--chip);color:var(--muted)}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}.pill.pend{background:var(--pend-soft);color:var(--pend)}
+.pill.accent{background:var(--accent-soft);color:var(--accent)}.pill.human{background:var(--human-soft);color:var(--human-deep)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:13px;display:inline-flex;gap:6px;align-items:center}
+.chip.on{border-color:var(--human);background:var(--human-soft);color:var(--human-deep);font-weight:500}
+.chip small{color:var(--muted);font-size:11px}
+.card{border:1px solid var(--line);border-radius:14px;padding:14px;font-size:14px}
+.card.teal{border-color:var(--accent);background:var(--accent-soft)}
+.card h4{margin:0 0 6px;font-size:15px}
+.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 12px;font-size:13px;margin:0}
+.kv dt{color:var(--muted)}.kv dd{margin:0}
+.row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line);font-size:14px}
+.row:first-child{border-top:0}
+.row .r{margin-left:auto;font:500 13px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted)}
+.toggle{width:38px;height:22px;border-radius:11px;background:var(--line);position:relative;flex:none}
+.toggle.on{background:var(--human)}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:left .15s}
+.toggle.on::after{left:19px}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:13px;font-weight:600}
+.input{border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:15px;background:var(--chip);font-family:inherit}
+.input.mono{font-family:var(--mono);font-size:13px}
+.quote{font:400 15px/1.5 var(--display);background:var(--chip);border-radius:12px;padding:12px 14px;margin:0}
+.seg{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.seg button{border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:10px 6px;font-size:14px;font-weight:500;color:var(--fg)}
+.seg button.on{border-color:var(--human);background:var(--human-soft);color:var(--human-deep)}
+.conf{display:flex;gap:6px}
+.conf button{flex:1;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:8px 0;font:500 14px var(--mono);color:var(--fg)}
+.conf button.on{border-color:var(--human);background:var(--human-soft);color:var(--human-deep)}
+textarea.ta{width:100%;min-height:96px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font:15px/1.45 var(--body);color:var(--fg);background:var(--paper);resize:vertical}
+.audio{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--chip)}
+.audio .mic{width:40px;height:40px;border-radius:50%;background:var(--human);color:var(--human-ink);display:grid;place-items:center;font-size:16px;flex:none}
+.audio .wave{flex:1;height:26px;display:flex;align-items:center;gap:2px}
+.audio .wave i{display:block;width:3px;border-radius:2px;background:var(--human);opacity:.7}
+.audio .t{font:500 12px var(--mono);color:var(--muted)}
+.transcript{font-size:13px;color:var(--muted);border-left:2px solid var(--human);padding:4px 10px}
+.mail{display:flex;flex-direction:column;gap:10px;font-size:14px}
+.mail .from{font-size:12px;color:var(--muted)}
+.mail h3{margin:0;font-size:17px;font-weight:600}
+.mail p{margin:0}
+.big{font:500 40px/1 var(--display);font-variant-numeric:tabular-nums;margin:0}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tile{border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.tile b{display:block;font:500 22px/1.1 var(--display);font-variant-numeric:tabular-nums}
+.tile small{color:var(--muted);font-size:12px}
+.stars{display:flex;gap:6px}
+.stars span{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);display:grid;place-items:center;font-size:16px}
+.stars span.on{background:var(--human-soft);border-color:var(--human)}
+.ident{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:12px}
+.ident .logo{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;font:600 13px var(--mono);background:var(--chip);flex:none}
+.ident small{display:block;color:var(--muted);font-size:12px}
+.progress{height:3px;background:var(--line);border-radius:2px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--human)}
+
+.nav{display:flex;align-items:center;gap:10px;width:min(100%,390px)}
+.nav .pos{font:500 12px var(--mono);color:var(--muted);margin-left:auto}
+.nav .btn{width:auto;padding:8px 14px;font-size:13px;border-radius:9px}
+
+.aside{display:flex;flex-direction:column;gap:16px;min-width:0}
+.trace{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.trace ol{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.trace li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+.trace li i{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+.trace li.done{color:var(--fg)}.trace li.done i{background:var(--ok)}
+.trace li.now{color:var(--fg);font-weight:600}.trace li.now i{background:var(--human);box-shadow:0 0 0 3px var(--human-soft)}
+.trace li code{font:11px var(--mono);margin-left:auto;color:var(--muted)}
+.notes{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13px}
+.notes h3{margin:0 0 8px;font:500 19px/1.2 var(--display)}
+.notes p{margin:0 0 10px}.notes p:last-child{margin:0}
+.notes ul{margin:0 0 10px;padding-left:18px}.notes li{margin-bottom:4px}
+.principle{border-left:3px solid var(--accent);padding:6px 10px;background:var(--accent-soft);border-radius:0 6px 6px 0;margin-top:10px;font-size:12.5px}
+.principle b{display:block;font:500 11px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+.legend{font-size:12px;color:var(--muted);display:flex;gap:12px;flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.legend .a::before{background:var(--accent)}.legend .h::before{background:var(--human)}
+</style>
+
+<header class="top">
+  <div>
+    <div class="eyebrow">A2H protocol · participant side · look-like prototype</div>
+    <h1>Marieke's side of the same request</h1>
+  </div>
+  <p>A diabetes nurse educator is invited, publishes her terms, and a day later answers the Glucomate question from her phone. The participant surface is a PWA opened from email; nothing is installed. Click through the steps.</p>
+</header>
+
+<div class="board">
+  <nav class="rail" id="rail" aria-label="Story steps"><div class="eyebrow">Story</div></nav>
+  <section class="stage">
+    <div class="phone" id="phone"></div>
+    <div class="nav"><button class="btn" id="prev">← Back</button><button class="btn primary" id="next">Next →</button><span class="pos" id="pos"></span></div>
+  </section>
+  <aside class="aside">
+    <div class="trace"><div class="eyebrow">Protocol trace</div><ol id="trace"></ol></div>
+    <div class="notes" id="notes"></div>
+    <div class="legend"><span class="a">From the platform / an agent</span><span class="h">Marieke's own action</span></div>
+  </aside>
+</div>
+
+<script>
+const PHASES=[["Invite","referral"],["Publish","reachability profile"],["Manifest","delivered by email"],["Consent","accept / decline"],["Verify","paid lane, once"],["Respond","signed answer"],["Settle","payout + ratings"]];
+const status=(t)=>`<div class="status"><span>${t}</span><span>▮▮▮ ◔</span></div>`;
+const bar=(title,back,step)=>`<div class="appbar">${back?'<span class="back">‹ Back</span>':''}<b>${title}</b>${step?`<span class="step">${step}</span>`:''}</div>`;
+const prog=(n,of)=>`<div class="progress"><i style="width:${Math.round(n/of*100)}%"></i></div>`;
+const phone=(time,body,bottom)=>status(time)+`<div class="scr">${body}</div><div class="bottom">${bottom||''}</div>`;
+
+const STEPS=[
+ {t:"Invited",s:"A colleague refers her",phase:0,
+  body:()=>phone("Mon 13 Oct · 20:14",bar("Mail")+`<div class="mail"><h3>Sanne K. thinks you could answer questions like this</h3><div class="from">A2H ‹invite@a2h.dev› · to marieke@…</div>
+   <p>Sanne answers patient-education questions on A2H and referred you for ones she can't take. Last month she answered 6 questions in about 4 minutes each and was paid €19 to €35 per answer.</p>
+   <div class="card"><h4>Example of what arrives</h4><p style="margin:0;color:var(--muted);font-size:13px">"Would a newly diagnosed patient find this leaflet wording alarming?" · from a product manager at a medtech company · €25–30 · 2–5 minutes</p></div>
+   <p>You decide what you answer, at what price, and how often you're asked. Nothing reaches you until you've set that.</p></div>`,
+   `<button class="btn primary" onclick="go(1)">See how it works · 1 min</button><button class="btn ghost">Not for me</button>`),
+  notes:`<h3>Lead with the concrete</h3><p>The invitation shows a real example request, a real effort, and real money before asking for anything. Referral is the main acquisition channel: an agent that finds nobody for a topic asks existing participants who they know, and the referrer earns a small credit.</p><div class="principle"><b>Principle</b>Show the thing before the form. Nobody creates a profile for a product they can't picture.</div>`},
+ {t:"Sign in",s:"Email only, nothing else yet",phase:1,
+  body:()=>phone("Mon 13 Oct · 20:15",bar("A2H",false,"1 of 5")+prog(1,5)+`<h2 class="s">Where should questions reach you?</h2><p class="lead">We'll email you a link to each question. No app to install, no password.</p>
+   <div class="field"><label for="em">Email</label><input class="input" id="em" value="marieke.v@umcutrecht.nl"></div>
+   <p class="lead" style="font-size:13px">Your hospital domain can be used to confirm where you work, if you want.</p>`,
+   `<button class="btn primary" onclick="go(2)">Send me a sign-in link</button>`),
+  notes:`<h3>Magic link, one field</h3><p>Email is the only identity needed to receive requests and to answer free lanes. The work-domain hint plants the attestation idea without asking for anything.</p><ul><li>Identity verification is deferred to the first paid request, not front-loaded.</li><li>Passwordless keeps the PWA usable from any device the email lands on.</li></ul>`},
+ {t:"Import",s:"LinkedIn or X fills the profile",phase:1,
+  body:()=>phone("Mon 13 Oct · 20:16",bar("A2H",true,"2 of 5")+prog(2,5)+`<h2 class="s">Tell us what you know, the fast way</h2><p class="lead">Connect a profile and we'll suggest topics from it. You'll edit the result; nothing is published yet.</p>
+   <div class="ident"><span class="logo" style="background:#e8f0f8;color:#0a66c2">in</span><div><b>LinkedIn</b><small>Title, employer, licences, posts you've written</small></div><button class="btn sm" style="margin-left:auto">Connect</button></div>
+   <div class="ident"><span class="logo">𝕏</span><div><b>X</b><small>Topics you post about · verified badge carried over</small></div><button class="btn sm" style="margin-left:auto">Connect</button></div>
+   <div class="card teal" style="font-size:13px"><b>We read, we don't write.</b> Read-only access, used once to draft your topics. We never post, follow, or message for you. Disconnect any time.</div>`,
+   `<button class="btn primary" onclick="go(3)">Connect LinkedIn</button><button class="btn ghost" onclick="go(3)">I'll type my topics instead</button>`),
+  notes:`<h3>Import, then edit</h3><p>Profiles already describe what people know. OAuth read-only import drafts the topic list and carries over whatever verification the network provides (X's badge, LinkedIn's identity check), which becomes a lightweight attestation. The manual path is one tap away and equally first-class.</p><div class="principle"><b>Principle</b>Ask permission for exactly one thing, explain the one thing, and name what you will never do.</div>`},
+ {t:"Topics",s:"Confirm what she can answer",phase:1,
+  body:()=>phone("Mon 13 Oct · 20:17",bar("A2H",true,"3 of 5")+prog(3,5)+`<h2 class="s">Does this look right?</h2><p class="lead">Drafted from LinkedIn. Tap to remove, add your own.</p>
+   <div class="chips">
+     <span class="chip on">Diabetes patient education <small>✓ job title</small></span>
+     <span class="chip on">Insulin therapy, type 1 & 2</span>
+     <span class="chip on">Patient-facing medical writing <small>✓ 3 posts</small></span>
+     <span class="chip on">Glucose monitoring devices</span>
+     <span class="chip">Nursing management</span>
+     <span class="chip">+ Add a topic</span>
+   </div>
+   <div class="card"><h4>Shown to agents as</h4><p style="margin:0;font-size:13px">Diabetes nurse educator · <span class="pill accent">employer confirmed · umcutrecht.nl</span> <span class="pill accent">14 yrs · LinkedIn</span></p><p style="margin:8px 0 0;font-size:12px;color:var(--muted)">Your name is shown only after you accept a request. Agents see a handle and these facts.</p></div>`,
+   `<button class="btn primary" onclick="go(4)">Looks right</button>`),
+  notes:`<h3>Attestation from evidence, not claims</h3><p>Each topic carries where it came from (job title, posts, licence). Self-added topics start unattested and gain weight only through ratings. This is what <code style="font:11px var(--mono)">find_humans</code> ranks on later.</p><ul><li>Name is withheld until acceptance; agents search profiles, not people.</li><li>No more than one screen of chips. Precision comes from ratings over time, not from a long form now.</li></ul>`},
+ {t:"Terms",s:"Rules of engagement",phase:1,
+  body:()=>phone("Mon 13 Oct · 20:19",bar("A2H",true,"4 of 5")+prog(4,5)+`<h2 class="s">Your rules</h2><p class="lead">Agents must follow these. Out-of-scope requests are blocked before they reach you.</p>
+   <div class="card" style="padding:4px 14px">
+     <div class="row">Short reviews & judgments <span class="r">€25</span><span class="toggle on"></span></div>
+     <div class="row">Yes/no checks & polls <span class="r">€8</span><span class="toggle on"></span></div>
+     <div class="row">Written interviews <span class="r">€60</span><span class="toggle"></span></div>
+     <div class="row">Live calls <span class="r">—</span><span class="toggle"></span></div>
+   </div>
+   <div class="card" style="padding:4px 14px">
+     <div class="row">Free if it's about my own publications <span class="toggle on" style="margin-left:auto"></span></div>
+     <div class="row">I usually answer within <span class="r">24h</span></div>
+     <div class="row">At most <span class="r">2 / day</span></div>
+     <div class="row">Quiet hours <span class="r">20:00–08:00</span></div>
+     <div class="row">Who may ask <span class="r">verified orgs & people</span></div>
+   </div>`,
+   `<button class="btn primary" onclick="go(5)">Save my rules</button>`),
+  notes:`<h3>The terms are the contract</h3><p>Reserve price per request type, free lanes, latency, an interruption budget and quiet hours. The platform enforces them at the manifest stage: an agent cannot send a live-call request to someone who disabled live calls, and cannot exceed 2 per day. Spam is prevented structurally, not reported after the fact.</p><ul><li>No counter-offers: the reserve is the one price lever, so the decision at request time is accept or decline.</li><li>Prices default from market data for the topic and can be changed any time.</li></ul>`},
+ {t:"Published",s:"Readable contract, one switch",phase:1,
+  body:()=>phone("Mon 13 Oct · 20:20",bar("A2H",false,"5 of 5")+prog(5,5)+`<h2 class="s">You're reachable</h2>
+   <p class="quote">Agents acting for verified organisations or people may send me short reviews (€25) and yes/no checks (€8) about diabetes patient education and related topics, at most twice a day, never between 20:00 and 08:00. Questions about my own publications are free. I'll usually answer within 24 hours.</p>
+   <div class="row" style="border-top:0">Pause everything <span class="toggle" style="margin-left:auto"></span></div>
+   <div class="card teal" style="font-size:13px">Paid answers need a one-time identity check (2 min, through Stripe) and a payout account. We'll ask when your first paid request arrives, not now.</div>`,
+   `<button class="btn primary" onclick="go(6)">Done</button><button class="btn ghost">Share my A2H page</button>`),
+  notes:`<h3>Plain language, then stop</h3><p>The whole profile is rendered back as one paragraph a person can read and agree with. One switch pauses everything. Payout and ID verification are explicitly deferred to the first paid request, which is the moment the participant is motivated to do them.</p><div class="principle"><b>Principle</b>Onboarding ends at the first moment of value, not at the end of the form.</div>`},
+ {t:"A request",s:"Next day, by email",phase:2,
+  body:()=>phone("Tue 20 Oct · 16:43",bar("Mail")+`<div class="mail"><h3>A short review, €30, about leaflet wording</h3><div class="from">A2H ‹requests@a2h.dev› · to marieke.v@…</div>
+   <p><b>Galem L.</b>, product manager at <b>Automi</b> (verified), asks whether a glucose-monitor leaflet section would alarm a new patient.</p>
+   <dl class="kv"><dt>Effort</dt><dd>2–5 minutes</dd><dt>Offer</dt><dd>€30 · your reserve is €25</dd><dt>By</dt><dd>Wed 21 Oct 16:42</dd><dt>Also sent to</dt><dd>You first. If you decline, 2 others.</dd></dl>
+   <p style="font-size:12px;color:var(--muted)">Within your rules: short review · 1 of 2 today · verified organisation.</p></div>`,
+   `<button class="btn primary" onclick="go(7)">Open the question</button><button class="btn ghost">Decline</button>`),
+  notes:`<h3>The email is thin on purpose</h3><p>Who, what type, how much, by when, and whether others were asked. Enough to decline from the inbox; everything else lives on the request page. The line "within your rules" is the platform showing its work.</p><ul><li>Competition is visible but not anxious: "you first" rather than a race.</li><li>Decline is one tap from the email and carries an optional reason that feeds the principal's internal rating.</li></ul>`},
+ {t:"Accept",s:"The request page",phase:3,
+  body:()=>phone("Tue 20 Oct · 16:44",bar("Request · A2H-7f3c",true)+`<div><span class="pill accent">Short review · €30</span> <span class="pill">expires in 24h</span></div>
+   <h2 class="s" style="font-size:20px">From Galem L., Automi</h2>
+   <p class="quote">Below is the "When to call your doctor" section of a first-use leaflet for a home glucose monitor (EU, reading age 12). Would a newly diagnosed patient find this wording alarming? If so, which sentence, and how would you soften it without losing the safety message?</p>
+   <div class="card"><h4>Attachment</h4><p style="margin:0;font-size:13px;color:var(--muted)">when_to_call.pdf · 140 words · opens here</p></div>
+   <dl class="kv"><dt>Format</dt><dd>Yes/no, confidence, short note (text or voice)</dd><dt>Your answer</dt><dd>Stored in their workspace · not published · not used for training</dd><dt>Paid</dt><dd>€30 held; you receive what clears, at least your €25 reserve</dd></dl>`,
+   `<button class="btn primary" onclick="go(8)">Accept and answer</button><button class="btn ghost">Decline</button>`),
+  notes:`<h3>Everything the manifest promised, verbatim</h3><p>The question is shown exactly as the principal approved it. Data terms and money are stated before acceptance, not after. There is no negotiation step: accept or decline.</p><p>Accepting starts a timer the principal can see ("accepted at 16:44, has it open") and locks the hold.</p>`},
+ {t:"Verify once",s:"First paid request only",phase:4,
+  body:()=>phone("Tue 20 Oct · 16:45",bar("A2H",true)+`<h2 class="s">One check before your first paid answer</h2><p class="lead">So that paid answers come from real, identifiable people. Two minutes, once.</p>
+   <div class="ident"><span class="logo">ID</span><div><b>Confirm your identity</b><small>Passport or ID card, via Stripe Identity</small></div><span class="pill pend" style="margin-left:auto">2 min</span></div>
+   <div class="ident"><span class="logo">€</span><div><b>Where to pay you</b><small>IBAN, via Stripe · payouts every Friday</small></div><span class="pill pend" style="margin-left:auto">1 min</span></div>
+   <p class="lead" style="font-size:13px">Your request stays accepted and the hold is kept while you do this. You can also answer now and verify before Friday's payout.</p>`,
+   `<button class="btn primary" onclick="go(9)">Verify with Stripe</button><button class="btn ghost" onclick="go(9)">Answer first, verify before payout</button>`),
+  notes:`<h3>Just-in-time verification</h3><p>ID verification is required for paid lanes only, and it is asked at the first paid request, when the participant has a concrete reason. Free-lane participants never see this screen.</p><ul><li>Stripe Identity and Stripe Connect are one flow, in Stripe's own pages; the PWA never handles documents or bank details.</li><li>Letting her answer first and verify before payout keeps the principal's latency promise intact.</li></ul>`},
+ {t:"Answer",s:"Verdict, confidence, voice note",phase:5,
+  body:()=>phone("Tue 20 Oct · 16:49",bar("Your answer",true)+`<div class="field"><label>Would a new patient find it alarming?</label><div class="seg"><button class="on">Yes</button><button>No</button><button>Can't tell</button></div></div>
+   <div class="field"><label>How sure are you?</label><div class="conf"><button>1</button><button>2</button><button>3</button><button class="on">4</button><button>5</button></div></div>
+   <div class="field"><label>Which sentence, and how would you soften it?</label>
+     <div class="audio"><span class="mic">●</span><div class="wave">${Array.from({length:28},(_,i)=>`<i style="height:${4+Math.round(10*Math.abs(Math.sin(i*1.3)))+ (i%5)}px"></i>`).join('')}</div><span class="t">0:41</span></div>
+     <div class="transcript">"The sentence about diabetic coma will frighten people, new patients fixate on the word coma. Keep the fifteen millimole threshold but drop the outcome: if your reading is above fifteen twice in a row, call your care team today. The rest reads fine for a twelve-year-old." <a href="#" onclick="return false">Edit transcript</a></div>
+     <button class="btn ghost" style="text-align:left;padding:4px 0">Type instead</button>
+   </div>
+   <div class="row" style="border-top:1px solid var(--line);font-size:13px">I answered this myself <span class="pill human" style="margin-left:auto">required</span></div>`,
+   `<button class="btn primary" onclick="go(10)">Send answer · €30 held</button>`),
+  notes:`<h3>Structured first, voice for the rest</h3><p>The verdict and confidence are tap targets, because they are what the agent will act on and what ratings will compare. The free-text part accepts a voice note, transcribed on device or server, with the transcript shown for correction; the principal gets both audio and text.</p><ul><li>Voice roughly halves answering time on a phone for a two-sentence opinion, and the spoken register is exactly the "organic human answer" the protocol is for.</li><li>"Can't tell" is a first-class answer and is never penalised in ratings.</li><li>No agent assistance: the attestation "I answered this myself" is part of the signature.</li></ul>`},
+ {t:"Paid",s:"Signed, cleared, rate the asker",phase:6,
+  body:()=>phone("Tue 20 Oct · 16:50",bar("Sent",false)+`<p class="big">€28</p><p class="lead">Cleared at the auction price (€30 bid, €25 reserve). Paid out Friday 24 Oct with your other answers.</p>
+   <dl class="kv"><dt>Request</dt><dd>A2H-7f3c · answered in 7 min</dd><dt>Signature</dt><dd><code style="font:11px var(--mono)">a2h:sig:…c91e</code></dd><dt>Your answer</dt><dd>Can be cited by them as "reviewed by M.V., 20 Oct 2026"</dd></dl>
+   <div class="card"><h4>How was this request?</h4><p style="margin:0 0 8px;font-size:13px;color:var(--muted)">Clear question, fair offer, respected your rules. Only A2H sees this.</p><div class="stars"><span>1</span><span>2</span><span>3</span><span>4</span><span class="on">5</span></div></div>
+   <p class="lead" style="font-size:13px">They may ask one follow-up on this thread (€10). You can decline it.</p>`,
+   `<button class="btn primary" onclick="go(11)">Done</button>`),
+  notes:`<h3>Settlement is immediate, payout is batched</h3><p>The participant sees the cleared amount the second she sends, and the Friday batch keeps Stripe fees sane. The rating goes both ways and stays internal: it shapes which principals get through to her later and never becomes a public score.</p><p>The follow-up is announced as possible, priced, and declinable, so a threaded request never surprises.</p>`},
+ {t:"Home",s:"Inbox, earnings, demand",phase:6,
+  body:()=>phone("Fri 24 Oct · 09:30",bar("A2H",false)+`<div class="tiles"><div class="tile"><b>€104</b><small>paid out today</small></div><div class="tile"><b>4</b><small>answered this month</small></div><div class="tile"><b>11 min</b><small>median time to answer</small></div><div class="tile"><b>2</b><small>declined · 1 out of scope blocked</small></div></div>
+   <div class="card" style="padding:4px 14px"><div class="row"><span class="pill pend">new</span> Yes/no check · €8 · 1 of 60 panel <span class="r">by 18:00</span></div><div class="row"><span class="pill ok">paid</span> Short review · Galem L. <span class="r">€28</span></div><div class="row"><span class="pill ok">paid</span> Short review · T. Okafor <span class="r">€25</span></div><div class="row"><span class="pill">free</span> About your 2024 paper <span class="r">€0</span></div></div>
+   <div class="card teal" style="font-size:13px"><b>Demand for your topics</b><br>9 requests for "patient-facing medical writing" this month went to others at €25–40. You accept this type at €25. <a href="#" onclick="return false">Review your rules</a></div>`,
+   `<button class="btn ghost">Profile & rules · Pause</button>`),
+  notes:`<h3>The home screen is an inbox plus a mirror</h3><p>Pending requests sorted by expiry, what was paid, and what was blocked on her behalf ("1 out of scope blocked" is the spam defence made visible). The demand panel is the only analytics that matters at launch: it tells her where her reserve sits relative to the market, which keeps the auction honest without ever showing a bidding war.</p><p>Everything here is reachable from the email links; the PWA is installable but never required.</p>`},
+];
+
+let cur=0;
+const rail=document.getElementById('rail'),ph=document.getElementById('phone'),notes=document.getElementById('notes'),trace=document.getElementById('trace'),pos=document.getElementById('pos');
+STEPS.forEach((s,i)=>{const b=document.createElement('button');b.className='step-btn';b.innerHTML=`<span class="n">${String(i).padStart(2,'0')}</span><span><b>${s.t}</b><small>${s.s}</small></span>`;b.onclick=()=>go(i);rail.appendChild(b)});
+function go(i){cur=Math.max(0,Math.min(STEPS.length-1,i));render()}
+function render(){
+  const s=STEPS[cur];ph.innerHTML=s.body();notes.innerHTML=s.notes;
+  [...rail.querySelectorAll('.step-btn')].forEach((b,i)=>{if(i===cur)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current')});
+  trace.innerHTML=PHASES.map((p,i)=>`<li class="${i<s.phase?'done':i===s.phase?'now':''}"><i></i>${p[0]}<code>${p[1]}</code></li>`).join('');
+  pos.textContent=`${cur+1} / ${STEPS.length}`;
+  document.getElementById('prev').disabled=cur===0;document.getElementById('next').disabled=cur===STEPS.length-1;
+  try{history.replaceState(null,'','#s'+cur)}catch(e){}
+  ph.scrollIntoView({block:'nearest'});
+}
+document.getElementById('prev').onclick=()=>go(cur-1);document.getElementById('next').onclick=()=>go(cur+1);
+document.addEventListener('keydown',e=>{if(['TEXTAREA','INPUT'].includes(e.target.tagName))return;if(e.key==='ArrowRight')go(cur+1);if(e.key==='ArrowLeft')go(cur-1)});
+const m=(location.hash||'').match(/^#s(\d+)$/);go(m?+m[1]:0);
+</script>

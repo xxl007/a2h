@@ -1,0 +1,12 @@
+{
+  "name": "@a2h/tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright e2e, MCP contract tests, adversarial suite.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

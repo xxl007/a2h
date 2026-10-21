@@ -1,0 +1,12 @@
+{
+  "name": "@a2h/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Drizzle schema + migrations (Postgres).",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  }
+}

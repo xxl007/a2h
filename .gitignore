@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+coverage/
+playwright-report/
+test-results/
+storybook-static/
+
+# sst
+.sst/
+.open-next/
+
+# env and secrets (secrets live in env or Secrets Manager, never in the repo)
+.env
+.env.*
+!.env.example
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+
+# local claude state
+.claude/settings.local.json
+
+# handoff archives
+*.zip
