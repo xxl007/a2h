@@ -1,8 +1,10 @@
 {
+  // Typecheck config (editor, ESLint, `pnpm typecheck`): src and test, no emit.
+  // `build` uses tsconfig.build.json, which emits src only.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist"
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

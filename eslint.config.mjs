@@ -23,12 +23,11 @@ export default defineConfig([
     languageOptions: {
       parserOptions: {
         // Each file is typed by the nearest tsconfig.json, as `tsc` does.
-        // Test files under apps/*/test are outside their package's tsconfig
-        // (which builds src/ only) and are typed by the base config instead.
-        projectService: {
-          allowDefaultProject: ["apps/*/test/*.ts"],
-          defaultProject: "tsconfig.base.json",
-        },
+        // Every linted .ts file must be in its package's tsconfig.json
+        // (apps include src and test; build emits from tsconfig.build.json).
+        // No default project: a file outside every tsconfig is an error,
+        // not silently typed against the repo root.
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
