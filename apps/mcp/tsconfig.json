@@ -2,7 +2,10 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    // Sources import siblings as `./x.ts` so that `node --test` (type
+    // stripping) and infra/ can load them; tsc rewrites to `./x.js` on emit.
+    "rewriteRelativeImportExtensions": true
   },
   "include": ["src"]
 }

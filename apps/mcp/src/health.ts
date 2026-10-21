@@ -1,12 +1,9 @@
 // Placeholder for the first `dev` deploy (M0 step 4): answers the ALB health
 // check so the service stabilises. Step 5 replaces it with the MCP server.
 import { createServer, type Server } from "node:http";
+import { healthPathFor } from "./health-path.ts";
 
-/** `/mcp` -> `/healthz`, `/pr-12/mcp` -> `/pr-12/healthz`. */
-export function healthPathFor(mcpBasePath: string): string {
-  const trimmed = mcpBasePath.replace(/\/+$/, "");
-  return `${trimmed.replace(/\/mcp$/, "")}/healthz`;
-}
+export { healthPathFor };
 
 export function createHealthServer(mcpBasePath: string): Server {
   const healthPath = healthPathFor(mcpBasePath);
