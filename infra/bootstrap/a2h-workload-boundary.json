@@ -2,9 +2,90 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "WorkloadCeiling",
+      "Sid": "A2HDataOnly",
       "Effect": "Allow",
-      "Action": "*",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": [
+        "arn:aws:s3:::a2h-*"
+      ]
+    },
+    {
+      "Sid": "A2HQueuesTablesFunctions",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:*",
+        "dynamodb:*",
+        "lambda:InvokeFunction",
+        "lambda:GetFunction"
+      ],
+      "Resource": [
+        "arn:aws:sqs:*:725960317785:a2h-*",
+        "arn:aws:dynamodb:*:725960317785:table/a2h-*",
+        "arn:aws:lambda:*:725960317785:function:a2h-*"
+      ]
+    },
+    {
+      "Sid": "A2HSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:eu-west-3:725960317785:secret:a2h/*",
+        "arn:aws:secretsmanager:eu-west-3:725960317785:secret:rds!cluster-*"
+      ]
+    },
+    {
+      "Sid": "A2HParameters",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": [
+        "arn:aws:ssm:eu-west-3:725960317785:parameter/a2h/*",
+        "arn:aws:ssm:eu-west-3:725960317785:parameter/sst/*"
+      ]
+    },
+    {
+      "Sid": "EmailSending",
+      "Effect": "Allow",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:SendTemplatedEmail",
+        "ses:SendBulkEmail"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RuntimePlumbing",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage",
+        "kms:Decrypt",
+        "cloudwatch:PutMetricData",
+        "xray:PutTraceSegments",
+        "xray:PutTelemetryRecords",
+        "ec2:CreateNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DeleteNetworkInterface",
+        "ec2:AssignPrivateIpAddresses",
+        "ec2:UnassignPrivateIpAddresses",
+        "rds-db:connect",
+        "transcribe:StartTranscriptionJob",
+        "transcribe:GetTranscriptionJob"
+      ],
       "Resource": "*"
     },
     {

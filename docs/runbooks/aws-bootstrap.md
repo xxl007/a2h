@@ -81,19 +81,24 @@ aws iam get-role --profile a2h --role-name gha-a2h-preview --query Role.Arn --ou
 Why this shape:
 
 - `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but no IAM.
-- The inline policy adds IAM only for roles named `a2h-*`, which is how SST names roles (`a2h-<stage>-<component>-<hash>`, checked in SST 4.17.2). It may create or change those roles **only if they carry the boundary** `a2h-workload-boundary`. `sst.config.ts` puts the boundary on every role it creates. It can pass them only to ECS tasks and Lambda. It can never remove a boundary, edit the boundary policy, or touch the `gha-*` roles.
-- So a workflow cannot turn its own role into an administrator. A workload role cannot change identities either.
+- The inline policy adds IAM only for roles named `a2h-*`, which is how SST names roles (`a2h-<stage>-<component>-<hash>`, checked in SST 4.17.2). It may create or change those roles **only if they carry the boundary** `a2h-workload-boundary`. It may attach only the four AWS managed policies SST uses (ECS task execution, Lambda basic, Lambda VPC access, Lambda durable execution). It can pass roles only to ECS tasks and Lambda. It can never remove a boundary, edit the boundary policy, touch the `gha-*` roles, or assume any other role.
+- The boundary caps every workload role at A2H's own resources: S3, SQS, DynamoDB and Lambda named `a2h-*`, secrets under `a2h/` plus the Aurora master secret, parameters under `/a2h/` and `/sst/`. Beyond that, only runtime plumbing (logs, image pull, network interfaces, SES sending, Transcribe), and no IAM or role assumption at all.
 
-Residual risks you accept by approving this for M0:
+**Residual risks: read before you approve. This account also hosts another project.**
 
-- **The preview role is as powerful as the dev role outside IAM.** A same-repository pull request that edits its own workflow could deploy over the `dev` stage, or change other resources in the account, including those of your other project. Only you and the A2H agents push to this repository, and forks get no OIDC token. The clean fix is a separate AWS account for A2H, or for previews, under AWS Organizations; it is worth doing before M3, when real participant data exists.
-- **The preview trust cannot be pinned to a branch.** GitHub's pull-request token has no branch in its subject. Access Analyzer warns about exactly this, and it is the reason for the first point.
-- **The `dev` stage still connects to Postgres as the master user** (previews do not, see `infra/README.md`). A dedicated application role is a task for the first database change in M1.
-- **Choosing an EC2 NAT instance or a bastion later** (`infra/vpc.ts`) would need `iam:CreateInstanceProfile` added to the inline policy.
+1. **Both deploy roles hold `PowerUserAccess` across the whole account.** A workflow on `main` (dev role) or in a same-repository pull request (preview role) can change any non-IAM resource in this account. That includes replacing the code of the other project's Lambda functions or ECS tasks, and so acting with that project's roles. The policies above close the direct IAM routes, but they cannot close this indirect one while two projects share an account.
+2. **A pull request can create a role under the boundary that trusts an outside account.** The boundary now limits such a role to A2H's own data, but that data includes the Aurora master secret.
+3. **The preview trust cannot be pinned to a branch**, because GitHub's pull-request token carries no branch. Access Analyzer warns about exactly this.
+4. **The `dev` stage connects to Postgres as the master user**, which previews do not (see `infra/README.md`). A dedicated application role is a task for the first database change in M1.
+5. **Choosing an EC2 NAT instance or a bastion later** (`infra/vpc.ts`) would need `iam:CreateInstanceProfile` and the `AmazonSSMManagedInstanceCore` policy added.
+
+**Recommendation: give A2H its own AWS account before you set `A2H_DEPLOY_ENABLED`.** Use AWS Organizations, which is free: create a member account "a2h" from this one, then run this runbook in the new account. That turns risks 1 and 2 into "can affect A2H only". The cost is about 30 minutes: one email address, an `OrganizationAccountAccessRole`, a new CLI profile, and a new GitHub OIDC provider in the new account (`aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com`). Then replace `725960317785` in `infra/bootstrap/*.json` and in the commands of this runbook with the new account ID. If you keep the shared account for M0, record that choice when you approve the PR.
 
 Session length: `sst deploy` of a fresh stage with two arm64 container builds under emulation takes 10 to 30 minutes. The 2-hour maximum session is headroom.
 
 ## 4. GitHub repository variables (5 minutes)
+
+Needs `gh` 2.31 or later for `gh variable` (`gh --version`; this machine had 2.18.1 on 2026-10-21, upgrade with your package manager).
 
 These are variables, not secrets. No AWS key exists anywhere in GitHub, which is what the `preview-environments` spec scenario "Secrets inventory" checks.
 
@@ -193,6 +198,8 @@ aws iam put-user-policy --profile a2h --user-name galem --policy-name a2h-logs-i
 Keep a break-glass path (root with MFA, or a second admin user without keys) for the rare manual change.
 
 ## 11. Stripe (M4, not now)
+
+Setting SST secrets writes to the state bucket, so it needs write access that §10 removes from your user. Use a short admin session (for example IAM Identity Center) for this step.
 
 Test mode only until you say otherwise (CLAUDE.md). When the M4 change lands, its proposal names the secrets; you set them with the SST CLI from your machine (this writes encrypted values to the state bucket, it does not deploy):
 

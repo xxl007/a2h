@@ -7,15 +7,33 @@
       "Action": [
         "iam:CreateRole",
         "iam:PutRolePermissionsBoundary",
-        "iam:AttachRolePolicy",
-        "iam:DetachRolePolicy",
         "iam:PutRolePolicy",
-        "iam:DeleteRolePolicy"
+        "iam:DeleteRolePolicy",
+        "iam:DetachRolePolicy"
       ],
       "Resource": "arn:aws:iam::725960317785:role/a2h-*",
       "Condition": {
         "StringEquals": {
           "iam:PermissionsBoundary": "arn:aws:iam::725960317785:policy/a2h-workload-boundary"
+        }
+      }
+    },
+    {
+      "Sid": "AttachOnlyTheManagedPoliciesSstUses",
+      "Effect": "Allow",
+      "Action": "iam:AttachRolePolicy",
+      "Resource": "arn:aws:iam::725960317785:role/a2h-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PermissionsBoundary": "arn:aws:iam::725960317785:policy/a2h-workload-boundary"
+        },
+        "ArnEquals": {
+          "iam:PolicyARN": [
+            "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicDurableExecutionRolePolicy"
+          ]
         }
       }
     },
@@ -105,6 +123,16 @@
       "Effect": "Deny",
       "Action": "iam:*",
       "Resource": "arn:aws:iam::725960317785:role/gha-*"
+    },
+    {
+      "Sid": "NoRoleHopping",
+      "Effect": "Deny",
+      "Action": [
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithSAML",
+        "sts:AssumeRoleWithWebIdentity"
+      ],
+      "Resource": "*"
     }
   ]
 }
