@@ -16,6 +16,14 @@
 # Invariant: the last run in the group always runs, and any run that sees the
 # PR closed tears down.
 #
+# require-closed (preview.yml passes true): the caller's view of the state is
+# stale by the time this job holds the group. If the PR was reopened in
+# between, the reopen's deploy may already have run; tearing down would remove
+# an open PR's preview. So the first step re-reads the state (retried, failing
+# rather than guessing) and, if the PR is open, every other step is skipped and
+# the PR comment is left alone. teardown.yml (the closed event itself) does not
+# pass it, and its behaviour is unchanged: no GitHub API call.
+#
 # Role: vars.AWS_PREVIEW_ROLE_ARN (gha-a2h-preview), trusted only for
 # repo:xxl007/a2h:pull_request. Called only from pull_request workflows, so the
 # github context (event, PR number, head SHA) is the caller's. Actions in the
@@ -24,6 +32,11 @@ name: Preview teardown
 
 on:
   workflow_call:
+    inputs:
+      require-closed:
+        description: Re-read the PR state first and skip the teardown if the PR is open.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,7 +60,42 @@ jobs:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       STAGE: pr-${{ github.event.pull_request.number }}
     steps:
+      - name: Re-read the PR state (when called from preview.yml)
+        id: gate
+        env:
+          REQUIRE_CLOSED: ${{ inputs.require-closed }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$REQUIRE_CLOSED" != "true" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          state=""
+          for attempt in 1 2 3 4 5; do
+            if out=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state); then
+              case "$out" in
+                open | closed) state=$out; break ;;
+                *) echo "::warning::PR #$PR_NUMBER: unexpected state '$out' (attempt $attempt of 5)" ;;
+              esac
+            else
+              echo "::warning::Reading the state of PR #$PR_NUMBER failed (attempt $attempt of 5)"
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep $((2 ** attempt)); fi
+          done
+          if [ -z "$state" ]; then
+            echo "::error::Could not read the state of PR #$PR_NUMBER after 5 attempts; failing instead of assuming it is open."
+            exit 1
+          fi
+          echo "PR #$PR_NUMBER is $state"
+          if [ "$state" = "open" ]; then
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR #$PR_NUMBER is open again: teardown skipped, preview and comment left as they are."
+          else
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.gate.outputs.proceed == 'true'
         with:
           # The merge ref may be gone once the PR is closed; use the head commit,
           # which is the sst.config.ts that was deployed.
@@ -58,6 +106,7 @@ jobs:
       # install (and therefore sst remove) fails.
       - name: Configure AWS credentials (OIDC, no long-lived keys)
         id: aws
+        if: steps.gate.outputs.proceed == 'true'
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           role-to-assume: ${{ vars.AWS_PREVIEW_ROLE_ARN }}
@@ -65,18 +114,22 @@ jobs:
           role-session-name: a2h-teardown-pr-${{ github.event.pull_request.number }}
 
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        if: steps.gate.outputs.proceed == 'true'
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.gate.outputs.proceed == 'true'
         with:
           node-version-file: .nvmrc
           cache: pnpm
 
       - name: Install
+        if: steps.gate.outputs.proceed == 'true'
         run: pnpm install --frozen-lockfile
 
       # 1. Remove the stage first: its services hold connections as pr_<n>.
       - name: Remove stage ${{ env.STAGE }}
         id: remove
+        if: steps.gate.outputs.proceed == 'true'
         continue-on-error: true
         run: pnpm exec sst remove --stage "$STAGE" --print-logs
 
@@ -84,12 +137,12 @@ jobs:
       #    terminates any session left), as long as we hold AWS credentials.
       - name: Drop database login, schema and secret pr_${{ github.event.pull_request.number }}
         id: drop
-        if: ${{ !cancelled() && steps.aws.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.gate.outputs.proceed == 'true' && steps.aws.outcome == 'success' }}
         continue-on-error: true
         run: .github/scripts/pr-schema.sh drop "$PR_NUMBER"
 
       - name: Write PR comment
-        if: always()
+        if: always() && steps.gate.outputs.proceed == 'true'
         env:
           DROP_OUTCOME: ${{ steps.drop.outcome || 'not run' }}
           REMOVE_OUTCOME: ${{ steps.remove.outcome || 'not run' }}
@@ -114,7 +167,7 @@ jobs:
           } > "$RUNNER_TEMP/teardown-comment.md"
 
       - name: Comment on PR
-        if: always()
+        if: always() && steps.gate.outputs.proceed == 'true'
         uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
         with:
           header: a2h-preview
@@ -123,7 +176,7 @@ jobs:
       # continue-on-error keeps the job going to the drop and the comment; this
       # step makes the job red when either part failed.
       - name: Fail if the teardown is incomplete
-        if: always() && (steps.remove.outcome != 'success' || steps.drop.outcome != 'success')
+        if: always() && steps.gate.outputs.proceed == 'true' && (steps.remove.outcome != 'success' || steps.drop.outcome != 'success')
         env:
           DROP_OUTCOME: ${{ steps.drop.outcome || 'not run' }}
           REMOVE_OUTCOME: ${{ steps.remove.outcome || 'not run' }}

@@ -47,10 +47,14 @@ jobs:
     concurrency:
       group: preview-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
-    # 'true' when either state check found the PR not open: the teardown job
-    # below then runs the same sequence as teardown.yml.
+    # 'true' when either state check found the PR not open, or could not read
+    # it after its retries (the step fails, the run is red): the teardown job
+    # below then runs the same sequence as teardown.yml, after re-reading the
+    # state itself (require-closed), so an open PR is never torn down.
     outputs:
-      closed: ${{ steps.open.outputs.open == 'false' || steps.state.outputs.open == 'false' }}
+      closed: >-
+        ${{ steps.open.outputs.open == 'false' || steps.state.outputs.open == 'false' ||
+        steps.open.outcome == 'failure' || steps.state.outcome == 'failure' }}
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       STAGE: pr-${{ github.event.pull_request.number }}
@@ -59,10 +63,27 @@ jobs:
       # No resurrection after close. The PR may have been closed while CI ran:
       # then nothing is created, not even the database login, and the teardown
       # job runs instead (its own teardown.yml run may have been cancelled).
+      # Both state reads retry 5 times with backoff and fail the step if gh
+      # never answers: an unreadable state is never taken as open or closed.
       - name: Check the PR is still open
         id: open
         run: |
-          state=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)
+          state=""
+          for attempt in 1 2 3 4 5; do
+            if out=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state); then
+              case "$out" in
+                open | closed) state=$out; break ;;
+                *) echo "::warning::PR #$PR_NUMBER: unexpected state '$out' (attempt $attempt of 5)" ;;
+              esac
+            else
+              echo "::warning::Reading the state of PR #$PR_NUMBER failed (attempt $attempt of 5)"
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep $((2 ** attempt)); fi
+          done
+          if [ -z "$state" ]; then
+            echo "::error::Could not read the state of PR #$PR_NUMBER after 5 attempts; failing instead of assuming it is open."
+            exit 1
+          fi
           echo "PR #$PR_NUMBER is $state"
           if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
           else
@@ -118,7 +139,22 @@ jobs:
         id: state
         if: steps.open.outputs.open == 'true'
         run: |
-          state=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)
+          state=""
+          for attempt in 1 2 3 4 5; do
+            if out=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state); then
+              case "$out" in
+                open | closed) state=$out; break ;;
+                *) echo "::warning::PR #$PR_NUMBER: unexpected state '$out' (attempt $attempt of 5)" ;;
+              esac
+            else
+              echo "::warning::Reading the state of PR #$PR_NUMBER failed (attempt $attempt of 5)"
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep $((2 ** attempt)); fi
+          done
+          if [ -z "$state" ]; then
+            echo "::error::Could not read the state of PR #$PR_NUMBER after 5 attempts; failing instead of assuming it is open."
+            exit 1
+          fi
           echo "PR #$PR_NUMBER is $state"
           if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
           else
@@ -193,13 +229,18 @@ jobs:
             earlier may serve an older commit or nothing. Run log:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-  # The PR was found not open by the deploy job: run the same idempotent
+  # The PR was found not open (or its state unreadable) by the deploy job: run the same idempotent
   # sequence as teardown.yml (sst remove, then pr-schema.sh drop, then the PR
   # comment), in the same concurrency group.
+  # require-closed: the PR may be reopened, and redeployed by the reopen's
+  # run, between the deploy job above and this job taking the group. The
+  # teardown re-reads the state first and skips (comment untouched) if open.
   teardown:
     needs: deploy
     if: ${{ !cancelled() && needs.deploy.outputs.closed == 'true' }}
     uses: ./.github/workflows/preview-teardown.yml
+    with:
+      require-closed: true
     permissions:
       id-token: write
       contents: read
