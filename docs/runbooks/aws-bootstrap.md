@@ -31,7 +31,7 @@ aws budgets create-budget --profile a2h --account-id 725960317785 \
   --notifications-with-subscribers '[{"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"galem@automi.ai"}]}]'
 ```
 
-Approximate steady cost of the `dev` stage while idle (eu-west-3 list prices, no reserved capacity): one ALB about €18/month, two Fargate tasks (0.25 vCPU / 0.5 GB, arm64) about €16/month, Aurora Serverless v2 at 0 ACU when idle about €0 plus storage, CloudMap €0.50, CloudFront/Lambda/S3 near zero at M0 traffic. Each open preview adds two more tasks (Fargate Spot) for as long as the PR is open. There is no NAT gateway (tasks run in public subnets behind the ALB security group, see `infra/README.md`).
+Approximate steady cost of the `dev` stage while idle (eu-west-3 list prices, no reserved capacity): one ALB about €18/month, two Fargate tasks (0.25 vCPU / 0.5 GB, arm64) about €16/month, Aurora Serverless v2 at 0 ACU when idle about €0 plus storage, CloudMap €0.50, CloudFront/Lambda/S3 near zero at M0 traffic. Each open preview adds two more tasks (Fargate Spot) for as long as the PR is open. There is no NAT gateway: the Fargate tasks run in public subnets with public IPs and the VPC default security group, which is SST's default (see `infra/README.md` and the open items in the step-4 PR).
 
 ## 2. Rotate the bootstrap access key (5 minutes)
 
@@ -66,7 +66,7 @@ aws iam put-role-policy --profile a2h --role-name a2h-github-deploy \
 aws iam get-role --profile a2h --role-name a2h-github-deploy --query Role.Arn --output text
 ```
 
-Why this shape: `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but denies IAM. The inline policy adds IAM only for roles and policies whose names start with `a2h-` (SST prefixes every resource with the app name) plus the service-linked roles ECS, ELB, RDS and autoscaling need. It is still broad. Narrow it after a few deploys with IAM Access Analyzer policy generation from CloudTrail, as SST's own guidance recommends.
+Why this shape: `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but denies IAM. The inline policy adds IAM only for roles and policies whose names start with `a2h-` (SST names roles `a2h-<stage>-<component>-<hash>`; checked in SST 4.17.2 `naming.ts`, with a fallback that drops the prefix only for names longer than 64 characters) plus the service-linked roles ECS, ELB, RDS and autoscaling need. It is still broad. Narrow it after a few deploys with IAM Access Analyzer policy generation from CloudTrail, as SST's own guidance recommends.
 
 Session length: `sst deploy` of a fresh stage with two container builds takes 10 to 25 minutes; the OIDC session defaults to 1 hour, so the 2-hour maximum above is headroom, not a requirement.
 
@@ -113,7 +113,11 @@ When it finishes, verify from your machine (read-only):
 ```sh
 aws ssm get-parameters-by-path --profile a2h --path /a2h/shared/ --query 'Parameters[].[Name,Value]' --output table
 aws ecs list-services --profile a2h --cluster "$(aws ssm get-parameter --profile a2h --name /a2h/shared/cluster-id --query Parameter.Value --output text)" --output table
-curl -si "http://$(aws elbv2 describe-load-balancers --profile a2h --query 'LoadBalancers[?contains(LoadBalancerName, `a2h-dev`)].DNSName' --output text)/healthz" | head -1   # expect HTTP/1.1 200
+ALB_ARN=$(aws ssm get-parameter --profile a2h --name /a2h/shared/alb-arn --query Parameter.Value --output text)
+ALB_DNS=$(aws elbv2 describe-load-balancers --profile a2h --load-balancer-arns "$ALB_ARN" --query 'LoadBalancers[0].DNSName' --output text)
+curl -si "http://$ALB_DNS/healthz" | head -1                                           # expect HTTP/1.1 200
+aws elbv2 describe-load-balancer-attributes --profile a2h --load-balancer-arn "$ALB_ARN" \
+  --query "Attributes[?Key=='idle_timeout.timeout_seconds'].Value" --output text      # expect 3600
 ```
 
 The eight `/a2h/shared/*` parameters are what every `pr-<n>` stage reads; if they are missing, previews cannot deploy. From now on every pull request from this repository gets a preview and a comment with its URLs; closing it tears the stage down and drops its schema.
