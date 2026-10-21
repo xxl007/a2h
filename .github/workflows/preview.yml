@@ -47,20 +47,28 @@ jobs:
     concurrency:
       group: preview-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
+    # 'true' when either state check found the PR not open: the teardown job
+    # below then runs the same sequence as teardown.yml.
+    outputs:
+      closed: ${{ steps.open.outputs.open == 'false' || steps.state.outputs.open == 'false' }}
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       STAGE: pr-${{ github.event.pull_request.number }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      # No resurrection after close. The PR may have been closed, and its teardown
-      # finished, while CI ran: then nothing is created, not even the database login.
+      # No resurrection after close. The PR may have been closed while CI ran:
+      # then nothing is created, not even the database login, and the teardown
+      # job runs instead (its own teardown.yml run may have been cancelled).
       - name: Check the PR is still open
         id: open
         run: |
           state=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)
           echo "PR #$PR_NUMBER is $state"
           if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
-          else echo "::notice::PR #$PR_NUMBER is $state: no preview is created."; fi
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR #$PR_NUMBER is $state: no preview is created; the teardown runs instead."
+          fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: steps.open.outputs.open == 'true'
@@ -102,9 +110,10 @@ jobs:
         if: steps.open.outputs.open == 'true'
         run: .github/scripts/pr-schema.sh create "$PR_NUMBER"
 
-      # Re-read immediately before the deploy: a close during the steps above
-      # queues the teardown behind this job (same concurrency group), and a
-      # deploy now would only be removed again. The teardown drops the login.
+      # Re-read immediately before the deploy: a deploy of a closed PR would
+      # only be removed again. The login created above is dropped by the
+      # teardown job below (not by the queued teardown.yml run, which a newer
+      # deploy run may cancel while it is pending).
       - name: Re-read the PR state
         id: state
         if: steps.open.outputs.open == 'true'
@@ -112,7 +121,10 @@ jobs:
           state=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)
           echo "PR #$PR_NUMBER is $state"
           if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
-          else echo "::notice::PR #$PR_NUMBER is $state: deploy and PR comment skipped."; fi
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR #$PR_NUMBER is $state: deploy skipped; the teardown runs instead."
+          fi
 
       - name: Deploy stage ${{ env.STAGE }}
         id: deploy
@@ -180,6 +192,18 @@ jobs:
             Commit `${{ github.event.pull_request.head.sha }}` did not deploy. Any URLs posted
             earlier may serve an older commit or nothing. Run log:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # The PR was found not open by the deploy job: run the same idempotent
+  # sequence as teardown.yml (sst remove, then pr-schema.sh drop, then the PR
+  # comment), in the same concurrency group.
+  teardown:
+    needs: deploy
+    if: ${{ !cancelled() && needs.deploy.outputs.closed == 'true' }}
+    uses: ./.github/workflows/preview-teardown.yml
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
 
   skipped:
     name: previews not enabled
