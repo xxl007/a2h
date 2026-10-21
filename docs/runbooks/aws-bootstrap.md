@@ -172,6 +172,16 @@ pnpm exec sst secret set StripeSecretKey sk_test_... --fallback      # used by p
 
 Secrets never enter the repository, `.env` files are gitignored, and workflow logs mask them.
 
-## 12. Report back
+## 12. If a deploy is interrupted: state lock
+
+SST locks a stage's state during `deploy` and `remove`. The workflows never cancel a running deploy, but a runner timeout or a manual cancel can leave the lock behind, and the next run for that stage then fails with a lock error. From your machine:
+
+```sh
+pnpm exec sst unlock --stage pr-<n>     # or --stage dev
+```
+
+Then re-run the failed workflow from the Actions tab. Only unlock when no run for that stage is in progress.
+
+## 13. Report back
 
 Tell the PM: the role ARN, that the variables are set, the `deploy.yml` run URL, the eight SSM parameters, the `healthz` result, and your decisions on domain, sender and upload retention. Step 5 (hello world, GATE 2) starts after that.
