@@ -3,30 +3,36 @@
 // pr-<n> `/pr-<n>/*` (priority 100 + n). See config.ts stageInfo.
 import { MCP_PORT, type StageInfo } from "./config.ts";
 import { serviceListener } from "./cluster.ts";
-import { databaseEnv, type Database } from "./database.ts";
+import { databaseEnv, type DbAccess } from "./database.ts";
+import { storageArgs, type StorageGrant } from "./storage.ts";
 
 export interface ServiceDeps {
   stage: StageInfo;
   cluster: sst.aws.Cluster;
-  database: Database;
-  uploads: sst.aws.Bucket;
+  /** Endpoint and credentials: master on dev/prod, `pr_<n>` on previews. */
+  db: DbAccess;
+  /** `link` on dev/prod; prefix-scoped object permissions on previews. */
+  storage: StorageGrant;
   email: sst.aws.Email | undefined;
 }
 
-/** Environment, secrets and links shared by the MCP and worker containers. */
-export function containerConfig({ stage, database, uploads, email }: ServiceDeps) {
-  const db = databaseEnv(database, stage);
+/** Environment, secrets, links and permissions shared by the MCP and worker containers. */
+export function containerConfig({ stage, db, storage, email }: ServiceDeps) {
+  const database = databaseEnv(db, stage);
+  const store = storageArgs(storage);
   return {
     environment: {
       PORT: String(MCP_PORT),
       STAGE: stage.name,
       MCP_BASE_PATH: stage.mcpBasePath,
       STORAGE_PREFIX: stage.storagePrefix,
-      ...db.environment,
+      ...store.environment,
+      ...database.environment,
     },
-    ssm: db.ssm,
+    ssm: database.ssm,
     // `link` grants the task role least-privilege IAM on these resources.
-    link: email ? [uploads, email] : [uploads],
+    link: [...store.link, ...(email ? [email] : [])],
+    permissions: store.permissions,
   };
 }
 
@@ -42,6 +48,9 @@ export function createMcp(deps: ServiceDeps, alb: sst.aws.Alb) {
     scaling: stage.mcpScaling,
     ...(stage.spot ? { capacity: "spot" as const } : {}),
     ...containerConfig(deps),
+    // Contract amendment 1: `sst deploy` waits for a steady, healthy service
+    // (ECS waitForSteadyState), so an unhealthy deploy fails the job.
+    wait: true,
     logging: { retention: stage.logRetention },
     loadBalancer: {
       instance: alb,

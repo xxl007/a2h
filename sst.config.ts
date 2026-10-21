@@ -16,6 +16,21 @@ export default $config({
     };
   },
   async run() {
+    // Contract amendment 1: every IAM role this app creates carries the
+    // workload permissions boundary (deny all IAM and STS role assumption).
+    // Registered before infra/index.ts is imported and before any component
+    // exists: Pulumi copies the stack's transformations into each resource
+    // when it is constructed, and children inherit them from their parent,
+    // so roles SST creates inside components (Fargate task and execution
+    // roles, Nextjs function roles) are covered. See infra/README.md.
+    const { workloadBoundaryArn } = await import("./infra/config.ts");
+    const boundary = aws.getCallerIdentityOutput().accountId.apply(workloadBoundaryArn);
+    $transform(aws.iam.Role, (args, opts) => {
+      // `Role.get` only reads an existing role; there is nothing to create.
+      if (opts.id) return;
+      args.permissionsBoundary = boundary;
+    });
+
     const { deploy } = await import("./infra/index.ts");
     return deploy($app.stage);
   },
