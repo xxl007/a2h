@@ -40,8 +40,10 @@ prefix=$(sed -nE 's/^export const SHARED_PREFIX = "([^"]+)";.*/\1/p' "$CONFIG")
 param() { sed -nE "/SHARED_PARAMETERS = \\{/,/\\}/ s/^[[:space:]]*$1:[[:space:]]*\"([^\"]+)\",?.*/\\1/p" "$CONFIG"; }
 cluster_param=$(param auroraClusterArn)
 secret_param=$(param auroraSecretArn)
-[ -n "$prefix" ] && [ -n "$cluster_param" ] && [ -n "$secret_param" ] \
-  || { echo "FAIL - could not read SHARED_PREFIX / SHARED_PARAMETERS.auroraClusterArn / auroraSecretArn from infra/config.ts" >&2; exit 1; }
+if [ -z "$prefix" ] || [ -z "$cluster_param" ] || [ -z "$secret_param" ]; then
+  echo "FAIL - could not read SHARED_PREFIX / SHARED_PARAMETERS.auroraClusterArn / auroraSecretArn from infra/config.ts" >&2
+  exit 1
+fi
 
 # pr-<n> schema: StageInfo.dbSchema of the pr branch of stageInfo().
 config_schema=$(sed -nE 's/^[[:space:]]*dbSchema:[[:space:]]*`([^`]*\$\{[^`]*)`.*/\1/p' "$CONFIG" | head -1 | instantiate)
