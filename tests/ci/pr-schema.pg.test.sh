@@ -34,21 +34,30 @@ C="a2h-pr-schema-test-$$"
 cleanup() { docker rm -f "$C" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
 trap cleanup EXIT
 
-# Synthetic credentials for a container that lives for the duration of this test.
+# Synthetic credentials for a container that lives for the duration of this test,
+# built at runtime (tests/ci/lib/fixtures.sh).
+# shellcheck source=tests/ci/lib/fixtures.sh
+. "$ROOT/tests/ci/lib/fixtures.sh"
+PG_SUPER=$(fixture_token super)
+PG_MASTER=$(fixture_token master)
+PG_OUTSIDER=$(fixture_token outsider)
+PG_WRONG=$(fixture_token wrong)
 # Password authentication over TCP (the image trusts 127.0.0.1 by default,
 # which would let a wrong password through); the socket stays trusted for setup.
-docker run -d --name "$C" -e POSTGRES_PASSWORD=synthetic-superuser \
+docker run -d --name "$C" -e POSTGRES_PASSWORD="$PG_SUPER" \
   -e POSTGRES_INITDB_ARGS="--auth-host=scram-sha-256 --auth-local=trust" "$IMAGE" >/dev/null
 for _ in $(seq 1 60); do
   # The image restarts the server once after init; wait for the final one.
   if docker exec "$C" pg_isready -q -h 127.0.0.1 -U postgres 2>/dev/null \
-    && docker exec -e PGPASSWORD=synthetic-superuser "$C" psql -X -q -U postgres -h 127.0.0.1 -c 'select 1' >/dev/null 2>&1; then break; fi
+    && docker exec -e PGPASSWORD="$PG_SUPER" "$C" psql -X -q -U postgres -h 127.0.0.1 -c 'select 1' >/dev/null 2>&1; then break; fi
   sleep 1
 done
-docker exec -i "$C" psql -X -q -v ON_ERROR_STOP=1 -U postgres >/dev/null <<'SQL'
-CREATE ROLE master LOGIN CREATEROLE CREATEDB PASSWORD 'synthetic-master';
+docker exec -i "$C" psql -X -q -v ON_ERROR_STOP=1 -U postgres >/dev/null <<SQL
+CREATE ROLE master LOGIN CREATEROLE CREATEDB PASSWORD '$PG_MASTER';
 CREATE DATABASE a2h OWNER master;
-CREATE ROLE outsider LOGIN PASSWORD 'synthetic-outsider';
+-- As on Aurora/RDS, the master user (not a superuser) owns database postgres.
+ALTER DATABASE postgres OWNER TO master;
+CREATE ROLE outsider LOGIN PASSWORD '$PG_OUTSIDER';
 SQL
 echo "# postgres: $(docker exec "$C" psql -X -tA -U postgres -c 'show server_version')"
 
@@ -70,11 +79,13 @@ pr_schema() {
 }
 secret_password() { jq -r .password "$WORK/stub-$1/secret"; }
 
-# as <role> <password> <sql>: runs over TCP with password authentication.
-as() {
-  docker exec -e PGPASSWORD="$2" "$C" psql -X -tA -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$1" -d a2h -c "$3" 2>&1
+# as <role> <password> <sql>: runs over TCP with password authentication, on a2h.
+# as_db <database> <role> <password> <sql>: the same on another database.
+as_db() {
+  docker exec -e PGPASSWORD="$3" "$C" psql -X -tA -v ON_ERROR_STOP=1 -h 127.0.0.1 -U "$2" -d "$1" -c "$4" 2>&1
 }
-as_master() { as master synthetic-master "$1"; }
+as() { as_db a2h "$@"; }
+as_master() { as master "$PG_MASTER" "$1"; }
 expect() { # expect <label> <expected> <actual>
   if [ "$2" = "$3" ]; then ok "$1"; else nok "$1" "expected: $2
 actual:   $3"; fi
@@ -83,8 +94,12 @@ expect_denied() { # expect_denied <label> <actual output> <pattern>
   if grep -Eq "$3" <<<"$2"; then ok "$1"; else nok "$1" "expected /$3/, got: $2"; fi
 }
 
-PW12=Synth3ticPassw0rdTwelveAAAAAAAA12
-PW13=Synth3ticPassw0rdThirteenBBBBBB13
+echo "# before any create: database postgres is open to PUBLIC (the default)"
+expect "outsider can connect to database postgres before pr-schema.sh runs" "1" \
+  "$(as_db postgres outsider "$PG_OUTSIDER" 'select 1' || true)"
+
+PW12=$(fixture_token twelve)
+PW13=$(fixture_token thirteen)
 
 echo "# create pr_12 and pr_13"
 pr_schema 12 create "$PW12"; expect "create 12 exits 0" 0 "$RC"; [ "$RC" -eq 0 ] || echo "$OUT"
@@ -109,11 +124,16 @@ expect_denied "pr_13 cannot create in public" "$(as pr_13 "$PW13" 'create table 
 expect "pr_13 cannot even resolve public objects (USAGE revoked)" "f" \
   "$(as pr_13 "$PW13" "select has_schema_privilege('public', 'USAGE')")"
 expect_denied "a role without the grant cannot connect to a2h (CONNECT revoked from PUBLIC)" \
-  "$(as outsider synthetic-outsider 'select 1' || true)" 'permission denied for database "a2h"|User does not have CONNECT privilege'
-expect_denied "a wrong password is refused" "$(as pr_12 wrong-password 'select 1' || true)" 'password authentication failed'
+  "$(as outsider "$PG_OUTSIDER" 'select 1' || true)" 'permission denied for database "a2h"|User does not have CONNECT privilege'
+expect_denied "pr_13 cannot connect to database postgres (CONNECT revoked from PUBLIC)" \
+  "$(as_db postgres pr_13 "$PW13" 'select 1' || true)" 'permission denied for database "postgres"|User does not have CONNECT privilege'
+expect_denied "a role without any grant cannot connect to database postgres either" \
+  "$(as_db postgres outsider "$PG_OUTSIDER" 'select 1' || true)" 'permission denied for database "postgres"|User does not have CONNECT privilege'
+expect "the master user still connects to database postgres (owner)" "1" "$(as_db postgres master "$PG_MASTER" 'select 1')"
+expect_denied "a wrong password is refused" "$(as pr_12 "$PG_WRONG" 'select 1' || true)" 'password authentication failed'
 
 echo "# create is idempotent and keeps the password"
-pr_schema 12 create "Synth3ticPassw0rdNEVERUSEDCCCCCC"
+pr_schema 12 create "$(fixture_token neverused)"
 expect "second create 12 exits 0" 0 "$RC"; [ "$RC" -eq 0 ] || echo "$OUT"
 expect "second create 12 reuses the secret" "$PW12" "$(secret_password 12)"
 expect "pr_12 still logs in with the same password and keeps its data" "12" "$(as pr_12 "$PW12" 'select id from items')"
@@ -140,6 +160,18 @@ expect "pr_13 is untouched by the drop of pr_12" "13" "$(as pr_13 "$PW13" 'selec
 echo "# drop of a PR that never had a preview"
 pr_schema 14 drop
 expect "drop 14 (no role, schema or secret) exits 0" 0 "$RC"; [ "$RC" -eq 0 ] || echo "$OUT"
+
+echo "# the postgres REVOKE is not silently a no-op"
+# A non-owner's REVOKE only warns ("no privileges could be revoked"). If the
+# master user does not own database postgres, create must fail, not succeed
+# with database postgres still open to every login.
+docker exec -i "$C" psql -X -q -v ON_ERROR_STOP=1 -U postgres >/dev/null <<SQL
+ALTER DATABASE postgres OWNER TO postgres;
+GRANT CONNECT ON DATABASE postgres TO PUBLIC;
+SQL
+pr_schema 15 create "$(fixture_token fifteen)"
+expect "create fails when the master user does not own database postgres" "1" "$([ "$RC" -ne 0 ] && echo 1 || echo 0)"
+expect_denied "the failure says why" "$OUT" 'PUBLIC still has CONNECT on database postgres'
 
 echo "# pass $pass, fail $fail"
 [ "$fail" -eq 0 ]

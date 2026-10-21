@@ -15,6 +15,8 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 CONFIG="$ROOT/infra/config.ts"
 SCRIPT="$ROOT/.github/scripts/pr-schema.sh"
 STUB_BIN="$ROOT/tests/ci/lib/bin"
+# shellcheck source=tests/ci/lib/fixtures.sh
+. "$ROOT/tests/ci/lib/fixtures.sh"
 if [ "$(PATH="$STUB_BIN:$PATH" command -v aws)" != "$STUB_BIN/aws" ]; then
   echo "FAIL - aws stub not found at $STUB_BIN/aws; refusing to run against a real aws CLI" >&2
   exit 1
@@ -62,7 +64,7 @@ fi
 # --- pr-schema.sh, as run ------------------------------------------------------
 mkdir -p "$WORK/stub"
 : >"$WORK/stub/calls"; : >"$WORK/stub/rds"; : >"$WORK/stub/names"
-PATH="$STUB_BIN:$PATH" STUB_DIR="$WORK/stub" STUB_PASSWORD=Synth3ticPassw0rdAAAAAAAAAAAAAAA1 \
+PATH="$STUB_BIN:$PATH" STUB_DIR="$WORK/stub" STUB_PASSWORD="$(fixture_token A)" \
   env -u GITHUB_ACTIONS bash "$SCRIPT" create "$N" >"$WORK/out" 2>&1 \
   || { cat "$WORK/out" >&2; echo "FAIL - pr-schema.sh create $N failed against the stub" >&2; exit 1; }
 used_params=$(sed -nE 's/^ssm get-parameter --name ([^ ]+).*/\1/p' "$WORK/stub/calls")
