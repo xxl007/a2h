@@ -1,6 +1,6 @@
 # infra: A2H stacks (SST 4.17.2, Ion components)
 
-`sst.config.ts` at the repo root is thin: it sets app `a2h`, `home: "aws"`, region `eu-west-3`, registers the permissions-boundary transform, and calls `deploy($app.stage)` from `infra/index.ts`. One module per concern: `config.ts` (stage model, constants, owner-settable `domain` and `emailSender`), `access.ts` (database login and storage grant per stage; pure), `vpc.ts`, `cluster.ts` (ECS cluster + ALB), `database.ts`, `storage.ts`, `email.ts`, `mcp.ts`, `worker.ts`, `web.ts`, `shared.ts`. Contract: `openspec/changes/m0-foundation/tasks.md` §Step 4 and **Contract amendment 1**.
+`sst.config.ts` at the repo root is thin: it sets app `a2h`, `home: "aws"`, region `eu-west-3`, registers the role transform (permissions boundary and `a2h-<stage>-` role names), and calls `deploy($app.stage)` from `infra/index.ts`. One module per concern: `config.ts` (stage model, constants, owner-settable `domain` and `emailSender`), `access.ts` (database login and storage grant per stage; pure), `vpc.ts`, `cluster.ts` (ECS cluster + ALB), `database.ts`, `storage.ts`, `email.ts`, `mcp.ts`, `worker.ts`, `web.ts`, `shared.ts`. Contract: `openspec/changes/m0-foundation/tasks.md` §Step 4 and **Contract amendment 1**.
 
 **Nothing here is deployed by agents.** Deploys run only in CI through the OIDC role (`.github/workflows/`); the first `dev` deploy is the owner's (`docs/runbooks/aws-bootstrap.md`).
 
@@ -63,7 +63,7 @@ Role-creating sites in the components this app uses:
 |---|---|---|---|
 | `Service` → `fargate.ts:991` `createTaskRole` | `<Svc>TaskRole` | yes, MCP and worker, every stage | covered |
 | `Service` → `fargate.ts:1023` `createExecutionRole` | `<Svc>ExecutionRole` | yes, MCP and worker, every stage | covered |
-| `Nextjs` → `ssr-site.ts:1466` server `Function` → `function.ts:2274` | `WebServerRole` | yes, once `apps/web` has a Next.js app | covered |
+| `Nextjs` → `ssr-site.ts:1466` server `Function` → `function.ts:2274` | `WebServerEuwest3Role` | yes, once `apps/web` has a Next.js app | covered |
 | `Nextjs` → `ssr-site.ts:1603` image optimiser `Function` → `function.ts:2274` | image optimiser role | yes, same | covered |
 | `Nextjs` → `nextjs.ts:878` revalidation queue subscriber (`Queue.subscribe` → `Function`) → `function.ts:2274` | revalidation consumer role | yes, same | covered |
 | `Nextjs` → `nextjs.ts:956` revalidation table seeder `Function` → `function.ts:2274` | seeder role | yes, when OpenNext emits an initialization function (tag cache) | covered |
@@ -76,6 +76,24 @@ Role-creating sites in the components this app uses:
 
 Not covered by this transform, by nature: AWS service-linked roles (`AWSServiceRoleForECS`, `…ForRDS`, `…ForElasticLoadBalancing`, `…ForApplicationAutoScaling_ECSService`) are created by AWS, not by this program, and cannot carry a boundary; the bootstrap must allow or pre-create them. The transform is verified by reading the sources, not by a deploy: no agent runs `sst diff` or `sst deploy`.
 
+## IAM role names
+
+The same `$transform(aws.iam.Role, …)` sets `name` on every role this app creates to `roleName($app.stage, <logical name>)` (`infra/config.ts`, tested in `infra/test/role-name.test.ts`): `a2h-<stage>-<readable>-<hash>`, at most 64 characters. `<stage>` is kept whole; `<readable>` is the logical name with non-alphanumerics removed, cut to fit; `<hash>` is the first 8 hex characters of SHA-256 over the full logical name, so names that share a long prefix, or differ only in dropped characters or in case (IAM compares role names case-insensitively), stay distinct. No random part: the same stage and logical name always give the same role name.
+
+Why: SST names roles with `physicalName(64, …)` (`naming.ts` `prefixName`, applied by `component.ts:259`). When the logical name plus the stage does not fit, it drops or truncates the app prefix. The Next.js revalidation subscriber role (`nextjs.ts:866-878` → `queue.ts:598-601` → `queue-lambda-subscriber.ts:62` → `function.ts:2274`), logical name `WebRevalidationEventsSubscriber<6 chars>FunctionRole` (49 characters), came out as `a-dev-…`, `prod-…` or `pr-12-…`, which the deploy roles may not create (`role/a2h-*` only).
+
+Who wins (checked in the 4.17.2 sources): SST sets a default `name` in a transformation registered on each component (`component.ts:66-403`; the role rule is line 259, the "already set" check line 368), and only when `name` is unset. Pulumi runs a resource's own transformations, then its parent's, which already include the component chain and then the stack's (`@pulumi/pulumi/resource.js:180`, `[...opts.transformations, ...parent.__transformations]`). So SST's default runs first and this stack transformation overwrites it. Component `transform.*` arguments (such as `transform.executionRole` in `mcp.ts`) are applied before the resource is constructed, so they run before both. SST's own stack transformations (`auto/run.ts`, `link.ts`) are registered before `run()` and do not touch role names. Only a `$transform(aws.iam.Role, …)` registered after this one could override it; there is none, and there must not be.
+
+Computed names for the longest stage, `pr-48899`, and the longest logical name:
+
+| Logical name | Role name |
+|---|---|
+| `McpPr48899TaskRole` | `a2h-pr-48899-McpPr48899TaskRole-55981595` |
+| `WorkerPr48899ExecutionRole` | `a2h-pr-48899-WorkerPr48899ExecutionRole-4a9f8e50` |
+| `WebRevalidationEventsSubscriberXkzrmsFunctionRole` | `a2h-pr-48899-WebRevalidationEventsSubscriberXkzrmsFunct-e3173c96` (64) |
+
+**Changing a role's name replaces the role.** For roles that SST names by default, SST also adds `ignoreChanges: ["name"]` (`component.ts:400`), so a changed `roleName()` would instead be ignored for roles already deployed and applied only to new ones: the function would no longer describe what is deployed. Either outcome is unacceptable once a stage exists. Nothing is deployed yet, so this rename is free now; after the first deploy, `roleName()` and its pinned test values must never change without a migration note (which roles, replace or keep, and how running tasks and functions move to the new role).
+
 ## Residual risks (M0, accepted; documented by the PM in `docs/runbooks/aws-bootstrap.md`)
 
 - **`dev` still uses the Aurora master user.** Its services log in as the master user and can reach every `pr_<n>` schema. Only `pr-*` stages have their own login. A per-stage login for `dev` is a later change.
@@ -87,4 +105,4 @@ Not covered by this transform, by nature: AWS service-linked roles (`AWSServiceR
 
 ## Typecheck and tests without AWS credentials
 
-`pnpm typecheck` runs `sst install` (downloads the pinned providers and generates the gitignored `.sst/platform/config.d.ts`; no cloud access) and then `tsc` on `infra/*.ts` and `sst.config.ts`. tsc also reads SST's own `.ts` sources, so `infra/tsconfig.json` turns off four flags those sources do not satisfy (`verbatimModuleSyntax`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noImplicitOverride`); `strict` stays on. `pnpm test` runs `infra/test/config.test.ts` (stage model, priorities, SSM names, idle timeout, boundary ARN, pr reads, health-path agreement) `infra/test/access.test.ts` (per-PR login, valueFrom, scoped storage ARNs, execution role policy, the remove-time secret decision) and `infra/test/storage.test.ts` (lifecycle rules cover every stage's prefix) with `node --test`.
+`pnpm typecheck` runs `sst install` (downloads the pinned providers and generates the gitignored `.sst/platform/config.d.ts`; no cloud access) and then `tsc` on `infra/*.ts` and `sst.config.ts`. tsc also reads SST's own `.ts` sources, so `infra/tsconfig.json` turns off four flags those sources do not satisfy (`verbatimModuleSyntax`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noImplicitOverride`); `strict` stays on. `pnpm test` runs `infra/test/config.test.ts` (stage model, priorities, SSM names, idle timeout, boundary ARN, pr reads, health-path agreement) `infra/test/role-name.test.ts` (role names: `a2h-<stage>-` prefix, 64-character limit, uniqueness, stability) `infra/test/access.test.ts` (per-PR login, valueFrom, scoped storage ARNs, execution role policy, the remove-time secret decision) and `infra/test/storage.test.ts` (lifecycle rules cover every stage's prefix) with `node --test`.

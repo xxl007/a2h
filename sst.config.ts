@@ -26,12 +26,22 @@ export default $config({
     // when it is constructed, and children inherit them from their parent,
     // so roles SST creates inside components (Fargate task and execution
     // roles, Nextjs function roles) are covered. See infra/README.md.
-    const { workloadBoundaryArn } = await import("./infra/config.ts");
+    //
+    // The same transform names every role `a2h-<stage>-<readable>-<hash>`
+    // (roleName() in infra/config.ts): the deploy roles may only create
+    // `role/a2h-*`, and SST's physicalName(64, …) drops the app prefix on long
+    // logical names. SST's naming transformation (component.ts) runs before
+    // this one (a component's transformations precede the stack's in Pulumi's
+    // resource.js), so this value is the one used. See infra/README.md, "IAM
+    // role names". Never change roleName() after the first deploy without a
+    // migration note.
+    const { roleName, workloadBoundaryArn } = await import("./infra/config.ts");
     const boundary = aws.getCallerIdentityOutput().accountId.apply(workloadBoundaryArn);
-    $transform(aws.iam.Role, (args, opts) => {
+    $transform(aws.iam.Role, (args, opts, name) => {
       // `Role.get` only reads an existing role; there is nothing to create.
       if (opts.id) return;
       args.permissionsBoundary = boundary;
+      args.name = roleName($app.stage, name);
     });
 
     const { deploy } = await import("./infra/index.ts");
