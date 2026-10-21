@@ -1,9 +1,29 @@
 // Stage model and constants for the A2H stacks. Pure: no SST globals, no I/O,
 // so it is unit-tested with `node --test` (infra/test/config.test.ts).
-// Contract: openspec/changes/m0-foundation/tasks.md §Step 4.
+// Contract: openspec/changes/m0-foundation/tasks.md §Step 4 and amendment 1.
+// The health path comes from apps/mcp (pure, no SST), the one derivation.
+import { healthPathFor } from "../apps/mcp/src/health-path.ts";
 
 export const APP_NAME = "a2h";
 export const REGION = "eu-west-3";
+
+/**
+ * Permissions boundary carried by every IAM role this app creates (contract
+ * amendment 1). The policy itself is created by the owner's bootstrap
+ * (infra/bootstrap/); it denies all IAM and STS role assumption. The deploy
+ * roles may create or modify `role/a2h-*` only when this boundary is attached.
+ */
+export const WORKLOAD_BOUNDARY_POLICY_NAME = "a2h-workload-boundary";
+
+const AWS_ACCOUNT_ID = /^[0-9]{12}$/;
+
+/** Boundary ARN for the caller's account; sst.config.ts feeds it the account ID. */
+export function workloadBoundaryArn(accountId: string): string {
+  if (!AWS_ACCOUNT_ID.test(accountId)) {
+    throw new Error(`Not an AWS account ID: "${accountId}" (expected 12 digits).`);
+  }
+  return `arn:aws:iam::${accountId}:policy/${WORKLOAD_BOUNDARY_POLICY_NAME}`;
+}
 
 /**
  * Owner-settable. Leave `undefined` until the owner has chosen a domain and
@@ -32,6 +52,14 @@ export const UPLOAD_RETENTION_DAYS = 180;
 export const TMP_RETENTION_DAYS = 7;
 
 /**
+ * Top-level key areas of the uploads bucket. Keys are
+ * `<area>/<STORAGE_PREFIX><key>`; lifecycle rules (storage.ts) and the scoped
+ * preview grants (access.ts) are both built from this list.
+ */
+export const STORAGE_AREAS = ["uploads", "tmp"] as const;
+export type StorageArea = (typeof STORAGE_AREAS)[number];
+
+/**
  * ALB idle timeout in seconds (AWS range 1-4000). The MCP spec scenario
  * "Idle stream survives" (61 minutes idle, mcp-transport spec) depends on it.
  */
@@ -56,6 +84,19 @@ export const SHARED_PARAMETERS = {
   emailSender: "email-sender",
 } as const;
 export type SharedKey = keyof typeof SHARED_PARAMETERS;
+/**
+ * What a pr-* stage reads back. The two Aurora ARNs are published for the CI
+ * workflows (RDS Data API); the stage itself never reads them, so it never
+ * holds a reference to the master secret.
+ */
+export const PR_STAGE_READS: readonly SharedKey[] = [
+  "vpcId",
+  "clusterId",
+  "albArn",
+  "auroraClusterId",
+  "uploadsBucket",
+  "emailSender",
+];
 export const SHARED_PREFIX = "/a2h/shared/";
 export function sharedParameterName(param: string): string {
   return `${SHARED_PREFIX}${param}`;
@@ -74,7 +115,7 @@ export interface StageInfo {
   ownsSharedResources: boolean;
   dbSchema: string;
   mcpBasePath: string;
-  /** ALB health check path: MCP_BASE_PATH without its trailing `/mcp`, plus `/healthz`. */
+  /** ALB health check path: `healthPathFor(mcpBasePath)` from apps/mcp. */
   healthPath: string;
   storagePrefix: string;
   /** Appended to Fargate component names on pr-* (ECS names are per cluster). */
@@ -99,7 +140,7 @@ export function stageInfo(stage: string): StageInfo {
       ownsSharedResources: true,
       dbSchema: "public",
       mcpBasePath: "/mcp",
-      healthPath: "/healthz",
+      healthPath: healthPathFor("/mcp"),
       storagePrefix: "",
       componentSuffix: "",
       warm: 1,
@@ -134,7 +175,7 @@ export function stageInfo(stage: string): StageInfo {
     ownsSharedResources: false,
     dbSchema: `pr_${n}`,
     mcpBasePath: `/pr-${n}/mcp`,
-    healthPath: `/pr-${n}/healthz`,
+    healthPath: healthPathFor(`/pr-${n}/mcp`),
     storagePrefix: `pr-${n}/`,
     componentSuffix: `Pr${n}`,
     warm: 0,

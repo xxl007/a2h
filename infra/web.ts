@@ -2,6 +2,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { domain, hostnames, type StageInfo } from "./config.ts";
+import { storageArgs, type StorageGrant } from "./storage.ts";
 
 export const WEB_NOT_DEPLOYED = "not deployed (apps/web has no Next.js app yet)";
 
@@ -20,9 +21,10 @@ export function hasNextApp(): boolean {
 
 export function createWeb(
   stage: StageInfo,
-  deps: { uploads: sst.aws.Bucket; mcpUrl: $util.Input<string> },
+  deps: { storage: StorageGrant; mcpUrl: $util.Input<string> },
 ): sst.aws.Nextjs | undefined {
   if (!hasNextApp()) return undefined;
+  const store = storageArgs(deps.storage);
   return new sst.aws.Nextjs("Web", {
     path: "apps/web",
     // eu-west-3 only (no `regions`): SSR and data access stay in the EU.
@@ -37,12 +39,16 @@ export function createWeb(
     // Database deliberately not linked in M0: the Lambda is outside the VPC
     // (Aurora is private) and SST's link would place the password in the
     // function's environment. See infra/README.md, open items.
-    link: [deps.uploads],
+    // Storage: dev/prod link the bucket; pr-* get object access under their
+    // own prefix only (server function role; contract amendment 1).
+    link: store.link,
+    permissions: store.permissions,
     environment: {
       STAGE: stage.name,
       DB_SCHEMA: stage.dbSchema,
       STORAGE_PREFIX: stage.storagePrefix,
       MCP_URL: deps.mcpUrl,
+      ...store.environment,
     },
   });
 }

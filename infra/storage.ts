@@ -1,8 +1,20 @@
 // Uploads bucket (voice notes, attachments; presigned uploads come later).
 // Key layout: `<area>/<STORAGE_PREFIX><key>` with area `tmp` or `uploads`, so
 // the lifecycle rules below also cover the objects of pr-* stages, which
-// share dev's bucket with STORAGE_PREFIX `pr-<n>/`.
-import { TMP_RETENTION_DAYS, UPLOAD_RETENTION_DAYS } from "./config.ts";
+// share dev's bucket with STORAGE_PREFIX `pr-<n>/`. pr-* stages do not link
+// the bucket: they get object access under their own prefix (access.ts).
+import {
+  STORAGE_AREAS,
+  TMP_RETENTION_DAYS,
+  UPLOAD_RETENTION_DAYS,
+  type StorageArea,
+} from "./config.ts";
+import type { PermissionStatement, StorageAccess } from "./access.ts";
+
+const RETENTION_DAYS: Record<StorageArea, number> = {
+  uploads: UPLOAD_RETENTION_DAYS,
+  tmp: TMP_RETENTION_DAYS,
+};
 
 export function createUploads() {
   return new sst.aws.Bucket("Uploads", {
@@ -14,17 +26,34 @@ export function createUploads() {
       allowOrigins: ["*"],
       allowHeaders: ["*"],
     },
-    lifecycle: [
-      { id: "tmp-expiry", prefix: "tmp/", expiresIn: `${TMP_RETENTION_DAYS} days` },
-      {
-        id: "uploads-expiry",
-        prefix: "uploads/",
-        expiresIn: `${UPLOAD_RETENTION_DAYS} days`,
-      },
-    ],
+    lifecycle: STORAGE_AREAS.map((area) => ({
+      id: `${area}-expiry`,
+      prefix: `${area}/`,
+      expiresIn: `${RETENTION_DAYS[area]} days` as const,
+    })),
   });
 }
 
-export function getUploads(bucketName: string) {
-  return sst.aws.Bucket.get("Uploads", bucketName);
+/**
+ * How a stage's services and Web reach the bucket: dev and prod `link` it,
+ * pr-* get the scoped grant from access.ts (no link).
+ */
+export type StorageGrant =
+  | { mode: "link"; bucket: sst.aws.Bucket }
+  | Extract<StorageAccess, { mode: "scoped" }>;
+
+/** Component arguments for a grant. Every stage gets env UPLOADS_BUCKET. */
+export function storageArgs(grant: StorageGrant) {
+  if (grant.mode === "link") {
+    return {
+      link: [grant.bucket],
+      permissions: [] as PermissionStatement[],
+      environment: { UPLOADS_BUCKET: grant.bucket.name as $util.Input<string> },
+    };
+  }
+  return {
+    link: [] as sst.aws.Bucket[],
+    permissions: grant.permissions,
+    environment: { UPLOADS_BUCKET: grant.environment.UPLOADS_BUCKET as $util.Input<string> },
+  };
 }

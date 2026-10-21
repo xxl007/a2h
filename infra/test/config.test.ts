@@ -1,10 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { healthPathFor } from "../../apps/mcp/src/health-path.ts";
 import {
   ALB_IDLE_TIMEOUT_SECONDS,
+  PR_STAGE_READS,
   SHARED_PARAMETERS,
+  STORAGE_AREAS,
   sharedParameterName,
   stageInfo,
+  WORKLOAD_BOUNDARY_POLICY_NAME,
+  workloadBoundaryArn,
 } from "../config.ts";
 
 test("dev stage: shared owner, public schema, /mcp routing at 49000", () => {
@@ -88,4 +93,44 @@ test("ALB idle timeout keeps an idle MCP stream open for over an hour", () => {
   // Spec mcp-transport, scenario "Idle stream survives" (61 minutes idle).
   assert.ok(ALB_IDLE_TIMEOUT_SECONDS >= 3600);
   assert.ok(ALB_IDLE_TIMEOUT_SECONDS <= 4000); // AWS maximum
+});
+
+test("workload permissions boundary: policy name and ARN from the caller's account", () => {
+  // Contract amendment 1: deploy roles may create role/a2h-* only with this boundary.
+  assert.equal(WORKLOAD_BOUNDARY_POLICY_NAME, "a2h-workload-boundary");
+  assert.equal(
+    workloadBoundaryArn("123456789012"),
+    "arn:aws:iam::123456789012:policy/a2h-workload-boundary",
+  );
+  for (const bad of ["", "12345678901", "1234567890123", "12345678901a", "123456789012 "]) {
+    assert.throws(() => workloadBoundaryArn(bad), /account/, JSON.stringify(bad));
+  }
+});
+
+test("pr stages read only the shared identifiers they use, never the Aurora master secret", () => {
+  assert.deepEqual(PR_STAGE_READS, [
+    "vpcId",
+    "clusterId",
+    "albArn",
+    "auroraClusterId",
+    "uploadsBucket",
+    "emailSender",
+  ]);
+  assert.ok(!PR_STAGE_READS.includes("auroraSecretArn"));
+});
+
+test("storage areas match the lifecycle prefixes", () => {
+  assert.deepEqual(STORAGE_AREAS, ["uploads", "tmp"]);
+});
+
+test("one health-path source: the stage model and the MCP server agree", () => {
+  // apps/mcp/src/health-path.ts is the only derivation; infra imports it.
+  for (const stage of ["dev", "prod", "pr-12"]) {
+    const s = stageInfo(stage);
+    assert.equal(s.healthPath, healthPathFor(s.mcpBasePath), stage);
+  }
+  assert.equal(stageInfo("dev").healthPath, "/healthz");
+  assert.equal(healthPathFor("/mcp"), "/healthz");
+  assert.equal(stageInfo("pr-12").healthPath, "/pr-12/healthz");
+  assert.equal(healthPathFor("/pr-12/mcp"), "/pr-12/healthz");
 });
