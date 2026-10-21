@@ -133,6 +133,18 @@
         "sts:AssumeRoleWithWebIdentity"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "NoIdentityCenterOrDirectory",
+      "Effect": "Deny",
+      "Action": [
+        "sso:*",
+        "sso-directory:*",
+        "identitystore:*",
+        "organizations:*",
+        "account:*"
+      ],
+      "Resource": "*"
     }
   ]
 }

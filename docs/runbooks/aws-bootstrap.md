@@ -17,6 +17,7 @@ Read with: `docs/decisions/0001-stack-and-hosting.md` (what gets deployed), `inf
 | SST state / bootstrap buckets | None yet (`sst-state-*`, `sst-asset-*` appear on the first deploy) |
 | RDS | No cluster yet |
 | Budgets | None |
+| IAM Identity Center / AWS Organizations | Not enabled; the account is standalone |
 
 Decisions you need to make before §7: see "Decide first" in the step-4 PR description.
 
@@ -81,13 +82,13 @@ aws iam get-role --profile a2h --role-name gha-a2h-preview --query Role.Arn --ou
 Why this shape:
 
 - `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but no IAM.
-- The inline policy adds IAM only for roles named `a2h-*`, which is how SST names roles (`a2h-<stage>-<component>-<hash>`, checked in SST 4.17.2). It may create or change those roles **only if they carry the boundary** `a2h-workload-boundary`. It may attach only the four AWS managed policies SST uses (ECS task execution, Lambda basic, Lambda VPC access, Lambda durable execution). It can pass roles only to ECS tasks and Lambda. It can never remove a boundary, edit the boundary policy, touch the `gha-*` roles, or assume any other role.
-- The boundary caps every workload role at A2H's own resources: S3, SQS, DynamoDB and Lambda named `a2h-*`, secrets under `a2h/` plus the Aurora master secret, parameters under `/a2h/` and `/sst/`. Beyond that, only runtime plumbing (logs, image pull, network interfaces, SES sending, Transcribe), and no IAM or role assumption at all.
+- The inline policy adds IAM only for roles named `a2h-*`, which is how SST names roles (`a2h-<stage>-<component>-<hash>`, checked in SST 4.17.2). It may create or change those roles **only if they carry the boundary** `a2h-workload-boundary`. It may attach only the four AWS managed policies SST uses (ECS task execution, Lambda basic, Lambda VPC access, Lambda durable execution). It can pass roles only to ECS tasks and Lambda. It can never remove a boundary, edit the boundary policy, touch the `gha-*` roles, assume any other role, or use IAM Identity Center, Organizations or account settings.
+- The boundary caps every workload role at A2H's own resources: S3, SQS, DynamoDB and Lambda named `a2h-*`, secrets under `a2h/` plus the Aurora master secret, parameters under `/a2h/` and `/sst/`. Beyond that it allows only runtime plumbing: logs, image pull from SST's `sst-asset` repository, KMS decryption only through Secrets Manager, S3, SQS and SSM, network interfaces, SES sending from this account's identities, CloudFront invalidation for Next.js revalidation, and Transcribe. It never allows IAM or role assumption. ECS Exec (`ssmmessages`) is deliberately not allowed, so shell access to running containers is off.
 
 **Residual risks: read before you approve. This account also hosts another project.**
 
-1. **Both deploy roles hold `PowerUserAccess` across the whole account.** A workflow on `main` (dev role) or in a same-repository pull request (preview role) can change any non-IAM resource in this account. That includes replacing the code of the other project's Lambda functions or ECS tasks, and so acting with that project's roles. The policies above close the direct IAM routes, but they cannot close this indirect one while two projects share an account.
-2. **A pull request can create a role under the boundary that trusts an outside account.** The boundary now limits such a role to A2H's own data, but that data includes the Aurora master secret.
+1. **Both deploy roles hold `PowerUserAccess` across the whole account.** A workflow on `main` (dev role) or in a same-repository pull request (preview role) can read and change any non-IAM resource in this account, including the other project's secrets and S3 data. That includes replacing the code of the other project's Lambda functions or ECS tasks, and so acting with that project's roles. The policies above close the direct IAM routes, but they cannot close this indirect one while two projects share an account.
+2. **A pull request can create a role under the boundary that trusts an outside account.** The boundary limits such a role to A2H's own data, which includes the Aurora master secret. It could also send email as any SES identity verified in this account and invalidate any CloudFront distribution in it.
 3. **The preview trust cannot be pinned to a branch**, because GitHub's pull-request token carries no branch. Access Analyzer warns about exactly this.
 4. **The `dev` stage connects to Postgres as the master user**, which previews do not (see `infra/README.md`). A dedicated application role is a task for the first database change in M1.
 5. **Choosing an EC2 NAT instance or a bastion later** (`infra/vpc.ts`) would need `iam:CreateInstanceProfile` and the `AmazonSSMManagedInstanceCore` policy added.
