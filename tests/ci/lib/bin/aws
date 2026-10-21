@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Stub of the aws CLI for tests/ci/*.test.sh. No network, no credentials.
+# Implements only the calls .github/scripts/pr-schema.sh makes, keeping state
+# in $STUB_DIR:
+#   calls   one line per invocation: the full argument list (what `ps` would show)
+#   rds     one line per Data API statement: database<TAB>resourceArn<TAB>secretArn<TAB>sql
+#   secret  the current value of the per-PR secret (absent = no secret)
+#   names   one line per secret operation: <operation> <secret id>
+# STUB_MODE scripts failures; STUB_PASSWORD is what get-random-password returns;
+# STUB_PSQL, if set, is a command that receives each statement on stdin and runs
+# it against a real Postgres (tests/ci/pr-schema.pg.test.sh).
+set -uo pipefail
+: "${STUB_DIR:?}"
+mode=${STUB_MODE:-ok}
+printf '%s\n' "$*" >>"$STUB_DIR/calls"
+
+arg() { # arg <flag> <args...>: value following <flag>
+  local flag=$1; shift
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "$flag" ]; then printf '%s' "${2-}"; return 0; fi
+    shift
+  done
+  return 1
+}
+from_file() { # file://path -> contents
+  local ref=$1
+  [ "${ref#file://}" != "$ref" ] || { echo "stub: expected file:// argument, got a literal" >&2; exit 255; }
+  cat "${ref#file://}"
+}
+err() { echo "An error occurred ($1) when calling the $2 operation: $3" >&2; exit 254; }
+
+case "${1-} ${2-}" in
+  "ssm get-parameter")
+    name=$(arg --name "$@")
+    if [ "$mode" = "ssm-empty" ]; then echo "None"; exit 0; fi
+    case "$name" in
+      */aurora-cluster-arn) echo "arn:aws:rds:eu-west-3:000000000000:cluster:synthetic" ;;
+      */aurora-secret-arn) echo "arn:aws:secretsmanager:eu-west-3:000000000000:secret:synthetic" ;;
+      *) err ParameterNotFound GetParameter "unexpected parameter $name" ;;
+    esac
+    exit 0 ;;
+
+  "secretsmanager get-secret-value")
+    echo "get $(arg --secret-id "$@")" >>"$STUB_DIR/names"
+    [ "$mode" = "secret-denied" ] && err AccessDeniedException GetSecretValue "not authorized"
+    [ -f "$STUB_DIR/secret" ] || err ResourceNotFoundException GetSecretValue "Secrets Manager can't find the specified secret."
+    cat "$STUB_DIR/secret"; echo
+    exit 0 ;;
+
+  "secretsmanager get-random-password")
+    case "$*" in *--exclude-punctuation*) ;; *) echo "stub: punctuation not excluded" >&2; exit 255 ;; esac
+    case "$*" in *"--password-length 32"*) ;; *) echo "stub: length is not 32" >&2; exit 255 ;; esac
+    printf '%s\n' "${STUB_PASSWORD:?}"
+    exit 0 ;;
+
+  "secretsmanager create-secret")
+    name=$(arg --name "$@")
+    echo "create $name" >>"$STUB_DIR/names"
+    value=$(from_file "$(arg --secret-string "$@")") || exit 255
+    if [ "$mode" = "create-race" ]; then
+      # Another run created it between our read and our create.
+      printf '%s' "${STUB_RACE_SECRET:?}" >"$STUB_DIR/secret"
+      err ResourceExistsException CreateSecret "The operation failed because the secret $name already exists."
+    fi
+    [ -f "$STUB_DIR/secret" ] && err ResourceExistsException CreateSecret "already exists"
+    printf '%s' "$value" >"$STUB_DIR/secret"
+    echo "{\"Name\": \"$name\"}"
+    exit 0 ;;
+
+  "secretsmanager delete-secret")
+    echo "delete $(arg --secret-id "$@")" >>"$STUB_DIR/names"
+    case "$*" in *--force-delete-without-recovery*) ;; *) echo "stub: delete with recovery window" >&2; exit 255 ;; esac
+    [ "$mode" = "delete-denied" ] && err AccessDeniedException DeleteSecret "not authorized"
+    [ -f "$STUB_DIR/secret" ] || err ResourceNotFoundException DeleteSecret "Secrets Manager can't find the specified secret."
+    rm -f "$STUB_DIR/secret"
+    echo '{}'
+    exit 0 ;;
+
+  "rds-data execute-statement")
+    input=$(from_file "$(arg --cli-input-json "$@")") || exit 255
+    sql=$(jq -r .sql <<<"$input")
+    jq -r '[.database, .resourceArn, .secretArn, (.sql | gsub("\\s+"; " "))] | @tsv' <<<"$input" >>"$STUB_DIR/rds"
+    n=$(($(cat "$STUB_DIR/rds_count" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_DIR/rds_count"
+    case "$mode" in
+      resume-twice) [ "$n" -le 2 ] && err DatabaseResumingException ExecuteStatement "The Aurora DB instance db-x is resuming after being auto-paused." ;;
+      throttle-once) [ "$n" -le 1 ] && err ThrottlingException ExecuteStatement "(reached max retries: 2): Rate exceeded" ;;
+      always-resume) err DatabaseResumingException ExecuteStatement "resuming" ;;
+      bad-request) err BadRequestException ExecuteStatement "ERROR: syntax error" ;;
+      # Postgres echoes the failing statement; with the role statement that includes the password.
+      bad-request-echo) err BadRequestException ExecuteStatement "ERROR: syntax error in statement: $sql" ;;
+    esac
+    if [ -n "${STUB_PSQL:-}" ]; then
+      if ! res=$(printf '%s\n' "$sql" | $STUB_PSQL 2>&1); then
+        err BadRequestException ExecuteStatement "$res"
+      fi
+    fi
+    echo '{"numberOfRecordsUpdated": 0}'
+    exit 0 ;;
+esac
+echo "stub: unexpected call: $*" >&2
+exit 255
