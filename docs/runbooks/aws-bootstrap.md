@@ -22,12 +22,12 @@ Why a separate account: the CI deploy roles hold PowerUser rights across whateve
 ## 1. Account hygiene (10 minutes)
 
 1. Root user has MFA. Check in IAM → Dashboard → Security recommendations.
-2. Create a monthly cost budget with an email alert. Replace the amount if you prefer another ceiling:
+2. Create a monthly cost budget with an email alert. Replace the amount if you prefer another ceiling (AWS cost budgets are in USD only):
 
 ```sh
 aws budgets create-budget --profile a2h-member --account-id 442123849268 \
-  --budget '{"BudgetName":"a2h-monthly","BudgetLimit":{"Amount":"80","Unit":"EUR"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
-  --notifications-with-subscribers '[{"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"<your email>"}]}]'
+  --budget '{"BudgetName":"a2h-monthly","BudgetLimit":{"Amount":"80","Unit":"USD"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
+  --notifications-with-subscribers '[{"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"galem+a2h@holostaff.ai"}]}]'
 ```
 
 Approximate steady cost of the `dev` stage while idle (eu-west-3 list prices, no reserved capacity): one ALB about €18/month, two Fargate tasks (0.25 vCPU / 0.5 GB, arm64) about €16/month, Aurora Serverless v2 at 0 ACU when idle about €0 plus storage, CloudMap €0.50, CloudFront/Lambda/S3 near zero at M0 traffic. Each open preview adds two more tasks (Fargate Spot) for as long as the PR is open. There is no NAT gateway: the Fargate tasks run in public subnets with public IPs and the VPC default security group, which is SST's default (see `infra/README.md` and the open items in the step-4 PR).
