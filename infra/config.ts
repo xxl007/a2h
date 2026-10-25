@@ -103,9 +103,12 @@ export type StorageArea = (typeof STORAGE_AREAS)[number];
 
 /**
  * ALB idle timeout in seconds (AWS range 1-4000). The MCP spec scenario
- * "Idle stream survives" (61 minutes idle, mcp-transport spec) depends on it.
+ * "Idle stream survives" (mcp-transport spec) holds a response open with
+ * nothing sent for 61 minutes = 3660 s, so 3600 would cut it: 4000, the AWS
+ * maximum. The MCP server's keep-alive timeout (apps/mcp/src/http-timeouts.ts)
+ * sits just above it.
  */
-export const ALB_IDLE_TIMEOUT_SECONDS = 3600;
+export const ALB_IDLE_TIMEOUT_SECONDS = 4000;
 
 /** Container port of the MCP service (env PORT). */
 export const MCP_PORT = 3000;

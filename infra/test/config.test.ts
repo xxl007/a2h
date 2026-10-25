@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { healthPathFor } from "../../apps/mcp/src/health-path.ts";
+import { KEEP_ALIVE_TIMEOUT_MS } from "../../apps/mcp/src/http-timeouts.ts";
 import {
   ALB_IDLE_TIMEOUT_SECONDS,
   PR_STAGE_READS,
@@ -92,8 +93,15 @@ test("the eight shared SSM parameters of the contract", () => {
 
 test("ALB idle timeout keeps an idle MCP stream open for over an hour", () => {
   // Spec mcp-transport, scenario "Idle stream survives" (61 minutes idle).
-  assert.ok(ALB_IDLE_TIMEOUT_SECONDS >= 3600);
-  assert.ok(ALB_IDLE_TIMEOUT_SECONDS <= 4000); // AWS maximum
+  // 61 minutes = 3660 s idle, so 3600 would cut it: use the AWS maximum.
+  assert.equal(ALB_IDLE_TIMEOUT_SECONDS, 4000);
+  assert.ok(ALB_IDLE_TIMEOUT_SECONDS > 61 * 60);
+});
+
+test("the MCP server's keep-alive outlasts the ALB idle timeout", () => {
+  // apps/mcp/src/http-timeouts.ts: the ALB must close idle target
+  // connections before Node does, or it may reuse a closing socket (502).
+  assert.ok(KEEP_ALIVE_TIMEOUT_MS > ALB_IDLE_TIMEOUT_SECONDS * 1000);
 });
 
 test("workload permissions boundary: policy name and ARN from the caller's account", () => {
