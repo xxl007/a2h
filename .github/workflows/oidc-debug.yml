@@ -1,0 +1,22 @@
+# Temporary: prints the claims (never the token) of the GitHub OIDC token so the
+# AWS trust policy can be matched exactly. Removed once the deploy roles work.
+name: OIDC debug
+on:
+  workflow_dispatch:
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  claims:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Print token claims
+        run: |
+          set -euo pipefail
+          token=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)
+          echo "::add-mask::$token"
+          payload=$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+')
+          pad=$(( (4 - ${#payload} % 4) % 4 )); payload="$payload$(printf '=%.0s' $(seq 1 $pad 2>/dev/null))"
+          printf '%s' "$payload" | base64 -d 2>/dev/null | jq '{iss, aud, sub, repository, repository_id, repository_owner, repository_owner_id, ref, event_name, job_workflow_ref}'
