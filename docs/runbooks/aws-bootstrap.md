@@ -4,22 +4,20 @@ This runbook lists every manual step that must happen once before CI can deploy 
 
 Read with: `docs/decisions/0001-stack-and-hosting.md` (what gets deployed), `infra/README.md` (stage model, shared resources, SSM contract), `.github/workflows/*.yml` (what CI does with the role), `openspec/changes/m0-foundation/tasks.md` §Step 4 (the contract between infra and CI).
 
-## 0. What was observed on 2026-10-21 (read-only, from the local `a2h` profile)
+## 0. Where A2H lives (decided 2026-10-25)
 
-| Item | State |
+A2H has its own AWS account, created by the owner as a member of the organisation `o-oow2nzdkfh` whose management account (`725960317785`) hosts another project. Agents never create accounts. The PM runs §1, §3, §4 and §7 with the owner's approval; the owner runs §2.
+
+| Item | State on 2026-10-25 |
 |---|---|
-| AWS account | `725960317785`, home region `eu-west-3` |
-| Local IAM user | `galem`, policy `AdministratorAccess`, one active access key created 2026-10-21 10:06 UTC (the key pasted in chat; rotate it, §2) |
-| GitHub OIDC provider | **Already exists**: `arn:aws:iam::725960317785:oidc-provider/token.actions.githubusercontent.com` (created 2026-06-30 for another project). Do not create a second one. |
-| IAM roles for A2H CI | Do not exist yet (§3) |
-| SES (eu-west-3) | Sandbox, sending enabled, 200 messages / 24 h, no verified identity |
-| Route 53 | One hosted zone `aiplayboox.com.` belonging to another project; A2H has no domain yet (§8) |
-| SST state / bootstrap buckets | None yet (`sst-state-*`, `sst-asset-*` appear on the first deploy) |
-| RDS | No cluster yet |
-| Budgets | None |
-| IAM Identity Center / AWS Organizations | Not enabled; the account is standalone |
+| A2H account | `442123849268` (`a2h`, root email is the owner's `+a2h` alias), home region `eu-west-3` |
+| Access from this machine | CLI profile `a2h-member` assumes `arn:aws:iam::442123849268:role/OrganizationAccountAccessRole` from profile `a2h` (the management-account IAM user `galem`). No key exists for the member account. |
+| GitHub OIDC provider | None yet in `442123849268` (§3 creates it; the one in the management account belongs to the other project) |
+| SES (eu-west-3) | Sandbox, sending enabled, no identity |
+| SST state / bootstrap buckets, RDS, budgets | None yet |
+| IAM Identity Center / SCPs | Not enabled |
 
-Decisions you need to make before §7: see "Decide first" in the step-4 PR description.
+Why a separate account: the CI deploy roles hold PowerUser rights across whatever account they live in (§3, residual risks). In a dedicated account that reach ends at A2H's own resources.
 
 ## 1. Account hygiene (10 minutes)
 
@@ -27,7 +25,7 @@ Decisions you need to make before §7: see "Decide first" in the step-4 PR descr
 2. Create a monthly cost budget with an email alert. Replace the amount if you prefer another ceiling:
 
 ```sh
-aws budgets create-budget --profile a2h --account-id 725960317785 \
+aws budgets create-budget --profile a2h-member --account-id 442123849268 \
   --budget '{"BudgetName":"a2h-monthly","BudgetLimit":{"Amount":"80","Unit":"EUR"},"TimeUnit":"MONTHLY","BudgetType":"COST"}' \
   --notifications-with-subscribers '[{"Notification":{"NotificationType":"ACTUAL","ComparisonOperator":"GREATER_THAN","Threshold":80,"ThresholdType":"PERCENTAGE"},"Subscribers":[{"SubscriptionType":"EMAIL","Address":"<your email>"}]}]'
 ```
@@ -59,24 +57,29 @@ The OIDC provider exists already (§0). The policies are in `infra/bootstrap/` s
 | `gha-a2h-preview` | Workflows triggered by a pull request of this repository (subject `repo:xxl007/a2h:pull_request`) | `preview.yml`, `teardown.yml` |
 
 ```sh
+# 0. GitHub's OIDC provider (AWS verifies GitHub through its trusted CAs; the thumbprint is the documented fallback).
+aws iam create-open-id-connect-provider --profile a2h-member \
+  --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+
 # 1. The ceiling every role SST creates must carry: no IAM, no role assumption.
-aws iam create-policy --profile a2h --policy-name a2h-workload-boundary \
+aws iam create-policy --profile a2h-member --policy-name a2h-workload-boundary \
   --policy-document file://infra/bootstrap/a2h-workload-boundary.json \
   --description "Permissions boundary for every a2h-* workload role created by SST"
 
 # 2. The two deploy roles. Their names start with gha-, so they can never touch themselves.
 for r in dev preview; do
-  aws iam create-role --profile a2h --role-name gha-a2h-$r \
+  aws iam create-role --profile a2h-member --role-name gha-a2h-$r \
     --assume-role-policy-document file://infra/bootstrap/gha-a2h-$r-trust.json \
     --max-session-duration 7200
-  aws iam attach-role-policy --profile a2h --role-name gha-a2h-$r \
+  aws iam attach-role-policy --profile a2h-member --role-name gha-a2h-$r \
     --policy-arn arn:aws:iam::aws:policy/PowerUserAccess
-  aws iam put-role-policy --profile a2h --role-name gha-a2h-$r \
+  aws iam put-role-policy --profile a2h-member --role-name gha-a2h-$r \
     --policy-name a2h-sst-iam --policy-document file://infra/bootstrap/gha-a2h-deploy-iam.json
 done
 
-aws iam get-role --profile a2h --role-name gha-a2h-dev     --query Role.Arn --output text
-aws iam get-role --profile a2h --role-name gha-a2h-preview --query Role.Arn --output text
+aws iam get-role --profile a2h-member --role-name gha-a2h-dev     --query Role.Arn --output text
+aws iam get-role --profile a2h-member --role-name gha-a2h-preview --query Role.Arn --output text
 ```
 
 Why this shape:
@@ -87,13 +90,13 @@ Why this shape:
 
 **Residual risks: read before you approve. This account also hosts another project.**
 
-1. **Both deploy roles hold `PowerUserAccess` across the whole account.** A workflow on `main` (dev role) or in a same-repository pull request (preview role) can read and change any non-IAM resource in this account, including the other project's secrets and S3 data. That includes replacing the code of the other project's Lambda functions or ECS tasks, and so acting with that project's roles. The policies above close the direct IAM routes, but they cannot close this indirect one while two projects share an account.
+1. **Both deploy roles hold `PowerUserAccess` across the whole A2H account.** A workflow on `main` (dev role) or in a same-repository pull request (preview role) can read and change any non-IAM resource in it. Since 2026-10-25 that account holds nothing but A2H, which is why it was separated from the other project. That includes replacing the code of the other project's Lambda functions or ECS tasks, and so acting with that project's roles. The policies above close the direct IAM routes, but they cannot close this indirect one while two projects share an account.
 2. **A pull request can create a role under the boundary that trusts an outside account.** The boundary limits such a role to A2H's own data, which includes the Aurora master secret. It could also send email as any SES identity verified in this account and invalidate any CloudFront distribution in it.
 3. **The preview trust cannot be pinned to a branch**, because GitHub's pull-request token carries no branch. Access Analyzer warns about exactly this.
 4. **The `dev` stage connects to Postgres as the master user**, which previews do not (see `infra/README.md`). A dedicated application role is a task for the first database change in M1.
 5. **Choosing an EC2 NAT instance or a bastion later** (`infra/vpc.ts`) would need `iam:CreateInstanceProfile` and the `AmazonSSMManagedInstanceCore` policy added.
 
-**Recommendation: give A2H its own AWS account before you set `A2H_DEPLOY_ENABLED`.** Use AWS Organizations, which is free: create a member account "a2h" from this one, then run this runbook in the new account. That turns risks 1 and 2 into "can affect A2H only". The cost is about 30 minutes: one email address, an `OrganizationAccountAccessRole`, a new CLI profile, and a new GitHub OIDC provider in the new account (`aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com`). Then replace `725960317785` in `infra/bootstrap/*.json` and in the commands of this runbook with the new account ID. If you keep the shared account for M0, record that choice when you approve the PR.
+**Done on 2026-10-25: A2H has its own account (§0).** For the record, the reasoning was: Use AWS Organizations, which is free: create a member account "a2h" from this one, then run this runbook in the new account. That turns risks 1 and 2 into "can affect A2H only". The cost is about 30 minutes: one email address, an `OrganizationAccountAccessRole`, a new CLI profile, and a new GitHub OIDC provider in the new account (`aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com`). Then replace `442123849268` in `infra/bootstrap/*.json` and in the commands of this runbook with the new account ID. If you keep the shared account for M0, record that choice when you approve the PR.
 
 Session length: `sst deploy` of a fresh stage with two arm64 container builds under emulation takes 10 to 30 minutes. The 2-hour maximum session is headroom.
 
@@ -104,8 +107,8 @@ Needs `gh` 2.31 or later for `gh variable` (`gh --version`; this machine had 2.1
 These are variables, not secrets. No AWS key exists anywhere in GitHub, which is what the `preview-environments` spec scenario "Secrets inventory" checks.
 
 ```sh
-gh variable set AWS_DEV_ROLE_ARN     --repo xxl007/a2h --body "arn:aws:iam::725960317785:role/gha-a2h-dev"
-gh variable set AWS_PREVIEW_ROLE_ARN --repo xxl007/a2h --body "arn:aws:iam::725960317785:role/gha-a2h-preview"
+gh variable set AWS_DEV_ROLE_ARN     --repo xxl007/a2h --body "arn:aws:iam::442123849268:role/gha-a2h-dev"
+gh variable set AWS_PREVIEW_ROLE_ARN --repo xxl007/a2h --body "arn:aws:iam::442123849268:role/gha-a2h-preview"
 gh variable list --repo xxl007/a2h
 gh secret list --repo xxl007/a2h          # must list no AWS_* entry
 ```
@@ -141,14 +144,14 @@ gh run watch --repo xxl007/a2h            # pick the deploy run
 When it finishes, verify from your machine (read-only):
 
 ```sh
-aws ssm get-parameters-by-path --profile a2h --path /a2h/shared/ --query 'Parameters[].[Name,Value]' --output table
-aws ecs list-services --profile a2h --cluster "$(aws ssm get-parameter --profile a2h --name /a2h/shared/cluster-id --query Parameter.Value --output text)" --output table
-ALB_ARN=$(aws ssm get-parameter --profile a2h --name /a2h/shared/alb-arn --query Parameter.Value --output text)
-ALB_DNS=$(aws elbv2 describe-load-balancers --profile a2h --load-balancer-arns "$ALB_ARN" --query 'LoadBalancers[0].DNSName' --output text)
+aws ssm get-parameters-by-path --profile a2h-member --path /a2h/shared/ --query 'Parameters[].[Name,Value]' --output table
+aws ecs list-services --profile a2h-member --cluster "$(aws ssm get-parameter --profile a2h-member --name /a2h/shared/cluster-id --query Parameter.Value --output text)" --output table
+ALB_ARN=$(aws ssm get-parameter --profile a2h-member --name /a2h/shared/alb-arn --query Parameter.Value --output text)
+ALB_DNS=$(aws elbv2 describe-load-balancers --profile a2h-member --load-balancer-arns "$ALB_ARN" --query 'LoadBalancers[0].DNSName' --output text)
 curl -si "http://$ALB_DNS/healthz" | head -1                                           # expect HTTP/1.1 200
-aws elbv2 describe-load-balancer-attributes --profile a2h --load-balancer-arn "$ALB_ARN" \
+aws elbv2 describe-load-balancer-attributes --profile a2h-member --load-balancer-arn "$ALB_ARN" \
   --query "Attributes[?Key=='idle_timeout.timeout_seconds'].Value" --output text      # expect 3600
-aws iam list-roles --profile a2h --query "Roles[?starts_with(RoleName, 'a2h-')].[RoleName, PermissionsBoundary.PermissionsBoundaryArn]" --output table   # every row must show a2h-workload-boundary
+aws iam list-roles --profile a2h-member --query "Roles[?starts_with(RoleName, 'a2h-')].[RoleName, PermissionsBoundary.PermissionsBoundaryArn]" --output table   # every row must show a2h-workload-boundary
 ```
 
 If the deploy fails with `AccessDenied` on `iam:CreateRole`, a role was created without the boundary: send the PM the run URL; do not widen the policy by hand.
@@ -162,7 +165,7 @@ Also make the Postgres read-only role for the `postgres-readonly` MCP server (se
 Without a domain, the web stage URLs are CloudFront hostnames (HTTPS) and the MCP endpoint is the ALB hostname over **HTTP**. MCP Inspector and curl accept that; hosted MCP clients such as Claude.ai require HTTPS, so a domain is needed before any external agent connects (M1 Gate 2 at the latest).
 
 1. Choose a domain for A2H (the existing `aiplayboox.com` zone belongs to another project). Register it in Route 53 or delegate its NS records to a new Route 53 hosted zone:
-   `aws route53 create-hosted-zone --profile a2h --name <domain> --caller-reference a2h-$(date +%s)`
+   `aws route53 create-hosted-zone --profile a2h-member --name <domain> --caller-reference a2h-$(date +%s)`
 2. Set `domain` in `infra/config.ts` (see `infra/README.md` for how stage hostnames are derived) and merge. SST then issues the ACM certificates (us-east-1 for CloudFront, eu-west-3 for the ALB, DNS-validated in the zone), creates the records, and adds the HTTPS listener with the HTTP→HTTPS redirect.
 3. ACM in us-east-1 is the single exception to the one-region rule (ADR 0001); it holds no data.
 
@@ -174,7 +177,7 @@ Sandbox is enough for M0–M2: you can send to verified addresses only (your own
 2. Before M3 (request delivery to real participants), request production access. Explain the use case as transactional email to participants who opted in on A2H, with one-tap decline links and bounce/complaint handling through the SES configuration set events:
 
 ```sh
-aws sesv2 put-account-details --profile a2h --region eu-west-3 \
+aws sesv2 put-account-details --profile a2h-member --region eu-west-3 \
   --production-access-enabled \
   --mail-type TRANSACTIONAL \
   --website-url https://<domain> \
