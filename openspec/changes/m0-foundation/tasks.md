@@ -44,6 +44,8 @@ Contract between the two owners (fixed by the PM; change it only through the PM)
 
 CHECKPOINT 3: the owner reviews the stacks and the runbook, decides the open items listed in the PR, and runs the bootstrap.
 
+**CHECKPOINT 3 passed on 2026-10-25.** The owner approved PR #6 as a whole. The "Decide first" items are therefore settled as proposed: ADR 0001 Amendment 1 accepted; branch protection gap accepted for now (private repository on a Free plan); no domain yet (needed by M1 Gate 2); network choice deferred to M1; upload retention 180 days; budget alert €80/month. The AWS account choice (dedicated vs shared) is being confirmed before runbook §3 runs.
+
 ## Step 5: hello world (issue #5)
 
 | # | Task | Owner | Acceptance |

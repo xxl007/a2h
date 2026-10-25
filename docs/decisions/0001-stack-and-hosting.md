@@ -43,11 +43,11 @@ What matters for A2H specifically: the participant request page must load in und
 - **One schema shared by all previews** or **one Aurora cluster per PR**: the first leaks data between PRs; the second multiplies cost and creation time. A schema per PR is the middle.
 - **Lambda for the MCP server**: incompatible with hour-long Streamable HTTP responses and with the stateless-but-long-lived connection model; Fargate is the fit.
 
-## Amendment 1 (proposed, 2026-10-21, awaiting the product owner at CHECKPOINT 3)
+## Amendment 1 (accepted by the product owner on 2026-10-25 at CHECKPOINT 3)
 
 Writing the stacks (PR #6) and its cold review showed where the implementation departs from the text above. Each point takes effect only when the owner approves it on PR #6.
 
-1. **SST 4.17.2, not "SST v3".** SST 4 keeps the v3 component API; its one breaking change is the Pulumi AWS provider v6 → v7. `sst` is pinned exactly in `package.json`. CLAUDE.md §Stack is updated to "SST (4.x)" on approval.
+1. **SST 4.17.2, not "SST v3".** SST 4 keeps the v3 component API; its one breaking change is the Pulumi AWS provider v6 → v7. `sst` is pinned exactly in `package.json`. CLAUDE.md §Stack now says "SST (4.x)".
 2. **The ALB is public, on HTTP until a domain exists.** This replaces decision 3's "internal-facing ALB, public listener with TLS". The MCP endpoint must be reachable by external clients, so the load balancer itself is internet-facing. TLS on 443 with an 80 → 443 redirect is added automatically when `domain` is set in `infra/config.ts`. Hosted MCP clients need it by M1 Gate 2 at the latest.
 3. **Web is not linked to Aurora in M0.** Decision 1 said Web is linked to Aurora. The VPC has no NAT gateway, and the web Lambda runs outside the VPC, so it cannot reach the database. Before the web app needs data (M1), the owner chooses between a NAT instance with Web in the VPC, and database access through the MCP and worker services only.
 4. **Previews reuse the dev SES identity and configuration set** through `Email.get`, instead of decision 4's "its own SES configuration set". A per-stage configuration set is added when email sending lands (M3), if event separation by stage is needed.
