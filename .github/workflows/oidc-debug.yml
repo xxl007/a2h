@@ -3,6 +3,8 @@
 name: OIDC debug
 on:
   workflow_dispatch:
+  push:
+    branches: [fix/oidc-immutable-subject]
 permissions:
   id-token: write
   contents: read
