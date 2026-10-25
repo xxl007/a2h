@@ -11,7 +11,7 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "repo:xxl007/a2h:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": "repo:xxl007@232548/a2h@1428197596:ref:refs/heads/main"
         }
       }
     }

@@ -34,6 +34,7 @@
         "secretsmanager:DescribeSecret"
       ],
       "Resource": [
+        "arn:aws:secretsmanager:eu-west-3:442123849268:secret:a2h-*",
         "arn:aws:secretsmanager:eu-west-3:442123849268:secret:a2h/*",
         "arn:aws:secretsmanager:eu-west-3:442123849268:secret:rds!cluster-*"
       ]

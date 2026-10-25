@@ -53,8 +53,10 @@ The OIDC provider exists already (§0). The policies are in `infra/bootstrap/` s
 
 | Role | Who can assume it | Used by |
 |---|---|---|
-| `gha-a2h-dev` | Workflows running on `main` only (subject `repo:xxl007/a2h:ref:refs/heads/main`) | `deploy.yml` (push to `main`, and the manual first deploy) |
-| `gha-a2h-preview` | Workflows triggered by a pull request of this repository (subject `repo:xxl007/a2h:pull_request`) | `preview.yml`, `teardown.yml` |
+| `gha-a2h-dev` | Workflows running on `main` only (subject `repo:xxl007@232548/a2h@1428197596:ref:refs/heads/main`) | `deploy.yml` (push to `main`, and the manual first deploy) |
+| `gha-a2h-preview` | Workflows triggered by a pull request of this repository (subject `repo:xxl007@232548/a2h@1428197596:pull_request`) | `preview.yml`, `teardown.yml` |
+
+The subjects carry the owner and repository IDs because `xxl007/a2h` was created after 15 July 2026, when GitHub switched new repositories to immutable OIDC subjects (`repo:OWNER@OWNER-ID/REPO@REPO-ID:…`). The first deploy on 2026-10-25 failed with "Not authorized to perform sts:AssumeRoleWithWebIdentity" on the legacy subject; a rename or transfer of the repository keeps the IDs, so the trust policies survive it.
 
 ```sh
 # 0. GitHub's OIDC provider (AWS verifies GitHub through its trusted CAs; the thumbprint is the documented fallback).
@@ -86,7 +88,7 @@ Why this shape:
 
 - `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but no IAM.
 - The inline policy adds IAM only for roles named `a2h-*`, which `sst.config.ts` enforces for every role it creates (`a2h-<stage>-<readable>-<hash>`, at most 64 characters; SST's own naming drops the prefix for long names, see `infra/README.md`). It may create or change those roles **only if they carry the boundary** `a2h-workload-boundary`. It may attach only the four AWS managed policies SST uses (ECS task execution, Lambda basic, Lambda VPC access, Lambda durable execution). It can pass roles only to ECS tasks and Lambda. It can never remove a boundary, edit the boundary policy, touch the `gha-*` roles, assume any other role, or use IAM Identity Center, Organizations or account settings.
-- The boundary caps every workload role at A2H's own resources: S3, SQS, DynamoDB and Lambda named `a2h-*`, secrets under `a2h/` plus the Aurora master secret, parameters under `/a2h/` and `/sst/`. Beyond that it allows only runtime plumbing: logs, image pull from SST's `sst-asset` repository, KMS decryption only through Secrets Manager, S3, SQS and SSM, network interfaces, SES sending from this account's identities, CloudFront invalidation for Next.js revalidation, and Transcribe. It never allows IAM or role assumption. ECS Exec (`ssmmessages`) is deliberately not allowed, so shell access to running containers is off.
+- The boundary caps every workload role at A2H's own resources: S3, SQS, DynamoDB and Lambda named `a2h-*`, secrets named `a2h-*` (SST's own naming, for example the Aurora master secret `a2h-dev-DatabaseProxySecret-…`) or `a2h/*` (the per-PR logins), parameters under `/a2h/` and `/sst/`. Beyond that it allows only runtime plumbing: logs, image pull from SST's `sst-asset` repository, KMS decryption only through Secrets Manager, S3, SQS and SSM, network interfaces, SES sending from this account's identities, CloudFront invalidation for Next.js revalidation, and Transcribe. It never allows IAM or role assumption. ECS Exec (`ssmmessages`) is deliberately not allowed, so shell access to running containers is off.
 
 **Residual risks: read before you approve. This account also hosts another project.**
 
@@ -151,10 +153,13 @@ ALB_DNS=$(aws elbv2 describe-load-balancers --profile a2h-member --load-balancer
 curl -si "http://$ALB_DNS/healthz" | head -1                                           # expect HTTP/1.1 200
 aws elbv2 describe-load-balancer-attributes --profile a2h-member --load-balancer-arn "$ALB_ARN" \
   --query "Attributes[?Key=='idle_timeout.timeout_seconds'].Value" --output text      # expect 3600
+for r in $(aws iam list-roles --profile a2h-member --query "Roles[?starts_with(RoleName, 'a2h-')].RoleName" --output text); do
+  printf '%s\t' "$r"; aws iam get-role --profile a2h-member --role-name "$r" --query Role.PermissionsBoundary.PermissionsBoundaryArn --output text
+done   # every line must end in policy/a2h-workload-boundary (ListRoles never returns the boundary; GetRole does)
 aws iam list-roles --profile a2h-member --query "Roles[?starts_with(RoleName, 'a2h-')].[RoleName, PermissionsBoundary.PermissionsBoundaryArn]" --output table   # every row must show a2h-workload-boundary
 ```
 
-If the deploy fails with `AccessDenied` on `iam:CreateRole`, a role was created without the boundary: send the PM the run URL; do not widen the policy by hand.
+If the deploy fails with `AccessDenied` on `iam:CreateRole`, a role was created without the boundary: send the PM the run URL; do not widen the policy by hand. If the ECS services report "deployment circuit breaker: tasks failed to start", read the stopped task's reason (`aws ecs describe-tasks`) before anything else; on 2026-10-25 it was the boundary denying the Aurora secret, fixed by boundary version v2, after which `aws ecs update-service --force-new-deployment` on both services restarted them because a tripped circuit breaker does not retry on its own.
 
 The eight `/a2h/shared/*` parameters are what every `pr-<n>` stage reads; if they are missing, previews cannot deploy. From now on every pull request from this repository gets a preview and a comment with its URLs; closing it tears the stage down, then drops its schema, its database login and its secret.
 
