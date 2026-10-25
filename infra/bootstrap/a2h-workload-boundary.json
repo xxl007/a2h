@@ -21,9 +21,9 @@
         "lambda:GetFunction"
       ],
       "Resource": [
-        "arn:aws:sqs:*:725960317785:a2h-*",
-        "arn:aws:dynamodb:*:725960317785:table/a2h-*",
-        "arn:aws:lambda:*:725960317785:function:a2h-*"
+        "arn:aws:sqs:*:442123849268:a2h-*",
+        "arn:aws:dynamodb:*:442123849268:table/a2h-*",
+        "arn:aws:lambda:*:442123849268:function:a2h-*"
       ]
     },
     {
@@ -34,8 +34,8 @@
         "secretsmanager:DescribeSecret"
       ],
       "Resource": [
-        "arn:aws:secretsmanager:eu-west-3:725960317785:secret:a2h/*",
-        "arn:aws:secretsmanager:eu-west-3:725960317785:secret:rds!cluster-*"
+        "arn:aws:secretsmanager:eu-west-3:442123849268:secret:a2h/*",
+        "arn:aws:secretsmanager:eu-west-3:442123849268:secret:rds!cluster-*"
       ]
     },
     {
@@ -46,8 +46,8 @@
         "ssm:GetParameters"
       ],
       "Resource": [
-        "arn:aws:ssm:eu-west-3:725960317785:parameter/a2h/*",
-        "arn:aws:ssm:eu-west-3:725960317785:parameter/sst/*"
+        "arn:aws:ssm:eu-west-3:442123849268:parameter/a2h/*",
+        "arn:aws:ssm:eu-west-3:442123849268:parameter/sst/*"
       ]
     },
     {
@@ -60,8 +60,8 @@
         "ses:SendBulkEmail"
       ],
       "Resource": [
-        "arn:aws:ses:eu-west-3:725960317785:identity/*",
-        "arn:aws:ses:eu-west-3:725960317785:configuration-set/a2h-*"
+        "arn:aws:ses:eu-west-3:442123849268:identity/*",
+        "arn:aws:ses:eu-west-3:442123849268:configuration-set/a2h-*"
       ]
     },
     {
@@ -95,7 +95,7 @@
         "ecr:GetDownloadUrlForLayer",
         "ecr:BatchGetImage"
       ],
-      "Resource": "arn:aws:ecr:eu-west-3:725960317785:repository/sst-asset"
+      "Resource": "arn:aws:ecr:eu-west-3:442123849268:repository/sst-asset"
     },
     {
       "Sid": "DecryptOnlyThroughA2HServices",
@@ -117,7 +117,7 @@
       "Sid": "NextjsCacheInvalidation",
       "Effect": "Allow",
       "Action": "cloudfront:CreateInvalidation",
-      "Resource": "arn:aws:cloudfront::725960317785:distribution/*"
+      "Resource": "arn:aws:cloudfront::442123849268:distribution/*"
     },
     {
       "Sid": "NoIdentityChangesFromWorkloads",

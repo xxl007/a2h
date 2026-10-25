@@ -11,10 +11,10 @@
         "iam:DeleteRolePolicy",
         "iam:DetachRolePolicy"
       ],
-      "Resource": "arn:aws:iam::725960317785:role/a2h-*",
+      "Resource": "arn:aws:iam::442123849268:role/a2h-*",
       "Condition": {
         "StringEquals": {
-          "iam:PermissionsBoundary": "arn:aws:iam::725960317785:policy/a2h-workload-boundary"
+          "iam:PermissionsBoundary": "arn:aws:iam::442123849268:policy/a2h-workload-boundary"
         }
       }
     },
@@ -22,10 +22,10 @@
       "Sid": "AttachOnlyTheManagedPoliciesSstUses",
       "Effect": "Allow",
       "Action": "iam:AttachRolePolicy",
-      "Resource": "arn:aws:iam::725960317785:role/a2h-*",
+      "Resource": "arn:aws:iam::442123849268:role/a2h-*",
       "Condition": {
         "StringEquals": {
-          "iam:PermissionsBoundary": "arn:aws:iam::725960317785:policy/a2h-workload-boundary"
+          "iam:PermissionsBoundary": "arn:aws:iam::442123849268:policy/a2h-workload-boundary"
         },
         "ArnEquals": {
           "iam:PolicyARN": [
@@ -54,13 +54,13 @@
         "iam:ListAttachedRolePolicies",
         "iam:ListInstanceProfilesForRole"
       ],
-      "Resource": "arn:aws:iam::725960317785:role/a2h-*"
+      "Resource": "arn:aws:iam::442123849268:role/a2h-*"
     },
     {
       "Sid": "PassA2HRolesToWorkloadsOnly",
       "Effect": "Allow",
       "Action": "iam:PassRole",
-      "Resource": "arn:aws:iam::725960317785:role/a2h-*",
+      "Resource": "arn:aws:iam::442123849268:role/a2h-*",
       "Condition": {
         "StringEquals": {
           "iam:PassedToService": [
@@ -116,13 +116,13 @@
         "iam:TagPolicy",
         "iam:UntagPolicy"
       ],
-      "Resource": "arn:aws:iam::725960317785:policy/a2h-workload-boundary"
+      "Resource": "arn:aws:iam::442123849268:policy/a2h-workload-boundary"
     },
     {
       "Sid": "NeverTouchTheDeployRoles",
       "Effect": "Deny",
       "Action": "iam:*",
-      "Resource": "arn:aws:iam::725960317785:role/gha-*"
+      "Resource": "arn:aws:iam::442123849268:role/gha-*"
     },
     {
       "Sid": "NoRoleHopping",
