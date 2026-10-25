@@ -55,8 +55,10 @@ The OIDC provider exists already (§0). The policies are in `infra/bootstrap/` s
 
 | Role | Who can assume it | Used by |
 |---|---|---|
-| `gha-a2h-dev` | Workflows running on `main` only (subject `repo:xxl007/a2h:ref:refs/heads/main`) | `deploy.yml` (push to `main`, and the manual first deploy) |
-| `gha-a2h-preview` | Workflows triggered by a pull request of this repository (subject `repo:xxl007/a2h:pull_request`) | `preview.yml`, `teardown.yml` |
+| `gha-a2h-dev` | Workflows running on `main` only (subject `repo:xxl007@232548/a2h@1428197596:ref:refs/heads/main`) | `deploy.yml` (push to `main`, and the manual first deploy) |
+| `gha-a2h-preview` | Workflows triggered by a pull request of this repository (subject `repo:xxl007@232548/a2h@1428197596:pull_request`) | `preview.yml`, `teardown.yml` |
+
+The subjects carry the owner and repository IDs because `xxl007/a2h` was created after 15 July 2026, when GitHub switched new repositories to immutable OIDC subjects (`repo:OWNER@OWNER-ID/REPO@REPO-ID:…`). The first deploy on 2026-10-25 failed with "Not authorized to perform sts:AssumeRoleWithWebIdentity" on the legacy subject; a rename or transfer of the repository keeps the IDs, so the trust policies survive it.
 
 ```sh
 # 1. The ceiling every role SST creates must carry: no IAM, no role assumption.
