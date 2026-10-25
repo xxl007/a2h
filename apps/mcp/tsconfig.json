@@ -1,8 +1,14 @@
 {
+  // Typecheck config (editor, ESLint, `pnpm typecheck`): src and test, no emit.
+  // `build` uses tsconfig.build.json, which emits src only.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist"
+    "noEmit": true,
+    // Sources and tests import siblings as `./x.ts` so that `node --test`
+    // (type stripping) and infra/ can load them; tsc rewrites to `./x.js` on
+    // emit (see tsconfig.build.json).
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

@@ -1,0 +1,275 @@
+# Preview environment per pull request: stage pr-<n>, schema and login pr_<n>.
+# Spec: openspec/.../preview-environments/spec.md
+#   "PR opened", "PR updated", "Two PRs open", "Typecheck fails", "Secrets inventory".
+# Deploys only when the repository variable A2H_DEPLOY_ENABLED is 'true'
+# (set by the owner after docs/runbooks/aws-bootstrap.md), only for
+# same-repository PRs (forked PRs get no OIDC token and a read-only GITHUB_TOKEN),
+# and never for Dependabot.
+#
+# Role: vars.AWS_PREVIEW_ROLE_ARN (gha-a2h-preview), trusted only for
+# repo:xxl007/a2h:pull_request (contract amendment 1). Actions in the job holding
+# id-token: write are pinned by commit SHA, tag in the comment.
+name: Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+
+jobs:
+  check:
+    # The CI gate, defined once in ci.yml. A red check means no deploy is attempted.
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  deploy:
+    name: deploy pr-${{ github.event.pull_request.number }}
+    needs: check
+    if: >-
+      vars.A2H_DEPLOY_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    # One deploy at a time per PR and never cancelled: SST holds a state lock,
+    # and a cancelled deploy leaves the stage locked. teardown.yml shares the group.
+    concurrency:
+      group: preview-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    # 'true' when either state check found the PR not open, or could not read
+    # it after its retries (the step fails, the run is red): the teardown job
+    # below then runs the same sequence as teardown.yml, after re-reading the
+    # state itself (require-closed), so an open PR is never torn down.
+    outputs:
+      closed: >-
+        ${{ steps.open.outputs.open == 'false' || steps.state.outputs.open == 'false' ||
+        steps.open.outcome == 'failure' || steps.state.outcome == 'failure' }}
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      STAGE: pr-${{ github.event.pull_request.number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # No resurrection after close. The PR may have been closed while CI ran:
+      # then nothing is created, not even the database login, and the teardown
+      # job runs instead (its own teardown.yml run may have been cancelled).
+      # Both state reads retry 5 times with backoff and fail the step if gh
+      # never answers: an unreadable state is never taken as open or closed.
+      - name: Check the PR is still open
+        id: open
+        run: |
+          state=""
+          for attempt in 1 2 3 4 5; do
+            if out=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state); then
+              case "$out" in
+                open | closed) state=$out; break ;;
+                *) echo "::warning::PR #$PR_NUMBER: unexpected state '$out' (attempt $attempt of 5)" ;;
+              esac
+            else
+              echo "::warning::Reading the state of PR #$PR_NUMBER failed (attempt $attempt of 5)"
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep $((2 ** attempt)); fi
+          done
+          if [ -z "$state" ]; then
+            echo "::error::Could not read the state of PR #$PR_NUMBER after 5 attempts; failing instead of assuming it is open."
+            exit 1
+          fi
+          echo "PR #$PR_NUMBER is $state"
+          if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR #$PR_NUMBER is $state: no preview is created; the teardown runs instead."
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.open.outputs.open == 'true'
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        if: steps.open.outputs.open == 'true'
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        if: steps.open.outputs.open == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        if: steps.open.outputs.open == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # SST builds the mcp and worker images for linux/arm64 with Docker.
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+        if: steps.open.outputs.open == 'true'
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+        if: steps.open.outputs.open == 'true'
+
+      - name: Configure AWS credentials (OIDC, no long-lived keys)
+        if: steps.open.outputs.open == 'true'
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: ${{ vars.AWS_PREVIEW_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: a2h-preview-pr-${{ github.event.pull_request.number }}
+
+      # Secret a2h/pr-<n>/db, login role and schema pr_<n> (contract amendment 1).
+      - name: Create database login and schema pr_${{ github.event.pull_request.number }}
+        if: steps.open.outputs.open == 'true'
+        run: .github/scripts/pr-schema.sh create "$PR_NUMBER"
+
+      # Re-read immediately before the deploy: a deploy of a closed PR would
+      # only be removed again. The login created above is dropped by the
+      # teardown job below (not by the queued teardown.yml run, which a newer
+      # deploy run may cancel while it is pending).
+      - name: Re-read the PR state
+        id: state
+        if: steps.open.outputs.open == 'true'
+        run: |
+          state=""
+          for attempt in 1 2 3 4 5; do
+            if out=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state); then
+              case "$out" in
+                open | closed) state=$out; break ;;
+                *) echo "::warning::PR #$PR_NUMBER: unexpected state '$out' (attempt $attempt of 5)" ;;
+              esac
+            else
+              echo "::warning::Reading the state of PR #$PR_NUMBER failed (attempt $attempt of 5)"
+            fi
+            if [ "$attempt" -lt 5 ]; then sleep $((2 ** attempt)); fi
+          done
+          if [ -z "$state" ]; then
+            echo "::error::Could not read the state of PR #$PR_NUMBER after 5 attempts; failing instead of assuming it is open."
+            exit 1
+          fi
+          echo "PR #$PR_NUMBER is $state"
+          if [ "$state" = "open" ]; then echo "open=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "open=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::PR #$PR_NUMBER is $state: deploy skipped; the teardown runs instead."
+          fi
+
+      - name: Deploy stage ${{ env.STAGE }}
+        id: deploy
+        if: steps.state.outputs.open == 'true'
+        run: pnpm exec sst deploy --stage "$STAGE" --print-logs
+
+      - name: Read outputs
+        id: outputs
+        if: steps.state.outputs.open == 'true'
+        run: |
+          test -f .sst/outputs.json || { echo "::error::.sst/outputs.json missing after deploy"; exit 1; }
+          {
+            echo "stage=$(jq -er '.stage' .sst/outputs.json)"
+            echo "web=$(jq -er '.web' .sst/outputs.json)"
+            echo "mcp=$(jq -er '.mcp' .sst/outputs.json)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write PR comment
+        if: steps.state.outputs.open == 'true'
+        env:
+          OUT_STAGE: ${{ steps.outputs.outputs.stage }}
+          OUT_WEB: ${{ steps.outputs.outputs.web }}
+          OUT_MCP: ${{ steps.outputs.outputs.mcp }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          cat > "$RUNNER_TEMP/preview-comment.md" <<MD
+          ## Preview \`$OUT_STAGE\`
+
+          | | |
+          |---|---|
+          | Web | $OUT_WEB |
+          | MCP endpoint | \`$OUT_MCP\` |
+          | Stage | \`$OUT_STAGE\` |
+          | Commit | \`$HEAD_SHA\` |
+          | Deploy run | $RUN_URL |
+
+          List the MCP tools from your terminal:
+
+          \`\`\`sh
+          npx -y @modelcontextprotocol/inspector --cli $OUT_MCP --method tools/list
+          \`\`\`
+
+          Redeployed on every push to this PR; the URLs do not change. Removed when the PR is closed.
+          MD
+
+      - name: Comment on PR
+        if: steps.state.outputs.open == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: a2h-preview
+          path: ${{ runner.temp }}/preview-comment.md
+
+      # A failed deploy must not leave a comment advertising URLs that now serve
+      # an older commit (or nothing): replace it with the failure and the run link.
+      # Not on a PR found closed at the start, whose comment belongs to the teardown.
+      - name: Comment on PR (deploy failed)
+        if: failure() && steps.open.outputs.open == 'true'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: a2h-preview
+          message: |
+            ## Preview `pr-${{ github.event.pull_request.number }}` failed to deploy
+
+            Commit `${{ github.event.pull_request.head.sha }}` did not deploy. Any URLs posted
+            earlier may serve an older commit or nothing. Run log:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # The PR was found not open (or its state unreadable) by the deploy job: run the same idempotent
+  # sequence as teardown.yml (sst remove, then pr-schema.sh drop, then the PR
+  # comment), in the same concurrency group.
+  # require-closed: the PR may be reopened, and redeployed by the reopen's
+  # run, between the deploy job above and this job taking the group. The
+  # teardown re-reads the state first and skips (comment untouched) if open.
+  teardown:
+    needs: deploy
+    if: ${{ !cancelled() && needs.deploy.outputs.closed == 'true' }}
+    uses: ./.github/workflows/preview-teardown.yml
+    with:
+      require-closed: true
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+
+  skipped:
+    name: previews not enabled
+    if: >-
+      vars.A2H_DEPLOY_ENABLED != 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: a2h-preview
+          message: |
+            ## Preview not deployed
+
+            Preview environments are not enabled yet for this repository
+            (repository variable `A2H_DEPLOY_ENABLED` is not `true`).
+
+            The owner enables them by completing `docs/runbooks/aws-bootstrap.md`
+            (AWS account, OIDC roles `gha-a2h-dev` and `gha-a2h-preview`, first `dev`
+            deploy) and setting the repository variables `AWS_DEV_ROLE_ARN`,
+            `AWS_PREVIEW_ROLE_ARN` and `A2H_DEPLOY_ENABLED=true`.
+            This comment is replaced by the preview URLs on the next push once enabled.

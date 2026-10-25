@@ -1,0 +1,136 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "A2HDataOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:*"
+      ],
+      "Resource": [
+        "arn:aws:s3:::a2h-*"
+      ]
+    },
+    {
+      "Sid": "A2HQueuesTablesFunctions",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:*",
+        "dynamodb:*",
+        "lambda:InvokeFunction",
+        "lambda:GetFunction"
+      ],
+      "Resource": [
+        "arn:aws:sqs:*:725960317785:a2h-*",
+        "arn:aws:dynamodb:*:725960317785:table/a2h-*",
+        "arn:aws:lambda:*:725960317785:function:a2h-*"
+      ]
+    },
+    {
+      "Sid": "A2HSecrets",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:eu-west-3:725960317785:secret:a2h/*",
+        "arn:aws:secretsmanager:eu-west-3:725960317785:secret:rds!cluster-*"
+      ]
+    },
+    {
+      "Sid": "A2HParameters",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:GetParameter",
+        "ssm:GetParameters"
+      ],
+      "Resource": [
+        "arn:aws:ssm:eu-west-3:725960317785:parameter/a2h/*",
+        "arn:aws:ssm:eu-west-3:725960317785:parameter/sst/*"
+      ]
+    },
+    {
+      "Sid": "EmailSending",
+      "Effect": "Allow",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail",
+        "ses:SendTemplatedEmail",
+        "ses:SendBulkEmail"
+      ],
+      "Resource": [
+        "arn:aws:ses:eu-west-3:725960317785:identity/*",
+        "arn:aws:ses:eu-west-3:725960317785:configuration-set/a2h-*"
+      ]
+    },
+    {
+      "Sid": "RuntimePlumbing",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+        "ecr:GetAuthorizationToken",
+        "cloudwatch:PutMetricData",
+        "xray:PutTraceSegments",
+        "xray:PutTelemetryRecords",
+        "ec2:CreateNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DeleteNetworkInterface",
+        "ec2:AssignPrivateIpAddresses",
+        "ec2:UnassignPrivateIpAddresses",
+        "rds-db:connect",
+        "transcribe:StartTranscriptionJob",
+        "transcribe:GetTranscriptionJob"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ImagePullFromSstRepositoryOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "arn:aws:ecr:eu-west-3:725960317785:repository/sst-asset"
+    },
+    {
+      "Sid": "DecryptOnlyThroughA2HServices",
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "secretsmanager.eu-west-3.amazonaws.com",
+            "s3.eu-west-3.amazonaws.com",
+            "sqs.eu-west-3.amazonaws.com",
+            "ssm.eu-west-3.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "NextjsCacheInvalidation",
+      "Effect": "Allow",
+      "Action": "cloudfront:CreateInvalidation",
+      "Resource": "arn:aws:cloudfront::725960317785:distribution/*"
+    },
+    {
+      "Sid": "NoIdentityChangesFromWorkloads",
+      "Effect": "Deny",
+      "Action": [
+        "iam:*",
+        "sts:AssumeRole",
+        "sts:AssumeRoleWithWebIdentity",
+        "sts:AssumeRoleWithSAML",
+        "organizations:*",
+        "account:*"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

@@ -49,7 +49,7 @@ pnpm + Turborepo monorepo, TypeScript everywhere, Node 22.
 apps/web        Next.js (App Router). Participant PWA + principal dashboard. Server actions for forms.
 apps/mcp        A2H MCP server. @modelcontextprotocol/sdk, Streamable HTTP, stateless (2026-07-28 spec).
 apps/worker     pg-boss jobs: expiries, fan-out, payouts, email, transcription.
-infra/          SST v3 stacks: web, mcp, worker, database, email, storage, previews.
+infra/          SST (4.x) stacks: web, mcp, worker, database, email, storage, previews.
 packages/protocol  Zod schemas + JSON Schema export for profile, manifest, request types, answers, attestation, settlement. Pure, no I/O.
 packages/db     Drizzle schema + migrations (Postgres).
 packages/ui     Design tokens, components, Storybook.
@@ -63,7 +63,7 @@ docs/           PRD.md, decisions/, runbooks/.
 - Auth: Better Auth. Magic link only for participants; LinkedIn and X as read-only OAuth imports, never as login requirements.
 - Payments: Stripe. PaymentIntent manual capture for holds (authorise the bid, capture the cleared price), Connect Express for payouts, Identity for verification. Test mode until the owner says otherwise.
 - Email: SES (React Email renders the templates). Transcription: one `Transcriber` interface; Amazon Transcribe first, Deepgram as fallback. Voice notes and attachments in S3 via presigned uploads with lifecycle rules.
-- Hosting: AWS, single region (eu-west-3 Paris), defined in `infra/` with SST v3.
+- Hosting: AWS, single region (eu-west-3 Paris), defined in `infra/` with SST (4.x, the Ion component API).
   - `apps/web` → Amplify Hosting (Next.js SSR) or OpenNext on CloudFront + Lambda; SST decides, ADR records it.
   - `apps/mcp` and `apps/worker` → ECS Fargate services behind one ALB (idle timeout ≥ 1 h for SSE). Not App Runner: its 120 s request limit breaks streams.
   - Postgres → Aurora Serverless v2.

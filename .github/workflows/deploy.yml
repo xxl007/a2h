@@ -1,0 +1,118 @@
+# Deploy the long-lived dev stage from main. workflow_dispatch is how the owner
+# performs the very first dev deployment after docs/runbooks/aws-bootstrap.md.
+# Spec: openspec/.../preview-environments/spec.md, "Merge to main", "Secrets inventory".
+#
+# Role: vars.AWS_DEV_ROLE_ARN (gha-a2h-dev), trusted only for
+# repo:xxl007/a2h:ref:refs/heads/main (contract amendment 1). Actions in the job
+# holding id-token: write are pinned by commit SHA, tag in the comment.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-west-3
+  STAGE: dev
+
+jobs:
+  check:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  deploy:
+    name: deploy dev
+    needs: check
+    # Only main deploys dev (the role's trust policy says the same), and never a
+    # run started by Dependabot.
+    if: >-
+      vars.A2H_DEPLOY_ENABLED == 'true' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      id-token: write
+      contents: read
+    # One dev deploy at a time, never cancelled (SST state lock).
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
+        with:
+          platforms: arm64
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+
+      - name: Configure AWS credentials (OIDC, no long-lived keys)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: a2h-deploy-dev
+
+      - name: Deploy stage dev
+        run: pnpm exec sst deploy --stage "$STAGE" --print-logs
+
+      - name: Summary
+        run: |
+          {
+            echo "## dev deployed"
+            echo
+            echo "- commit: \`$GITHUB_SHA\`"
+            if [ -f .sst/outputs.json ]; then
+              echo "- web: $(jq -r '.web // "n/a"' .sst/outputs.json)"
+              echo "- mcp: \`$(jq -r '.mcp // "n/a"' .sst/outputs.json)\`"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  disabled:
+    name: deploy not run
+    needs: check
+    if: >-
+      vars.A2H_DEPLOY_ENABLED != 'true' ||
+      github.ref != 'refs/heads/main' ||
+      github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Explain
+        env:
+          EVENT: ${{ github.event_name }}
+          ENABLED: ${{ vars.A2H_DEPLOY_ENABLED }}
+          REF: ${{ github.ref }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ "$ACTOR" = "dependabot[bot]" ]; then
+            echo "::notice::Runs started by Dependabot never deploy. A maintainer's push or merge to main deploys dev."
+            exit 0
+          fi
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::dev is deployed from main only; this run is on $REF. Use: gh workflow run deploy.yml --ref main"
+            exit 1
+          fi
+          echo "::notice::Deploys are not enabled: repository variable A2H_DEPLOY_ENABLED is '$ENABLED', not 'true'. See docs/runbooks/aws-bootstrap.md."
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "::error::Manual deploy requested but A2H_DEPLOY_ENABLED is not 'true'. Set AWS_DEV_ROLE_ARN, AWS_PREVIEW_ROLE_ARN and A2H_DEPLOY_ENABLED=true first."
+            exit 1
+          fi

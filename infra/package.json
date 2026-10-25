@@ -2,11 +2,14 @@
   "name": "@a2h/infra",
   "version": "0.0.0",
   "private": true,
-  "description": "SST v3 stacks: web, mcp, worker, database, email, storage, previews.",
+  "description": "SST stacks: vpc, cluster, database, email, storage, mcp, worker, web, shared (see README.md).",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "pnpm --dir .. exec sst install && tsc --noEmit -p tsconfig.json",
+    "lint": "pnpm --dir .. exec sst install && eslint . ../sst.config.ts",
+    "test": "node --test 'test/*.test.ts'"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5"
   }
 }

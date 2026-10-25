@@ -1,0 +1,29 @@
+# Teardown of a pull request's preview when the PR is closed. The sequence
+# itself (sst remove, then pr-schema.sh drop, then the PR comment) lives in
+# preview-teardown.yml, which preview.yml also calls when a deploy run finds
+# the PR closed; see that file for why.
+# Spec: openspec/.../preview-environments/spec.md, "PR closed".
+#
+# Role: vars.AWS_PREVIEW_ROLE_ARN (gha-a2h-preview), assumed inside
+# preview-teardown.yml; this job only grants the permissions it needs.
+name: Teardown
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+jobs:
+  teardown:
+    if: >-
+      vars.A2H_DEPLOY_ENABLED == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]'
+    uses: ./.github/workflows/preview-teardown.yml
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
