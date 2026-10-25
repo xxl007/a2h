@@ -1,0 +1,142 @@
+// MCP contract tests against a live stage. One test per scenario of
+// openspec/changes/m0-foundation/specs/platform/mcp-transport/spec.md
+// (the idle-stream scenario is in idle-stream.test.ts, opt-in).
+// Run: A2H_MCP_URL=http://<alb>/pr-<n>/mcp pnpm --filter @a2h/tests contract
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { CallToolResult } from "@modelcontextprotocol/client";
+import { expectedStage, healthUrl, mcpUrl } from "../src/live-env.ts";
+import { PROTOCOL_VERSION, connectFresh, recordingFetch, type Exchange } from "./mcp-client.ts";
+
+// Fails the whole file with a clear message when A2H_MCP_URL is unset.
+const MCP_URL = mcpUrl();
+const STAGE = expectedStage(MCP_URL);
+
+function assertNoSession(exchanges: Exchange[], who: string): void {
+  assert.ok(exchanges.length > 0, `${who}: no HTTP exchange was recorded`);
+  for (const [i, e] of exchanges.entries()) {
+    assert.equal(e.requestSessionId, null, `${who}: request ${i} (${e.rpcMethods.join(",")}) sent Mcp-Session-Id`);
+    assert.equal(e.responseSessionId, null, `${who}: response ${i} (${e.rpcMethods.join(",")}) set Mcp-Session-Id`);
+  }
+}
+
+function assertPong(result: CallToolResult, who: string): void {
+  assert.ok(!result.isError, `${who}: ping result is marked isError: ${JSON.stringify(result)}`);
+  const first = result.content[0];
+  assert.ok(first && first.type === "text", `${who}: first content item is not text: ${JSON.stringify(result.content)}`);
+  assert.ok(first.text.startsWith("pong"), `${who}: text does not start with "pong": ${JSON.stringify(first.text)}`);
+  assert.ok(first.text.includes(STAGE), `${who}: text does not name stage "${STAGE}": ${JSON.stringify(first.text)}`);
+}
+
+test(`[${MCP_URL.href}] Scenario: Initialize from a fresh client`, async () => {
+  const { client, transport, exchanges, close } = await connectFresh();
+  try {
+    // 2026-07-28 replaces the `initialize` handshake with `server/discover`;
+    // the pinned client fails to connect unless the server offers that revision.
+    assert.equal(client.getProtocolEra(), "modern");
+    assert.equal(client.getNegotiatedProtocolVersion(), PROTOCOL_VERSION);
+    const capabilities = client.getServerCapabilities();
+    assert.ok(capabilities, "server capabilities missing after connect");
+    assert.ok(capabilities.tools, `server does not advertise tools: ${JSON.stringify(capabilities)}`);
+    assert.equal(transport.sessionId, undefined, "transport holds a session id after connect");
+    assertNoSession(exchanges, "handshake");
+  } finally {
+    await close();
+  }
+});
+
+test("Scenario: Tools are listed", async () => {
+  const { client, close } = await connectFresh();
+  try {
+    const { tools } = await client.listTools();
+    const ping = tools.find((t) => t.name === "ping");
+    assert.ok(ping, `no tool named ping in ${JSON.stringify(tools.map((t) => t.name))}`);
+    assert.equal(typeof ping.description, "string");
+    assert.ok(ping.description && ping.description.trim().length > 0, "ping has an empty description");
+    assert.equal(ping.inputSchema.type, "object");
+    // Contract: optional integer holdSeconds, 0..3900 (used by the idle-stream test).
+    const hold = ping.inputSchema.properties?.holdSeconds as Record<string, unknown> | undefined;
+    assert.ok(hold, `ping input schema has no holdSeconds: ${JSON.stringify(ping.inputSchema)}`);
+    assert.equal(hold.type, "integer");
+    assert.equal(hold.minimum, 0);
+    assert.equal(hold.maximum, 3900);
+    assert.ok(!(ping.inputSchema.required ?? []).includes("holdSeconds"), "holdSeconds must be optional");
+  } finally {
+    await close();
+  }
+});
+
+test("Scenario: ping is called", async () => {
+  const { client, close } = await connectFresh();
+  try {
+    // "no arguments": the request carries no `arguments` member at all.
+    const result = await client.callTool({ name: "ping" });
+    assertPong(result, "ping");
+  } finally {
+    await close();
+  }
+});
+
+test("Scenario: Requests hit different instances (five fresh clients in a row, no session header)", async () => {
+  for (let i = 1; i <= 5; i += 1) {
+    const { client, transport, exchanges, close } = await connectFresh();
+    try {
+      const result = await client.callTool({ name: "ping" });
+      assertPong(result, `client ${i}`);
+      assert.equal(transport.sessionId, undefined, `client ${i}: transport holds a session id`);
+      assertNoSession(exchanges, `client ${i}`);
+    } finally {
+      await close();
+    }
+  }
+});
+
+test("Scenario: Requests hit different instances (tools/call is the first request a brand-new client sends)", async () => {
+  // Client A discovers; client B adopts A's discover result (zero round
+  // trips at connect), so B's very first HTTP request is tools/call. The
+  // server cannot rely on anything it saw from B before.
+  const a = await connectFresh();
+  const discover = a.client.getDiscoverResult();
+  await a.close();
+  assert.ok(discover, "client A has no discover result (not a 2026-07-28 connection)");
+
+  const b = await connectFresh({ prior: discover });
+  try {
+    assert.equal(b.exchanges.length, 0, `client B sent requests at connect: ${JSON.stringify(b.exchanges)}`);
+    const result = await b.client.callTool({ name: "ping" });
+    assertPong(result, "client B");
+    assert.deepEqual(b.exchanges[0]?.rpcMethods, ["tools/call"], "client B's first request was not tools/call");
+    assertNoSession(b.exchanges, "client B");
+  } finally {
+    await b.close();
+  }
+});
+
+test("Scenario: Load balancer probes health", async () => {
+  const url = healthUrl(MCP_URL);
+  const started = performance.now();
+  const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+  await response.arrayBuffer();
+  const elapsed = performance.now() - started;
+  assert.equal(response.status, 200, `${url.href} returned ${response.status}`);
+  assert.ok(elapsed < 1_000, `${url.href} took ${Math.round(elapsed)} ms (limit 1000 ms)`);
+  assert.equal(response.headers.get("mcp-session-id"), null, "health response set Mcp-Session-Id");
+});
+
+// Not a spec scenario. MCP Inspector and older clients connect with the 2025
+// `initialize` handshake; this reports whether the server still accepts it,
+// without failing the run (todo). The PM decides whether it becomes a rule.
+test("Compat (informational): legacy initialize handshake", { todo: "not in the spec; reported for the PM" }, async () => {
+  const { fetch, exchanges } = recordingFetch();
+  const client = new Client({ name: "a2h-contract-tests-legacy", version: "0.0.0" });
+  await client.connect(new StreamableHTTPClientTransport(MCP_URL, { fetch }), { timeout: 10_000 });
+  try {
+    assert.equal(client.getProtocolEra(), "legacy");
+    const result = await client.callTool({ name: "ping" });
+    assertPong(result, "legacy client");
+    assertNoSession(exchanges, "legacy client");
+  } finally {
+    await client.close();
+  }
+});
