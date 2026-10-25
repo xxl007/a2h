@@ -156,6 +156,7 @@ aws elbv2 describe-load-balancer-attributes --profile a2h-member --load-balancer
 for r in $(aws iam list-roles --profile a2h-member --query "Roles[?starts_with(RoleName, 'a2h-')].RoleName" --output text); do
   printf '%s\t' "$r"; aws iam get-role --profile a2h-member --role-name "$r" --query Role.PermissionsBoundary.PermissionsBoundaryArn --output text
 done   # every line must end in policy/a2h-workload-boundary (ListRoles never returns the boundary; GetRole does)
+aws iam list-roles --profile a2h-member --query "Roles[?starts_with(RoleName, 'a2h-')].[RoleName, PermissionsBoundary.PermissionsBoundaryArn]" --output table   # every row must show a2h-workload-boundary
 ```
 
 If the deploy fails with `AccessDenied` on `iam:CreateRole`, a role was created without the boundary: send the PM the run URL; do not widen the policy by hand. If the ECS services report "deployment circuit breaker: tasks failed to start", read the stopped task's reason (`aws ecs describe-tasks`) before anything else; on 2026-10-25 it was the boundary denying the Aurora secret, fixed by boundary version v2, after which `aws ecs update-service --force-new-deployment` on both services restarted them because a tripped circuit breaker does not retry on its own.
