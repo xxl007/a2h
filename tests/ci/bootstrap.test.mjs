@@ -93,5 +93,7 @@ test("trust subjects: dev is ref:refs/heads/main, preview is pull_request, same 
     assert.deepEqual(aud, ["sts.amazonaws.com"], `${f}: audience`);
   }
   assert.equal(repos.size, 1, "dev and preview trust different repositories");
-  if (process.env.GITHUB_REPOSITORY) assert.deepEqual([...repos], [process.env.GITHUB_REPOSITORY]);
+  // Repositories created after 2026-07-15 carry immutable ids: repo:OWNER@ID/REPO@ID:... (GitHub OIDC reference).
+  const withoutIds = (r) => r.replace(/@\d+/g, "");
+  if (process.env.GITHUB_REPOSITORY) assert.deepEqual([...repos].map(withoutIds), [process.env.GITHUB_REPOSITORY]);
 });
