@@ -28,7 +28,8 @@ test("is server-rendered: heading, stage and MCP URL are in the HTML before any 
   const html = await response.text();
   expect(html).toMatch(/<h1[^>]*>\s*A2H\s*<\/h1>/);
   expect(html).toContain(STAGE);
-  expect(html).toContain(MCP_URL.href.replace(/\/$/, ""));
+  // URL lowercases the host; the page prints the configured string as-is (e.g. AlbLoadBalancer-…), so compare case-insensitively.
+  expect(html.toLowerCase()).toContain(MCP_URL.href.replace(/\/$/, "").toLowerCase());
 });
 
 test("shows the stage name", async ({ page }) => {
