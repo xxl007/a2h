@@ -10,8 +10,8 @@ The A2H MCP server is reachable by any MCP client over Streamable HTTP without s
 The MCP server SHALL expose a single Streamable HTTP endpoint that accepts MCP JSON-RPC requests and returns responses per the MCP specification, without requiring a prior session.
 
 #### Scenario: Initialize from a fresh client
-- **WHEN** an MCP client sends `initialize` to the endpoint with no session header
-- **THEN** the server responds with its capabilities and the protocol version it supports
+- **WHEN** an MCP client opens the connection handshake with no session header (`server/discover` on the 2026-07-28 revision; `initialize` on the 2025 revisions, which the server still accepts)
+- **THEN** the server responds with its capabilities and the negotiated protocol version
 
 #### Scenario: Tools are listed
 - **WHEN** an initialized client sends `tools/list`
@@ -42,5 +42,5 @@ The MCP server SHALL expose an unauthenticated health path that returns success 
 The deployment SHALL keep an idle streaming response open for at least one hour.
 
 #### Scenario: Idle stream survives
-- **WHEN** a client opens a streaming response and sends nothing for 61 minutes
-- **THEN** the connection is still open from the client's point of view
+- **WHEN** a client holds one exchange open with nothing sent in either direction for 61 minutes (for example `ping` with `holdSeconds: 3660`, which stays silent until its result)
+- **THEN** the result still arrives on that connection from the client's point of view
