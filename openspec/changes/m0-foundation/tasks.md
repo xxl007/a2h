@@ -48,6 +48,19 @@ CHECKPOINT 3: the owner reviews the stacks and the runbook, decides the open ite
 
 ## Step 5: hello world (issue #5)
 
+Decisions and contract (PM, 2026-10-25; library facts from vendor docs because Context7 has no valid key):
+
+- **MCP server on the v2 packages** `@modelcontextprotocol/server` 2.4.0 + `@modelcontextprotocol/node` 2.1.2 (stateless `createMcpHandler`, default legacy mode so 2025-era clients such as MCP Inspector still work). v2 is the stable line implementing the 2026-07-28 spec that CLAUDE.md requires; the v1 `@modelcontextprotocol/sdk` 1.32 stops at 2025-11-25. CLAUDE.md's package name is amended at Gate 2.
+- **`ping` takes an optional `holdSeconds` (integer 0–3900)** and stays silent for that long before answering `pong from stage <STAGE>`. It exists so the scenario "Idle stream survives" can be proven without a test hook. SSE keep-alive comments are off for the same reason.
+- **ALB idle timeout 4000 s** (AWS maximum) because the scenario is 61 minutes = 3660 s; Node `requestTimeout` 0, `keepAliveTimeout` 4010 s.
+- **Worker:** pg-boss 12.38 in schema `DB_SCHEMA` with `createSchema: false` (a preview login has no CREATE on the database); TLS to Postgres verified with the RDS CA bundle baked into the image; one `heartbeat` job sent and processed at each start. Note for M1 (D1): on `dev`/`prod` pg-boss's tables live in `public`; the first Drizzle change must give pg-boss its own schema or avoid its table names.
+- **Web:** Next.js 15.5 (SST 4.17.2 bundles OpenNext 3.9.14, which targets Next 15; Next 16 is a later infra change), one server-rendered page (`force-dynamic`) showing stage and MCP URL from the Lambda's env, system font, no palette.
+- **Live tests** (`tests/contract`, `tests/e2e`, `tests/ci/preview-smoke.sh`) take `A2H_MCP_URL` / `A2H_WEB_URL` and run against a preview; not wired into CI yet (QA proposes a `preview-verify` job after the deploy; PM decides after Gate 2). The idle test is opt-in via `A2H_IDLE_MINUTES=61`.
+- **Exemption, recorded:** the `ping` input shape (`holdSeconds`) lives in `apps/mcp`, not in `packages/protocol`, because the proposal puts every protocol shape out of M0's scope and `ping` is a transport diagnostic. The first real tool (M1) moves tool shapes to `packages/protocol`, which then needs a build step before it can be bundled into the images (Node does not type-strip `.ts` under `node_modules`).
+- **Idle-stream proof:** previews borrow the `dev` load balancer, so the 4000 s idle timeout applies only after `main` redeploys `dev`. On a preview the hold is proven up to 59 minutes; the 61-minute run happens against `dev` `/mcp` after the merge and is recorded on the PR.
+- **Held `ping` concurrency:** unauthenticated callers can hold connections for up to 65 minutes with no cap; recorded for the M1 auth proposal (cap concurrent holds, or allow `holdSeconds > 0` off `prod` only).
+- **Spec wording to fix at archive:** the scenario "Initialize from a fresh client" says `initialize`; on 2026-07-28 the handshake is `server/discover`. The tests assert the modern handshake and report the legacy one informationally. Also "Idle stream survives" describes an already-open stream; with the v2 handler a held `ping` sends no bytes at all until the result, so the proven property is "an exchange with nothing sent either way for 61 minutes survives", which is what the load balancer timeout governs. Reword the scenario that way.
+
 | # | Task | Owner | Acceptance |
 |---|---|---|---|
 | 5.1 | `apps/mcp`: `ping` tool over Streamable HTTP, stateless, health path, `MCP_BASE_PATH` honoured | protocol-dev | Scenarios "Initialize from a fresh client", "Tools are listed", "ping is called", "Load balancer probes health" each have a green test |

@@ -1,7 +1,7 @@
 // apps/web on CloudFront + Lambda through OpenNext (ADR 0001, decision 1).
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { domain, hostnames, type StageInfo } from "./config.ts";
+import { domain, hostnames, OPEN_NEXT_VERSION, type StageInfo } from "./config.ts";
 import { storageArgs, type StorageGrant } from "./storage.ts";
 
 export const WEB_NOT_DEPLOYED = "not deployed (apps/web has no Next.js app yet)";
@@ -27,6 +27,8 @@ export function createWeb(
   const store = storageArgs(deps.storage);
   return new sst.aws.Nextjs("Web", {
     path: "apps/web",
+    // SST's default OpenNext (3.9.14) refuses Next 15.5.x; see config.ts.
+    openNextVersion: OPEN_NEXT_VERSION,
     // eu-west-3 only (no `regions`): SSR and data access stay in the EU.
     server: {
       runtime: "nodejs22.x",

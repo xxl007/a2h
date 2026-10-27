@@ -103,9 +103,25 @@ export type StorageArea = (typeof STORAGE_AREAS)[number];
 
 /**
  * ALB idle timeout in seconds (AWS range 1-4000). The MCP spec scenario
- * "Idle stream survives" (61 minutes idle, mcp-transport spec) depends on it.
+ * "Idle stream survives" (mcp-transport spec) holds a response open with
+ * nothing sent for 61 minutes = 3660 s, so 3600 would cut it: 4000, the AWS
+ * maximum. The MCP server's keep-alive timeout (apps/mcp/src/http-timeouts.ts)
+ * sits just above it.
  */
-export const ALB_IDLE_TIMEOUT_SECONDS = 3600;
+export const ALB_IDLE_TIMEOUT_SECONDS = 4000;
+
+/**
+ * OpenNext version that builds apps/web (`openNextVersion` of `sst.aws.Nextjs`,
+ * which only changes the build command to `npx @opennextjs/aws@<v> build`).
+ * SST 4.17.2 defaults to 3.9.14 for Next 15+, and 3.9.14 refuses Next 15.5.x
+ * ("not supported by the Next.js team", needs
+ * --dangerously-use-unsupported-next-version): preview deploy of PR #10 failed
+ * on it. 4.1.12 (2026-10-21) is the first release that supports Next 15.5.x
+ * without that flag (peer range `next >=15.5.28 <16 || >=16.4.1`); 4.0.0 has
+ * no breaking change versus 3.10, and SST only reads `open-next.output.json`.
+ * Vendor facts checked 2026-10-26. Remove once SST's default is >= this.
+ */
+export const OPEN_NEXT_VERSION = "4.1.12";
 
 /** Container port of the MCP service (env PORT). */
 export const MCP_PORT = 3000;

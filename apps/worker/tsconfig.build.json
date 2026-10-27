@@ -1,11 +1,12 @@
 {
-  // Emit config for `build` and the Dockerfile: src only, into dist/.
+  // Emit config for `build` and the Dockerfile: src and infra (the deployment
+  // adapter), into dist/src and dist/infra.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "allowImportingTsExtensions": false,
-    "rootDir": "src",
+    "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["src"]
+  "include": ["src", "infra"]
 }

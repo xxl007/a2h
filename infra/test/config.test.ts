@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { healthPathFor } from "../../apps/mcp/src/health-path.ts";
+import { KEEP_ALIVE_TIMEOUT_MS } from "../../apps/mcp/src/http-timeouts.ts";
 import {
   ALB_IDLE_TIMEOUT_SECONDS,
+  OPEN_NEXT_VERSION,
   PR_STAGE_READS,
   SHARED_PARAMETERS,
   STORAGE_AREAS,
@@ -92,8 +94,15 @@ test("the eight shared SSM parameters of the contract", () => {
 
 test("ALB idle timeout keeps an idle MCP stream open for over an hour", () => {
   // Spec mcp-transport, scenario "Idle stream survives" (61 minutes idle).
-  assert.ok(ALB_IDLE_TIMEOUT_SECONDS >= 3600);
-  assert.ok(ALB_IDLE_TIMEOUT_SECONDS <= 4000); // AWS maximum
+  // 61 minutes = 3660 s idle, so 3600 would cut it: use the AWS maximum.
+  assert.equal(ALB_IDLE_TIMEOUT_SECONDS, 4000);
+  assert.ok(ALB_IDLE_TIMEOUT_SECONDS > 61 * 60);
+});
+
+test("the MCP server's keep-alive outlasts the ALB idle timeout", () => {
+  // apps/mcp/src/http-timeouts.ts: the ALB must close idle target
+  // connections before Node does, or it may reuse a closing socket (502).
+  assert.ok(KEEP_ALIVE_TIMEOUT_MS > ALB_IDLE_TIMEOUT_SECONDS * 1000);
 });
 
 test("workload permissions boundary: policy name and ARN from the caller's account", () => {
@@ -151,4 +160,15 @@ test("one health-path source: the stage model and the MCP server agree", () => {
   assert.equal(healthPathFor("/mcp"), "/healthz");
   assert.equal(stageInfo("pr-12").healthPath, "/pr-12/healthz");
   assert.equal(healthPathFor("/pr-12/mcp"), "/pr-12/healthz");
+});
+
+test("OpenNext pinned to 4.1.12, the first release that builds Next 15.5.x without the unsupported-version flag", () => {
+  assert.equal(OPEN_NEXT_VERSION, "4.1.12");
+  const parts = OPEN_NEXT_VERSION.split(".").map(Number);
+  assert.equal(parts.length, 3);
+  assert.ok(parts.every((n) => Number.isInteger(n) && n >= 0), `not a plain semver: ${OPEN_NEXT_VERSION}`);
+  const [major, minor, patch] = parts as [number, number, number];
+  const atLeast = (a: [number, number, number], b: [number, number, number]) =>
+    a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
+  assert.ok(atLeast([major, minor, patch], [4, 1, 12]), `${OPEN_NEXT_VERSION} < 4.1.12`);
 });

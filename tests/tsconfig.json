@@ -1,8 +1,13 @@
 {
+  // Typecheck config (editor, ESLint, `pnpm typecheck`). No emit: the contract
+  // tests run under `node --test` (type stripping), the e2e under Playwright.
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist"
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    // DOM for the callbacks Playwright runs in the page (page.evaluate).
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"]
   },
-  "include": ["src"]
+  "include": ["src", "contract", "e2e", "playwright.config.ts"]
 }
