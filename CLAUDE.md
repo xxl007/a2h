@@ -47,7 +47,7 @@ pnpm + Turborepo monorepo, TypeScript everywhere, Node 22.
 
 ```
 apps/web        Next.js (App Router). Participant PWA + principal dashboard. Server actions for forms.
-apps/mcp        A2H MCP server. @modelcontextprotocol/sdk, Streamable HTTP, stateless (2026-07-28 spec).
+apps/mcp        A2H MCP server. @modelcontextprotocol/server (v2 packages), Streamable HTTP, stateless (2026-07-28 spec).
 apps/worker     pg-boss jobs: expiries, fan-out, payouts, email, transcription.
 infra/          SST (4.x) stacks: web, mcp, worker, database, email, storage, previews.
 packages/protocol  Zod schemas + JSON Schema export for profile, manifest, request types, answers, attestation, settlement. Pure, no I/O.
