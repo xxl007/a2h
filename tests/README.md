@@ -93,3 +93,79 @@ Spec: `openspec/changes/ci-preview-verify/specs/platform/preview-environments/sp
 | Verification outcome on the PR | `ci/workflows.test.mjs` "preview.yml: verify appends a Verification line, with the run link, to the preview comment, whatever the outcome" | CI (structure); the line itself is read on the PR |
 | Merge to main verified | `ci/workflows.test.mjs` "deploy.yml: a verify job needs deploy and runs the suites against dev"; `ci/preview-smoke.test.mjs` (dev mode) | CI (structure); live after each merge (`verify dev`) |
 | Transient failure | `ci/workflows.test.mjs` "deploy.yml and preview.yml run sst deploy a second time, after a pause, when the first attempt fails" (the step is run with a fake `pnpm`: success once, fail then succeed, fail twice) | CI |
+
+## Scenario to test map: m1-protocol-connector (package tests, group 2)
+
+Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This table lists what the `@a2h/protocol` package tests cover (Protocol-dev, task group 2). Paths are relative to `packages/protocol/test/`; all run in CI through `pnpm test` (`node --test`). "Function level" means the pure part of the scenario is tested in the package and the tool, database or worker part is still to be tested by the task named in the last column (groups 3 to 7; QA owns the live contract and adversarial tests in 7.1 and 7.2).
+
+### protocol/schemas
+
+| Scenario | Package test | Remaining |
+|---|---|---|
+| Tool schemas come from the export | `json-schema.test.ts` (export of every tool input and output, committed snapshots in `packages/protocol/json-schema/`, closed top-level objects) | Equality with the schemas `tools/list` returns: 4.5, 7.1 |
+| Fixture pair per schema | `schemas.test.ts` "Scenario: Fixture pair per schema" (one pair per exported schema, offending path asserted; a guard fails if a new schema has no pair) | - |
+| Fractional amount rejected | `schemas.test.ts` "Scenario: Fractional amount rejected" | - |
+| Gross from net rounds once, half up | `money.test.ts` "Scenario: Gross from net rounds once, half up" (2500 at 20% → 3125 → 2500, property test over f) | - |
+| Bounds hold for any share | `money.test.ts` "Scenario: Bounds hold for any share" (share 0, 1 and a property test over [0, 1]) | - |
+| Canonical form of the reference answer | `canonical.test.ts` (byte-for-byte reference string, key-order independence) | - |
+| Request id from given randomness | `ids.test.ts` | - |
+| Malformed id rejected | `ids.test.ts` (`A2H-7F3C`, `A2H-7f3` and others) | - |
+| Works without any environment | `purity.test.ts` (every exported function in a child process where clock, randomness, network and timers throw, `--permission` with read-only fs); ESLint purity rules proven on deliberate violations | - |
+
+### protocol/request-approval
+
+| Scenario | Package test | Remaining |
+|---|---|---|
+| Bid below reserve | `validate.test.ts` "Scenario: Bid below reserve" (function level: code, stage, blocked code, no reserve in the detail) | No approval shown, nothing created: 4.3, 7.1, 7.2 |
+| Push-poll | `validate.test.ts` "Scenario: Push-poll"; `content-rules.test.ts` | Tool: 4.3, 7.2 |
+| Third-party personal data | `validate.test.ts`; `content-rules.test.ts` | Tool: 4.3, 7.2 |
+| Labour disguised as a question | `validate.test.ts`; `content-rules.test.ts` | Tool: 4.3, 7.2 |
+| Quiet hours | `validate.test.ts` "Scenario: Quiet hours" (deferred, rejected and retryable, DST, unknown zone fails closed) | Result says so: 4.3, 7.1 |
+| Interruption budget exceeded | `validate.test.ts` "Scenario: Interruption budget exceeded" (blocked record returned) | Row counted: 4.3, 7.2 |
+| Accept after editing | - | 4.3, 7.1 |
+| Decline | - | 4.3, 7.1 |
+| Dismissed | - | 4.3, 7.1 |
+| Altered approval state | `validate.test.ts` "Approval binding: conflict on a replayed approval with different arguments" (the `conflict` half); `manifest-hash.test.ts` | A forged or expired state is refused by the SDK before the handler (`-32602`): 4.3, 7.1; the spec split is pending (PM) |
+| Edit turns the question into a push-poll | `validate.test.ts` (function level) | No request exists: 4.3, 7.1 |
+| Return under a second | - | 4.3, 7.1 |
+| Principal recorded | - | 4.3, 4.4, 7.1 |
+| Blocked row | `validate.test.ts` "Scenario: Blocked row (record content)"; `schemas.test.ts` (a record with the question is rejected) | The database row: 3.1, 4.3 |
+
+### protocol/request-lifecycle
+
+| Scenario | Package test | Remaining |
+|---|---|---|
+| Legal transitions | `lifecycle.test.ts` (state machine, table over all 90 (state, actor, event) triples) | One event row each: 5.x, 7.1 |
+| Illegal transition | `lifecycle.test.ts` | Status unchanged in the database: 5.x |
+| Idempotent replay | `lifecycle.test.ts` (replay is a no-op) | No event row added: 5.4 |
+| Expiry by the platform | `lifecycle.test.ts` (transition and `holdStatusAfter` → released) | Worker job: 5.4 |
+| Rules changed after approval | `validate.test.ts` "Scenario: Rules changed after approval (delivery phase)" | Worker `deliver` queue: 5.2 |
+| Before acceptance | `schemas.test.ts` (a `sent` result with a display label is rejected) | Tool: 4.4 |
+| After acceptance | `schemas.test.ts` | Tool: 4.4 |
+| Answered request | `schemas.test.ts` (an answered result needs envelope, display and cleared amount) | Tool: 4.4 |
+| Filter by status | - | 4.4 |
+| Unknown id | - | 4.4 |
+| Atomic transition | - | 5.x |
+
+### protocol/answer-attestation
+
+| Scenario | Package test | Remaining |
+|---|---|---|
+| Unsigned answer | `schemas.test.ts` "Unsigned answer" (schema level) | Request stays `accepted`, nothing stored: 5.5 |
+| Attestation missing or false | `schemas.test.ts` | Intake: 5.5 |
+| Confidence out of range | `schemas.test.ts` | Intake: 5.5 |
+| Body does not match the intent | `schemas.test.ts` (`answerEnvelopeSchemaFor("judgment")`) | Intake: 5.5 |
+| Tampered body | `signing.test.ts` "Scenario: Tampered body" (plus every other signed field, signature flip, wrong key) | Intake: 5.5 |
+| Old key still verifies | - (the package verifies with whatever key it is given) | Key lookup by `key_id`: 5.5 |
+| Revoked key | - | 5.5 |
+| Display of the reference answer | `display.test.ts` (signature display form, `reviewed by M.V., 21 Oct 2026`) | Notice and tool output: 4.4 |
+| Rejection log line | - | 4.6, 5.5 |
+
+### protocol/discovery
+
+| Scenario | Package test | Remaining |
+|---|---|---|
+| Result shape | `schemas.test.ts` "Discovery results carry no identity" (the profile shape rejects any extra field) | Tool: 4.2 |
+| Display string matches the fields | `display.test.ts` | Tool: 4.2 |
+| Gross reserve with fee metadata | `money.test.ts` (2500 at 20% → 3125) | Tool: 4.2 |
+| Maximum price excludes a profile, Attested only, Empty result, Nothing recorded for participants | - | 4.2 |
