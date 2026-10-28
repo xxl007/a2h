@@ -2,6 +2,8 @@
 # Spec: openspec/.../preview-environments/spec.md
 #   "PR opened", "PR updated", "Two PRs open", "Typecheck fails", "Secrets inventory",
 #   "Preview verified", "Verification outcome on the PR", "Transient failure".
+# Migrations and seed before the deploy: openspec/changes/m1-protocol-connector/
+#   design.md D2 and Migration Plan (task 6.2).
 # Deploys only when the repository variable A2H_DEPLOY_ENABLED is 'true'
 # (set by the owner after docs/runbooks/aws-bootstrap.md), only for
 # same-repository PRs (forked PRs get no OIDC token and a read-only GITHUB_TOKEN),
@@ -138,6 +140,17 @@ jobs:
       - name: Create database login and schema pr_${{ github.event.pull_request.number }}
         if: steps.open.outputs.open == 'true'
         run: .github/scripts/pr-schema.sh create "$PR_NUMBER"
+
+      # Migrations of schema pr_<n>, as login pr_<n>, then the simulated set
+      # (design D2, Migration Plan step 2). The cluster comes from the shared
+      # SSM parameters, as for pr-schema.sh. A failed migration fails the job
+      # here: nothing is deployed over a half-migrated schema (each file is
+      # one transaction, rolled back on error). The log names the files
+      # applied and the seed; migrations hold no question text and no secret.
+      - name: Migrate database schema pr_${{ github.event.pull_request.number }}
+        id: migrate
+        if: steps.open.outputs.open == 'true'
+        run: .github/scripts/db-migrate.sh "$STAGE"
 
       # Re-read immediately before the deploy: a deploy of a closed PR would
       # only be removed again. The login created above is dropped by the

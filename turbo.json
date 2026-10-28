@@ -22,6 +22,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
+      "env": ["A2H_DB_PG_REQUIRED"],
       "outputs": ["coverage/**"]
     },
     "dev": {

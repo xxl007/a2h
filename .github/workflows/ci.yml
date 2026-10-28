@@ -68,21 +68,52 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # packages/db's database tests start Postgres 17 in Docker; without
+      # Docker they would skip, and here they must fail instead (turbo.json
+      # passes the flag through to the test task).
       - name: Test
+        env:
+          A2H_DB_PG_REQUIRED: "1"
         run: pnpm test
 
-      # The preview/teardown script is tested here because a broken script only
-      # shows up after a deploy otherwise: against a stubbed aws CLI (statements,
-      # order, secret, masking), against a real Postgres 17 in Docker (isolation
-      # of two PRs, drop), and against the names in infra/config.ts. The
-      # workflows' structure and infra/bootstrap/*.json are checked by parsing
-      # them (tests/ci/*.test.mjs; yaml is a devDependency of @a2h/tests).
+      # The preview/teardown and migration scripts are tested because a broken
+      # script only shows up after a deploy otherwise: here against a stubbed
+      # aws CLI (statements, order, secret, masking) and against the names in
+      # infra/config.ts; against a real Postgres 17 in the job scripts-pg below.
+      # The workflows' structure and infra/bootstrap/*.json are checked by
+      # parsing them (tests/ci/*.test.mjs; yaml is a devDependency of @a2h/tests).
       - name: Check CI scripts
-        env:
-          PR_SCHEMA_PG_REQUIRED: "1"
         run: |
           shellcheck -x .github/scripts/*.sh tests/ci/*.sh tests/ci/lib/fixtures.sh tests/ci/lib/bin/aws
           bash tests/ci/pr-schema.test.sh
           bash tests/ci/infra-consistency.test.sh
-          bash tests/ci/pr-schema.pg.test.sh
           node --test tests/ci/*.test.mjs
+
+  # The CI scripts against a real PostgreSQL 17 in Docker (GitHub-hosted Ubuntu
+  # runners have it): pr-schema.sh (isolation of two PRs, jobs schema, drop) and
+  # db-migrate.sh (transactions, tracking, preview ownership, seed, prod without
+  # seed; about four minutes). A job of its own so check stays fast; both are
+  # jobs of this workflow, so the check job of preview.yml and deploy.yml, which
+  # calls the whole of ci.yml, is red when either fails. The *_PG_REQUIRED flags
+  # turn "Docker missing" into a failure instead of a silent skip.
+  scripts-pg:
+    name: check (CI scripts on Postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Pull Postgres 17
+        run: docker pull --quiet postgres:17
+
+      - name: pr-schema.sh on Postgres 17
+        env:
+          PR_SCHEMA_PG_REQUIRED: "1"
+        run: bash tests/ci/pr-schema.pg.test.sh
+
+      - name: db-migrate.sh on Postgres 17
+        env:
+          DB_MIGRATE_PG_REQUIRED: "1"
+        run: bash tests/ci/db-migrate.test.sh
