@@ -10,7 +10,7 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 ## 2. `packages/protocol` (PD)
 
 - [x] 2.1 Zod 4 schemas for handle, profile, rules of engagement, manifest (intent, audience, time shape, format, data terms), request and status enum, per-intent answer bodies, answer envelope, `ProtocolError`, ledger entry, and the inputs/outputs of `find_humans`, `request_human`, `check_requests`; verify a passing and a failing fixture per schema (`protocol/schemas` "Fixture pair per schema")
-- [ ] 2.2 Money helpers `gross`, `net`, `clear` with `f` and `s` as arguments, rounding half-up once; verify the 2500/20% → 3125 example and a property test over shares 0..1 ("Gross from net rounds once", "Bounds hold for any share"); verify `bid_minor: 30.5` is rejected
+- [x] 2.2 Money helpers `gross`, `net`, `clear` with `f` and `s` as arguments, rounding half-up once; verify the 2500/20% → 3125 example and a property test over shares 0..1 ("Gross from net rounds once", "Bounds hold for any share"); verify `bid_minor: 30.5` is rejected
 - [ ] 2.3 `canonicalAnswerPayload`; verify the reference string and key-order independence ("Canonical form of the reference answer")
 - [ ] 2.4 `signAnswer` / `verifyAnswer` on WebCrypto Ed25519 taking key material as arguments (D4); verify sign-then-verify, a one-character tamper fails, and a wrong key fails
 - [ ] 2.5 Id and handle formatters and parsers taking randomness as an argument; verify `7f3c` → `A2H-7f3c`, and that `A2H-7F3C` and `A2H-7f3` are rejected ("Identifier formats")
