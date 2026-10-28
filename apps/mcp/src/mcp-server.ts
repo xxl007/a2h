@@ -5,6 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { PACKAGE_VERSION } from "./version.ts";
+import { approvalCodec, registerApproveTest } from "./approve-test.spike.ts";
 
 /** Upper bound of ping's hold: 65 minutes, enough for the 61-minute scenario. */
 export const PING_MAX_HOLD_SECONDS = 3900;
@@ -23,7 +24,12 @@ export interface McpServerOptions {
 }
 
 export function createMcpServer(stage: string, options: McpServerOptions = {}): McpServer {
-  const server = new McpServer({ name: "a2h", version: PACKAGE_VERSION });
+  const server = new McpServer(
+    { name: "a2h", version: PACKAGE_VERSION },
+    // THROWAWAY SPIKE ONLY: refuse any requestState we did not mint, before a handler runs.
+    { requestState: { verify: (state, ctx) => approvalCodec.verify(state, ctx) } },
+  );
+  registerApproveTest(server, stage);
   server.registerTool(
     "ping",
     {
