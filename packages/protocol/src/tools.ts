@@ -102,6 +102,7 @@ export const TransitionTimesSchema = z.strictObject({
 });
 
 export const HoldStatusSchema = z.enum(["held", "released", "captured", "none"]);
+export type HoldStatus = z.infer<typeof HoldStatusSchema>;
 
 /** How the principal is shown an answer (spec protocol/answer-attestation "What the principal sees"). */
 export const AnswerDisplaySchema = z.strictObject({
