@@ -11,7 +11,7 @@ export function createWorker(deps: ServiceDeps) {
     memory: "0.5 GB",
     scaling: { min: 1, max: 1 },
     ...(stage.spot ? { capacity: "spot" as const } : {}),
-    ...containerConfig(deps),
+    ...containerConfig("worker", deps),
     // Contract amendment 1: wait for a steady service; a crash-looping
     // worker fails the deploy.
     wait: true,
