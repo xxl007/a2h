@@ -94,7 +94,7 @@ function plain(text: string): CallToolResult {
 }
 
 function refused(error: ProtocolError, participantId?: string): RequestHumanOutcome {
-  return { result: errorResult(error), log: { outcome: "error", code: error.code, stage: error.stage, participant_id: participantId } };
+  return { result: errorResult(error), log: { outcome: "error", code: error.code, error_stage: error.stage, participant_id: participantId } };
 }
 
 function conflict(participantId?: string): RequestHumanOutcome {

@@ -41,6 +41,8 @@ describe("structured logging (D9)", { skip: skipWithoutDocker() }, () => {
       const raw = JSON.stringify(line);
       for (const text of FORBIDDEN_TEXT) assert.ok(!raw.includes(text), `a log line carries "${text.slice(0, 24)}…": ${raw}`);
       for (const value of Object.values(line)) assert.ok(value === undefined || ["string", "number", "boolean"].includes(typeof value), "scalars only");
+      // index.ts appends the deployment `stage` to every line: a tool line must not use that key.
+      if (line.msg === "tool call") assert.ok(!("stage" in line), `a tool line uses the reserved key stage: ${raw}`);
     }
   }
 
@@ -57,8 +59,8 @@ describe("structured logging (D9)", { skip: skipWithoutDocker() }, () => {
       assertClean(server.logs);
       const [blocked, ...rest] = lines;
       assert.deepEqual(
-        { tool: blocked!.tool, outcome: blocked!.outcome, code: blocked!.code, stage: blocked!.stage, principal_id: blocked!.principal_id, participant_id: blocked!.participant_id },
-        { tool: "request_human", outcome: "error", code: "outside_participant_rules", stage: "rules", principal_id: TEST_PRINCIPAL.principal_id, participant_id: "p_sim_mv_7f3c" },
+        { tool: blocked!.tool, outcome: blocked!.outcome, code: blocked!.code, error_stage: blocked!.error_stage, principal_id: blocked!.principal_id, participant_id: blocked!.participant_id },
+        { tool: "request_human", outcome: "error", code: "outside_participant_rules", error_stage: "rules", principal_id: TEST_PRINCIPAL.principal_id, participant_id: "p_sim_mv_7f3c" },
       );
       assert.deepEqual(rest.map((l) => l.code), ["forbidden_content", "forbidden_content", "forbidden_content", "schema_invalid", "not_found"]);
       for (const l of lines) {

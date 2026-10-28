@@ -21,7 +21,8 @@ export interface ToolLogFields {
   participant_id?: string | undefined;
   state?: string | undefined;
   code?: string | undefined;
-  stage?: string | undefined;
+  /** The validation stage of a refusal (`rules`, `content`…); `stage` is the deployment stage, added by index.ts. */
+  error_stage?: string | undefined;
   results?: number | undefined;
   duration_ms?: number | undefined;
 }
