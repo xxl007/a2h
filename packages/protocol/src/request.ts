@@ -24,3 +24,13 @@ export const RequestEventSchema = z.strictObject({
   at: DatetimeSchema,
 });
 export type RequestEvent = z.infer<typeof RequestEventSchema>;
+
+/**
+ * What the platform did with a request at delivery time, after re-running
+ * the participant-rules validation against the current rules (spec
+ * request-lifecycle "Delivery re-validates the manifest"): `delivered`, or
+ * `blocked` (counted in blocked manifests, the request stays `sent` until it
+ * expires). One outcome per request.
+ */
+export const DELIVERY_OUTCOMES = ["delivered", "blocked"] as const;
+export type DeliveryOutcome = (typeof DELIVERY_OUTCOMES)[number];

@@ -10,12 +10,14 @@
 //   `currency` column. No float anywhere near money.
 // - `blocked_manifests` holds ids, stage, code and time only: every column is
 //   bounded, the code is one of the participant block codes, no text column.
-// - `request_events`, `blocked_manifests` and `answers` are append-only, and
+// - `request_events`, `blocked_manifests`, `request_deliveries` and `answers`
+//   are append-only, and
 //   `signing_keys` only moves forward (active → rotated → revoked); triggers in
 //   migrations/0001_append_only.sql refuse anything else.
 import {
   CLOCK_TIME_PATTERN,
   CURRENCY_PATTERN,
+  DELIVERY_OUTCOMES,
   FreeLaneKindSchema,
   HANDLE_MAX_LENGTH,
   HANDLE_PATTERN,
@@ -385,6 +387,31 @@ export const blockedManifests = pgTable(
     check("blocked_manifests_stage_rules", sql`${t.stage} = 'rules'`),
     check("blocked_manifests_code_known", oneOf(t.code, PARTICIPANT_BLOCK_CODES)),
     index("blocked_manifests_participant_at_idx").on(t.participant_id, t.at),
+  ],
+);
+
+/**
+ * The outcome of delivering a request (worker `deliver` queue, task 5.2): one
+ * row per request, written when the participant-rules re-validation ran at
+ * delivery time. `delivered` rows are what the interruption budget counts;
+ * `blocked` goes with a `blocked_manifests` row and the request stays `sent`
+ * until it expires. Ids, outcome and time only. Append-only.
+ */
+export const requestDeliveries = pgTable(
+  "request_deliveries",
+  {
+    request_id: varchar("request_id", { length: 16 })
+      .primaryKey()
+      .references(() => requests.id),
+    participant_id: id("participant_id")
+      .notNull()
+      .references(() => participants.id),
+    outcome: code("outcome", DELIVERY_OUTCOMES).notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("request_deliveries_outcome_known", oneOf(t.outcome, DELIVERY_OUTCOMES)),
+    index("request_deliveries_participant_at_idx").on(t.participant_id, t.at),
   ],
 );
 
