@@ -2,6 +2,16 @@
 // of the field that makes it fail (spec protocol/schemas, "Fixture pair per
 // schema"). Values follow the prototypes' A2H-7f3c trace; every name is
 // fictional, every amount an integer in minor units.
+import type {
+  AnswerEnvelope,
+  CheckedRequest,
+  JudgmentBody,
+  Manifest,
+  Profile,
+  RequestHumanInput,
+  RulesOfEngagement,
+  UnsignedAnswer,
+} from "../src/index.ts";
 
 /** A copy of `obj` without `key`. */
 export function omit<T extends object, K extends keyof T>(obj: T, key: K): Omit<T, K> {
@@ -12,7 +22,7 @@ export function omit<T extends object, K extends keyof T>(obj: T, key: K): Omit<
 
 export const SIG = "A".repeat(85) + "Q=="; // 64 zero-ish bytes, base64 (88 chars)
 
-export const referenceRules = {
+export const referenceRules: RulesOfEngagement = {
   types: [
     { intent: "judgment", accepted: true, reserve_net_minor: 2500, currency: "EUR" },
     { intent: "estimate", accepted: false, reserve_net_minor: 4000, currency: "EUR" },
@@ -24,7 +34,7 @@ export const referenceRules = {
   latency_promise_seconds: 86400,
 };
 
-export const referenceInput = {
+export const referenceInput: RequestHumanInput = {
   to: "sim-mv-7f3c",
   intent: "judgment",
   audience: "named_individual",
@@ -38,11 +48,11 @@ export const referenceInput = {
   data_terms: { storage: "principal_workspace", attribution: "not_attributed", training: "off" },
 };
 
-export const referenceManifest = { ...referenceInput, principal_id: "dev-principal-pr-17" };
+export const referenceManifest: Manifest = { ...referenceInput, principal_id: "dev-principal-pr-17" };
 
-export const referenceBody = { verdict: "yes", note: { text: "Clear overall; the dosage table should be larger." } };
+export const referenceBody: JudgmentBody = { verdict: "yes", note: { text: "Clear overall; the dosage table should be larger." } };
 
-export const referenceUnsigned = {
+export const referenceUnsigned: UnsignedAnswer = {
   request_id: "A2H-7f3c",
   participant_id: "p_sim_mv",
   body: referenceBody,
@@ -51,9 +61,9 @@ export const referenceUnsigned = {
   signed_at: "2026-10-21T09:10:00+02:00",
 };
 
-export const referenceEnvelope = { ...referenceUnsigned, key_id: "k-dev-2026-10", signature: SIG };
+export const referenceEnvelope: AnswerEnvelope = { ...referenceUnsigned, key_id: "k-dev-2026-10", signature: SIG };
 
-export const referenceProfile = {
+export const referenceProfile: Profile = {
   handle: "sim-mv-7f3c",
   simulated: true,
   topics: [
@@ -68,7 +78,7 @@ export const referenceProfile = {
   identity_verified: true,
 };
 
-export const referenceChecked = {
+export const referenceChecked: CheckedRequest = {
   request_id: "A2H-7f3c",
   status: "answered",
   handle: "sim-mv-7f3c",

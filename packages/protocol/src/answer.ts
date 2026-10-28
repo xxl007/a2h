@@ -47,11 +47,20 @@ export const AuthorisationBodySchema = z
   .strictObject({ decision: z.enum(["approve", "reject", "edit"]), edit: Text.optional() })
   .refine((b) => (b.decision === "edit") === (b.edit !== undefined), { message: "edit text goes with decision edit only", path: ["edit"] });
 export const ActionBodySchema = z.strictObject({ artifacts: z.array(AttachmentSchema).min(1) });
+export type ObservationBody = z.infer<typeof ObservationBodySchema>;
+export type VerificationBody = z.infer<typeof VerificationBodySchema>;
+export type JudgmentBody = z.infer<typeof JudgmentBodySchema>;
+export type OpinionBody = z.infer<typeof OpinionBodySchema>;
+export type EstimateBody = z.infer<typeof EstimateBodySchema>;
+export type KnowledgeBody = z.infer<typeof KnowledgeBodySchema>;
+export type AuthorisationBody = z.infer<typeof AuthorisationBodySchema>;
+export type ActionBody = z.infer<typeof ActionBodySchema>;
 /** A referral forwards to handles, never to a contact. */
 export const ReferralBodySchema = z.strictObject({
   forwarded_to: z.union([z.array(HandleSchema).min(1), z.literal("none")]),
   note: Text.optional(),
 });
+export type ReferralBody = z.infer<typeof ReferralBodySchema>;
 
 export const AnswerBodySchemas = {
   observation: ObservationBodySchema,
