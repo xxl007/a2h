@@ -45,8 +45,8 @@ test("secret names: a2h/<stage>/signing and a2h/<stage>/approval on every stage"
   assert.notEqual(stageSecretName(stageInfo("pr-12"), "signing"), "a2h/pr-12/db");
 });
 
-test("who receives what: mcp gets both, the worker only the signing key", () => {
-  assert.deepEqual(SECRET_SERVICES, { signing: ["mcp", "worker"], approval: ["mcp"] });
+test("who receives what: mcp only the approval key, the worker only the signing key", () => {
+  assert.deepEqual(SECRET_SERVICES, { signing: ["worker"], approval: ["mcp"] });
   assert.deepEqual(SECRET_ENV, {
     signing: { key_id: "SIGNING_KEY_ID", private_key_pkcs8: "SIGNING_PRIVATE_KEY", public_key: "SIGNING_PUBLIC_KEY" },
     approval: { key: "APPROVAL_KEY" },
@@ -139,16 +139,13 @@ test("ECS secrets per service, pinned to the deployed version so a rotation roll
     approval: { arn: arn("a2h/pr-12/approval"), versionId: VERSION },
   };
   assert.deepEqual(secretsEnvironment(pr, "mcp", refs), {
+    APPROVAL_KEY: `${refs.approval.arn}:key::${VERSION}`,
+  });
+  assert.deepEqual(secretsEnvironment(pr, "worker", refs), {
     SIGNING_KEY_ID: `${refs.signing.arn}:key_id::${VERSION}`,
     SIGNING_PRIVATE_KEY: `${refs.signing.arn}:private_key_pkcs8::${VERSION}`,
     SIGNING_PUBLIC_KEY: `${refs.signing.arn}:public_key::${VERSION}`,
-    APPROVAL_KEY: `${refs.approval.arn}:key::${VERSION}`,
   });
-  assert.deepEqual(Object.keys(secretsEnvironment(pr, "worker", refs)), [
-    "SIGNING_KEY_ID",
-    "SIGNING_PRIVATE_KEY",
-    "SIGNING_PUBLIC_KEY",
-  ]);
   // Another stage's secret is refused.
   assert.throws(
     () => secretsEnvironment(pr, "mcp", { ...refs, approval: { arn: arn("a2h/pr-120/approval"), versionId: VERSION } }),

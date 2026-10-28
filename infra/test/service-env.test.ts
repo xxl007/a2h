@@ -83,15 +83,20 @@ test("no secret in plain environment: no value looks like key material, no *_KEY
   }
 });
 
-test("names per service: mcp and worker both get the database and the signing key; only mcp the approval key", () => {
+test("names per service: both get the database; only the worker the signing key, only mcp the approval key", () => {
   for (const s of STAGES) {
     const mcp = serviceEnvNames("mcp", stageInfo(s));
     const worker = serviceEnvNames("worker", stageInfo(s));
-    for (const name of ["DB_HOST", "DB_PASSWORD", "DB_SCHEMA", "DB_JOBS_SCHEMA", "SIGNING_KEY_ID", "SIGNING_PRIVATE_KEY", "SIGNING_PUBLIC_KEY", "FEE_RATE", "STAGE"]) {
+    for (const name of ["DB_HOST", "DB_PASSWORD", "DB_SCHEMA", "DB_JOBS_SCHEMA", "FEE_RATE", "STAGE"]) {
       assert.ok(mcp.includes(name), `mcp ${s} ${name}`);
       assert.ok(worker.includes(name), `worker ${s} ${name}`);
     }
     assert.ok(mcp.includes("APPROVAL_KEY"));
+    // mcp verifies with public keys from signing_keys and never signs.
+    for (const name of ["SIGNING_KEY_ID", "SIGNING_PRIVATE_KEY", "SIGNING_PUBLIC_KEY"]) {
+      assert.ok(!mcp.includes(name), `mcp ${s} ${name}`);
+      assert.ok(worker.includes(name), `worker ${s} ${name}`);
+    }
     assert.ok(!worker.includes("APPROVAL_KEY"));
     assert.ok(worker.includes("SIMULATOR_ENABLED"));
     assert.deepEqual(mcp, [...new Set(mcp)].sort());

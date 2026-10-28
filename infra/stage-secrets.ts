@@ -27,12 +27,13 @@ export const SECRET_ENV = {
 } as const satisfies Record<StageSecretKind, Record<string, string>>;
 
 /**
- * The mcp service mints and verifies approval state (D1) and receives the
- * signing key as the PM's task 6.1 specifies; the worker signs simulated
- * answers (D8) and never sees the approval key.
+ * The mcp service mints and verifies approval state (D1); it verifies answers
+ * with public keys from `signing_keys` and never signs, so it never receives
+ * the signing key. The worker signs simulated answers (D8) and never sees the
+ * approval key.
  */
 export const SECRET_SERVICES: Record<StageSecretKind, readonly Service[]> = {
-  signing: ["mcp", "worker"],
+  signing: ["worker"],
   approval: ["mcp"],
 };
 
