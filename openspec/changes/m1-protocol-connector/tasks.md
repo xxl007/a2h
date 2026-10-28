@@ -37,12 +37,12 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 
 ## 5. Worker: lifecycle and simulator (PD)
 
-- [ ] 5.1 pg-boss in its own schema from `DB_JOBS_SCHEMA` (D3); verify the worker starts against a database where the jobs schema exists and `public`/`pr_<n>` hold only Drizzle tables
-- [ ] 5.2 `deliver` queue: re-validate against current rules (facts loaded from the database), write a blocked row and leave the request `sent` when it fails, otherwise enqueue `simulate` with the persona's delay; verify the "Rules changed after approval" test
-- [ ] 5.3 `simulate` queue: personas prompt, decline, slow, can't tell, silent; answer bodies per intent; envelopes signed with the stage key loaded from Secrets Manager (D4, D8), stored through the same verification path as a real answer; verify one test per persona scenario and "Verifies like a real answer"
-- [ ] 5.4 `expire` scheduled queue: `sent`/`accepted` past expiry → `expired`, idempotent; verify "Expiry by the platform" and "Idempotent replay"
-- [ ] 5.5 Answer intake: reject unsigned, unattested, out-of-range confidence, intent-mismatched bodies, revoked or unknown `key_id`; accept with a rotated key; verify one test per `protocol/answer-attestation` scenario and that rejection logs carry only `request_id` and `code`
-- [ ] 5.6 Simulator disabled and seed skipped on `prod`; verify a configuration test that `STAGE=prod` registers no `simulate` queue and that no outbound network call is made by the simulator (mocked fetch and mailer assert zero calls)
+- [x] 5.1 pg-boss in its own schema from `DB_JOBS_SCHEMA` (D3); verify the worker starts against a database where the jobs schema exists and `public`/`pr_<n>` hold only Drizzle tables
+- [x] 5.2 `deliver` queue: re-validate against current rules (facts loaded from the database), write a blocked row and leave the request `sent` when it fails, otherwise enqueue `simulate` with the persona's delay; verify the "Rules changed after approval" test
+- [x] 5.3 `simulate` queue: personas prompt, decline, slow, can't tell, silent; answer bodies per intent; envelopes signed with the stage key loaded from Secrets Manager (D4, D8), stored through the same verification path as a real answer; verify one test per persona scenario and "Verifies like a real answer"
+- [x] 5.4 `expire` scheduled queue: `sent`/`accepted` past expiry → `expired`, idempotent; verify "Expiry by the platform" and "Idempotent replay"
+- [x] 5.5 Answer intake: reject unsigned, unattested, out-of-range confidence, intent-mismatched bodies, revoked or unknown `key_id`; accept with a rotated key; verify one test per `protocol/answer-attestation` scenario and that rejection logs carry only `request_id` and `code`
+- [x] 5.6 Simulator disabled and seed skipped on `prod`; verify a configuration test that `STAGE=prod` registers no `simulate` queue and that no outbound network call is made by the simulator (mocked fetch and mailer assert zero calls)
 
 ## 6. Infrastructure and CI (PD for `infra/`, QA for workflows)
 
