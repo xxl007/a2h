@@ -81,8 +81,10 @@ used_params=$(sed -nE 's/^ssm get-parameter --name ([^ ]+).*/\1/p' "$WORK/stub/c
 used_secret=$(sed -nE 's/^create (.*)/\1/p' "$WORK/stub/names")
 used_user=$(jq -r .username "$WORK/stub/secret")
 sql=$(cut -f4 "$WORK/stub/rds")
-used_schema=$(sed -nE 's/^CREATE SCHEMA IF NOT EXISTS ([^ ]+) AUTHORIZATION ([^ ]+)$/\1/p' <<<"$sql")
-used_owner=$(sed -nE 's/^CREATE SCHEMA IF NOT EXISTS ([^ ]+) AUTHORIZATION ([^ ]+)$/\2/p' <<<"$sql")
+# The stage schema is created first; pr_<n>_jobs follows (checked below, D3).
+used_schema=$(sed -nE 's/^CREATE SCHEMA IF NOT EXISTS ([^ ]+) AUTHORIZATION ([^ ]+)$/\1/p' <<<"$sql" | head -1)
+# Every schema the script creates is owned by the login role.
+used_owner=$(sed -nE 's/^CREATE SCHEMA IF NOT EXISTS ([^ ]+) AUTHORIZATION ([^ ]+)$/\2/p' <<<"$sql" | sort -u | paste -sd' ' -)
 used_path=$(sed -nE 's/^ALTER ROLE ([^ ]+) SET search_path = ([^ ]+)$/\2/p' <<<"$sql")
 used_role=$(sed -nE 's/.*ELSE CREATE ROLE ([^ ]+) WITH LOGIN.*/\1/p' <<<"$sql")
 
@@ -92,7 +94,7 @@ expect "no other SSM parameter is read" "2" "$(grep -c . <<<"$used_params")"
 expect "schema pr_<n> (dbSchema)" "$config_schema" "$used_schema"
 expect "search_path is the stage's schema" "$config_schema" "$used_path"
 expect "login role pr_<n> (DB_USER)" "$config_user" "$used_role"
-expect "schema owner is the login role" "$config_user" "$used_owner"
+expect "every schema it creates is owned by the login role" "$config_user" "$used_owner"
 expect "secret username is the login role" "$config_user" "$used_user"
 expect "secret name a2h/pr-<n>/db" "$config_secret" "$used_secret"
 
