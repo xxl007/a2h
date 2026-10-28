@@ -53,6 +53,17 @@ A request id SHALL be `A2H-` followed by four lower-case hexadecimal characters;
 - **WHEN** `A2H-7F3C` or `A2H-7f3` is parsed as a request id
 - **THEN** it is rejected
 
+### Requirement: Request outcome and lane are explicit
+The output of `request_human` SHALL state `status: "sent"` with a `request_id`, or `status: "not_sent"` with a `reason` of `declined` or `dismissed` and no id. A manifest SHALL name its `lane` (`paid`, `free` or `bounty`); a free lane bids 0 and names its `free_lane` (`own_publications` or `facts_about_self`); a paid lane bids more than 0. A principal SHALL carry an identity mode (`real_name`, `verified_organisation` or `verified_pseudonymous`) and a `verified` flag.
+
+#### Scenario: Request not sent
+- **WHEN** the principal declines or dismisses the approval
+- **THEN** the result validates with `status: "not_sent"`, a `reason`, and no `request_id`
+
+#### Scenario: Free lane with a bid
+- **WHEN** a manifest names `lane: "free"` and a `bid_minor` above 0
+- **THEN** schema validation fails on `bid_minor`
+
 ### Requirement: The package performs no I/O
 The protocol package SHALL contain no network, file, database, clock or random access; every function SHALL be a pure function of its arguments.
 

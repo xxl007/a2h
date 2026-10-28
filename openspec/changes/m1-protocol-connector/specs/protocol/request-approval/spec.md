@@ -48,8 +48,12 @@ After validation passes, `request_human` SHALL ask the principal for approval wi
 - **WHEN** the principal dismisses the approval without choosing
 - **THEN** the outcome is the same as a decline
 
-#### Scenario: Altered approval state
-- **WHEN** the retried call carries approval state that the server did not issue or that was altered
+#### Scenario: Forged or expired approval state
+- **WHEN** the retried call carries approval state that the server did not issue, that was altered, or that is older than fifteen minutes
+- **THEN** the call is refused before any handler runs with JSON-RPC error `-32602` and reason `invalid_request_state`, and nothing is created
+
+#### Scenario: Approval state replayed with changed arguments
+- **WHEN** the retried call carries approval state the server issued, but for a manifest whose hash differs from the retried arguments
 - **THEN** the call is refused with code `conflict` and nothing is created
 
 ### Requirement: Approval covers the validated manifest
