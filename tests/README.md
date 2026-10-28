@@ -4,7 +4,7 @@ QA-owned suites for A2H. Every scenario in `openspec/specs` (and in the deltas o
 
 | Folder | What | Runs |
 |---|---|---|
-| `ci/` | Tests of the CI scripts and workflows (stubbed `aws`, real Postgres 17 in Docker, parsed YAML, bootstrap JSON) and the smoke script (`preview-smoke.sh`, with its own test against a fake `curl`) | `ci.yml`, "Check CI scripts"; the smoke script itself runs in the `verify` jobs |
+| `ci/` | Tests of the CI scripts and workflows (stubbed `aws`, real Postgres 17 in Docker, parsed YAML, bootstrap JSON) and the smoke script (`preview-smoke.sh`, with its own test against a fake `curl`) | `ci.yml`: job `check`, step "Check CI scripts" (stubbed `aws`, YAML, JSON); job `scripts-pg` (the `.pg` and `db-migrate` tests on Postgres 17 in Docker, which fail instead of skipping there); the smoke script itself runs in the `verify` jobs |
 | `contract/` | MCP contract tests against a live MCP endpoint (`@modelcontextprotocol/client`, `node:test`) | in CI on every preview (`preview.yml`, job `verify pr-<n>`) and on `dev` after each deploy from `main` (`deploy.yml`, job `verify dev`); by hand against any stage. The idle-stream test stays opt-in, by hand |
 | `e2e/` | Playwright e2e of the web app against a live web URL, Chromium only, headless | in CI on every preview and on `dev` (same `verify` jobs; the HTML report is uploaded as a run artifact on failure); by hand against any stage |
 | `src/live-env.ts` | Reads the target URLs from the environment, derives the stage and the health URL | imported by `contract/` and `e2e/` |
@@ -172,7 +172,7 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 
 ## Scenario to test map: m1-protocol-connector (database and CI scripts, group 3)
 
-Tasks 3.1 to 3.4. `packages/db/test/` runs with `pnpm --filter @a2h/db test` (part of `pnpm test`); its database tests start a PostgreSQL 17 container and are skipped without Docker unless `A2H_DB_PG_REQUIRED=1`. `ci/db-migrate.test.sh` and `ci/pr-schema*.test.sh` run the scripts against the stubbed `aws` (`ci/lib/bin/aws`, which now also plays Data API transactions) and, for the `.pg` parts, Postgres 17 in Docker; `db-migrate.test.sh` skips its database part without Docker unless `DB_MIGRATE_PG_REQUIRED=1`. It takes about four minutes. Wiring `db-migrate.test.sh` into `ci.yml` is task 6.2.
+Tasks 3.1 to 3.4. `packages/db/test/` runs with `pnpm --filter @a2h/db test` (part of `pnpm test`); its database tests start a PostgreSQL 17 container and are skipped without Docker unless `A2H_DB_PG_REQUIRED=1`. `ci/db-migrate.test.sh` and `ci/pr-schema*.test.sh` run the scripts against the stubbed `aws` (`ci/lib/bin/aws`, which now also plays Data API transactions) and, for the `.pg` parts, Postgres 17 in Docker; `db-migrate.test.sh` skips its database part without Docker unless `DB_MIGRATE_PG_REQUIRED=1`. It takes about four minutes. Since task 6.2 it runs in `ci.yml` (job `scripts-pg`) with the flag set; see the next section.
 
 "Database side" means the constraint holds in Postgres whatever the application code does; the scenario's behaviour through a tool or job is still tested by the task named in the last column.
 
@@ -190,3 +190,29 @@ Tasks 3.1 to 3.4. `packages/db/test/` runs with `pnpm --filter @a2h/db test` (pa
 | design D2: migrations per stage | `ci/db-migrate.test.sh`: first run (one transaction per file, tracking with SHA-256), re-run (no-op), preview (`SET LOCAL ROLE pr_<n>`, everything owned by `pr_<n>`, nothing in `public`), ownership fallback when the role is not kept, failing file (rolled back, no tracking row, nothing after it), changed file (refused), prod (given ARNs, no seed), retry while resuming | Workflow step: 6.2 |
 | design D3: jobs schemas | `ci/pr-schema.test.sh` and `ci/pr-schema.pg.test.sh` (`pr_<n>_jobs` created owned by `pr_<n>`, isolated from other previews, kept on re-create, dropped with the preview; no secret but `a2h/pr-<n>/db` touched); `ci/db-migrate.test.sh` (`pgboss` on dev and prod) | Worker uses it: 5.1 |
 | preview-environments: Two PRs open, PR closed (both schemas) | `ci/pr-schema.pg.test.sh` | - |
+
+## Scenario to test map: m1-protocol-connector (workflows, task 6.2)
+
+Design D2 and Migration Plan step 2: `.github/scripts/db-migrate.sh <stage>` runs in `deploy.yml` (`dev`) and `preview.yml` (`pr-<n>`) after the AWS credentials and before `sst deploy`; on previews after `pr-schema.sh create`. Every test below is in `ci/workflows.test.mjs` (parsed YAML; the migration step itself is run with bash against a fake `db-migrate.sh`) and runs in CI on every PR. `actionlint` runs in `ci.yml` before them. There is no prod job in `deploy.yml` today, so no prod migration step; `db-migrate.sh prod` refuses without `A2H_DB_CLUSTER_ARN` and `A2H_DB_SECRET_ARN` (checked here too).
+
+### Behaviour: Preview is migrated before deploy
+
+| Behaviour | Test | How it runs | Not automatable yet |
+|---|---|---|---|
+| Migrated before deploy, in every deploying job | "db-migrate.sh runs in exactly the jobs that run sst deploy (deploy.yml, preview.yml), nowhere else" | CI | - |
+| Order: credentials, `pr-schema.sh create` (previews), migration, `sst deploy` | "the migration step comes after the AWS credentials and before sst deploy; on previews after pr-schema.sh create" | CI | - |
+| The job's own stage, and the same stage as the deploy | "the migration step migrates the job's own stage: dev in deploy.yml, pr-<n> in preview.yml" | CI | - |
+| Cluster from the shared SSM parameters, like `pr-schema.sh`; no ARN override, no secret, no tracing in the step | "the migration step reads the cluster from the shared SSM parameters, as pr-schema.sh does: no ARN, no secret, no tracing" | CI | That the log holds no secret is read on the run log of the PR's preview (the script prints stage, schema, cluster ARN, file names, seed line) |
+| Fail closed: a failed migration fails the job, nothing deploys after it, the failure comment replaces the URLs | "a failed migration fails the job and nothing deploys after it (fail closed)"; "the migration step passes the stage as the one argument and fails with the script" (exit 1 and 64 fail the step) | CI | A live failed migration on a preview is not provoked |
+| CLI contract the workflows rely on (`dev`, `pr-<n>`, usage errors, prod refused without ARNs) | "the CLI contract the workflows rely on: db-migrate.sh accepts dev and pr-<n>, refuses prod without ARNs" | CI | - |
+| Seed on a preview (participant-simulation, deploy side): the seed runs on `pr-<n>` | the step above plus `ci/db-migrate.test.sh` (seed on previews and dev) | CI; live on every preview deploy (run log: `db-migrate: seed: applied the simulated set to pr_<n>`) | `find_humans` returning the set: 4.2, 7.1 |
+| Teardown unchanged: no migration, `pr-schema.sh drop` the last step touching AWS | "the teardown is unchanged: no migration, and pr-schema.sh drop is the last step that touches AWS"; the existing teardown-order tests | CI | - |
+
+### Docker-backed tests cannot skip silently
+
+| Behaviour | Test | How it runs |
+|---|---|---|
+| Every `tests/ci/*.test.sh` runs in `ci.yml` | "ci.yml runs every tests/ci/*.test.sh script (none left out)" | CI |
+| `PR_SCHEMA_PG_REQUIRED=1`, `DB_MIGRATE_PG_REQUIRED=1` on the steps that run their scripts | "every *_PG_REQUIRED flag a CI script test defines is set to 1 on the step that runs it" | CI |
+| `A2H_DB_PG_REQUIRED=1` on `pnpm test`, and declared in `turbo.json` (turbo's strict env mode dropped it before: checked by running `packages/db` tests through turbo with a failing `docker`, 0 failures without the declaration, 2 with it) | "packages/db's database tests cannot skip in CI: A2H_DB_PG_REQUIRED=1 on pnpm test, and turbo passes it through" | CI |
+| The Postgres job is unconditional and gates the deploys (preview and deploy call the whole of `ci.yml`) | "every ci.yml job runs unconditionally and its test steps cannot be ignored, so the check gates on all of them" | CI |
