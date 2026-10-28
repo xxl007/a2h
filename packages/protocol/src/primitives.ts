@@ -2,7 +2,8 @@
 import * as z from "zod";
 
 /** Three-letter ISO 4217 code, upper case. Every `_minor` field sits next to one. */
-export const CurrencySchema = z.string().regex(/^[A-Z]{3}$/, "ISO 4217 code, upper case");
+export const CURRENCY_PATTERN = /^[A-Z]{3}$/;
+export const CurrencySchema = z.string().regex(CURRENCY_PATTERN, "ISO 4217 code, upper case");
 export type Currency = z.infer<typeof CurrencySchema>;
 
 /** A non-negative amount in minor units (cents). Integers only, never floats. */
@@ -32,11 +33,13 @@ export const HandleSchema = z
 export type Handle = z.infer<typeof HandleSchema>;
 
 /** Opaque internal identifiers (participant, principal, key, ledger row). Never a name or an email. */
+export const OPAQUE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
+export const OPAQUE_ID_MAX_LENGTH = 64;
 export const OpaqueIdSchema = z
   .string()
   .min(1)
-  .max(64)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/, "opaque identifier");
+  .max(OPAQUE_ID_MAX_LENGTH)
+  .regex(OPAQUE_ID_PATTERN, "opaque identifier");
 
 export const INTENTS = [
   "observation",

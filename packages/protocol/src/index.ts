@@ -12,6 +12,8 @@ export * from "./json-schema.ts";
 export * from "./money.ts";
 export * from "./canonical.ts";
 export * from "./signing.ts";
+export * from "./keys.ts";
+export * from "./simulation.ts";
 export * from "./ids.ts";
 export * from "./display.ts";
 export * from "./lifecycle.ts";

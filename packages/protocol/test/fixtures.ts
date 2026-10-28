@@ -287,6 +287,13 @@ export const fixtures: Record<string, Fixture> = {
     fail: { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 35.5, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false },
     path: ["held_minor"],
   },
+  SigningKeyStatusSchema: { pass: "rotated", fail: "expired", path: [] },
+  PublicSigningKeySchema: {
+    pass: { key_id: "stage-dev-2026-10", status: "rotated", public_key: "A".repeat(43) + "=", created_at: "2026-10-01T09:00:00+02:00", rotated_at: "2026-10-21T09:00:00+02:00" },
+    fail: { key_id: "stage-dev-2026-10", status: "revoked", public_key: "A".repeat(43) + "=", created_at: "2026-10-01T09:00:00+02:00" },
+    path: ["revoked_at"],
+  },
+  SimulatedPersonaSchema: { pass: "cant_tell", fail: "chatty", path: [] },
   CheckRequestsInputSchema: { pass: { request_id: "A2H-7f3c" }, fail: { request_id: "A2H-7f3" }, path: ["request_id"] },
   CheckedRequestSchema: { pass: referenceChecked, fail: { ...referenceChecked, status: "done" }, path: ["status"] },
   CheckRequestsOutputSchema: {

@@ -65,7 +65,8 @@ export const TypeRuleSchema = z.strictObject({
 });
 export type TypeRule = z.infer<typeof TypeRuleSchema>;
 
-const ClockTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "HH:MM, 24-hour");
+export const CLOCK_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const ClockTime = z.string().regex(CLOCK_TIME_PATTERN, "HH:MM, 24-hour");
 
 /** Quiet hours in the participant's IANA time zone; `start` may be later than `end` (overnight). */
 export const QuietHoursSchema = z.strictObject({
