@@ -2,6 +2,8 @@
 # performs the very first dev deployment after docs/runbooks/aws-bootstrap.md.
 # Spec: openspec/.../preview-environments/spec.md, "Merge to main", "Secrets inventory",
 # "Merge to main verified", "Transient failure".
+# Migrations before the deploy: openspec/changes/m1-protocol-connector/design.md
+# D2 and Migration Plan (task 6.2).
 #
 # Role: vars.AWS_DEV_ROLE_ARN (gha-a2h-dev), trusted only for
 # repo:xxl007/a2h:ref:refs/heads/main (contract amendment 1). Actions in the job
@@ -74,6 +76,15 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEV_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: a2h-deploy-dev
+
+      # Migrations of schema public, the pgboss schema (design D3), then the
+      # simulated set (design D2, Migration Plan step 2). The cluster comes
+      # from the shared SSM parameters dev publishes. A failed migration fails
+      # the job here, before any service rolls; migrations are forward-only
+      # and additive, so the running services keep working on the new schema.
+      - name: Migrate database (dev)
+        id: migrate
+        run: .github/scripts/db-migrate.sh "$STAGE"
 
       # One retry after a pause (transient AWS errors). No `sst unlock` before
       # it: a deploy that exits on its own releases the state lock; only a
