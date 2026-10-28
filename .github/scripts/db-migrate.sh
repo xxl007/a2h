@@ -31,6 +31,11 @@
 #   An applied file whose checksum changed stops the run before anything else:
 #   migrations are forward-only; write a new file instead.
 #
+# Jobs schema (design D3)
+#   dev and prod: CREATE SCHEMA IF NOT EXISTS pgboss before the migrations
+#   (pg-boss runs with createSchema false). Previews: pr_<n>_jobs is created by
+#   pr-schema.sh with the preview login as owner, not here.
+#
 # Ownership fallback (design D2, previews only)
 #   If the Data API did not keep SET ROLE across the transaction's statements,
 #   the objects would belong to the master user. Before commit, the script
@@ -275,6 +280,11 @@ fi
 
 echo "db-migrate: stage $stage, schema $schema${role:+, role $role}, database $DATABASE"
 echo "db-migrate: cluster $cluster_arn"
+
+if [ -z "$role" ]; then
+  execute "CREATE SCHEMA IF NOT EXISTS pgboss" || exit 1
+  echo "db-migrate: jobs schema pgboss present"
+fi
 
 # Applied files and their checksums (none before the first migration ran).
 applied="[]"

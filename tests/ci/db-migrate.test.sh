@@ -143,6 +143,8 @@ expect "schema_migrations lists every file with its sha256, in order" "$sums" \
   "$(q "SELECT name || '|' || checksum FROM public.schema_migrations ORDER BY name")"
 expect "Seed on dev: twelve simulated participants" 12 "$(q 'SELECT count(*) FROM public.participants WHERE simulated')"
 expect "five personas" 5 "$(q 'SELECT count(*) FROM public.simulated_personas')"
+expect "the pg-boss schema pgboss exists on dev (design D3; the worker does not create it)" "master" \
+  "$(q "SELECT nspowner::regrole FROM pg_namespace WHERE nspname = 'pgboss'")"
 check "no SET ROLE on dev" bash -c '! grep -qi "SET LOCAL ROLE" <<<"$1"' _ "$SQL"
 check "every statement on database a2h through the Data API, no SQL on a command line" \
   bash -c '! grep -q -- "--sql" <<<"$1" && grep -q "rds-data begin-transaction --resource-arn arn:aws:rds:eu-west-3:000000000000:cluster:synthetic --secret-arn arn:aws:secretsmanager:eu-west-3:000000000000:secret:synthetic --database a2h" <<<"$1"' _ "$CALLS"
@@ -171,6 +173,7 @@ expect "nothing added to public" "$before_public" \
 expect "the preview login sees the seeded set through its search_path" 12 "$(as_login pr_21 "$PW21" 'SELECT count(*) FROM participants')"
 expect "the preview login is refused an update of an append-only table (owner, trigger)" "append-only" \
   "$(as_login pr_21 "$PW21" "TRUNCATE request_events" | grep -o 'append-only' | head -1)"
+check "previews: no jobs schema statement (pr-schema.sh owns pr_<n>_jobs)" bash -c '! grep -qi "CREATE SCHEMA" <<<"$1"' _ "$SQL"
 check "no fallback needed when SET ROLE holds" bash -c '! grep -q "fallback" <<<"$1"' _ "$OUT"
 migrate STUB_PSQL="$PSQL_A2H" "$WORK/pr21" pr-21
 expect "pr-21 re-run: only the seed transaction" "0 1" "$RC $(count '^begin' "$TX")"
@@ -223,6 +226,7 @@ expect "prod exits 0" 0 "$RC"
 expect "prod: one transaction per file, none for a seed" "$nfiles" "$(count '^begin' "$TX")"
 expect "Scenario: Nothing on production (seed side): no participant, no persona" "0 0" \
   "$(q 'SELECT (SELECT count(*) FROM public.participants) || chr(32) || (SELECT count(*) FROM public.simulated_personas)' a2h_prod)"
+expect "the pg-boss schema pgboss exists on prod" 1 "$(q "SELECT count(*) FROM pg_namespace WHERE nspname = 'pgboss'" a2h_prod)"
 check "prod: says the seed is skipped" grep -q "seed: skipped on prod" <<<"$OUT"
 check "prod: uses the given ARNs, never SSM" \
   bash -c '! grep -q "ssm get-parameter" <<<"$1" && grep -q "cluster:prod" <<<"$1"' _ "$CALLS"
