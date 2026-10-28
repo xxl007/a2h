@@ -4,7 +4,7 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 
 ## 1. Spike: approval round trip in Claude Code (PD, go/no-go before anything else)
 
-- [ ] 1.1 On a branch, add a throwaway tool `approve_test` to `apps/mcp` that returns an `input_required` result with one pre-filled string field and an HMAC `requestState` (D1), and on retry returns the accepted text; verify with the contract client (`@modelcontextprotocol/client` 2.4.0) locally that the retried call carries `inputResponses` and the echoed state
+- [x] 1.1 On a branch, add a throwaway tool `approve_test` to `apps/mcp` that returns an `input_required` result with one pre-filled string field and an HMAC `requestState` (D1), and on retry returns the accepted text; verify with the contract client (`@modelcontextprotocol/client` 2.4.0) locally that the retried call carries `inputResponses` and the echoed state
 - [ ] 1.2 Open a draft PR so the preview deploys; from this machine run `claude mcp add --transport http a2h-spike http://<alb>/pr-<n>/mcp` and ask Claude Code 2.1.226 to call `approve_test`; verify the dialog shows the pre-filled text, that editing and accepting returns the edited text, and that the mcp logs show the 2026-07-28 revision; paste the log lines (no bodies) into this file under "Spike result" and delete the tool before task 2 starts. If the client took the 2025 path, stop and report to the PM (fallback in design.md D1)
 
 ## 2. `packages/protocol` (PD)
@@ -65,3 +65,26 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 
 - Archive with `/opsx:archive m1-protocol-connector` after Gate 2; the modified `mcp-transport` scenario merges into the main spec.
 - Propose `m1-hosted-connector` (domain, TLS, authorization, rate limits, held-`ping` cap, hosted web client verification).
+
+## Spike result
+
+Task group 1, branch `spike/m1-approval-roundtrip` (never merged), draft PR #24, preview `pr-24`, commit `022bda1`. Recorded 2026-10-28 by Protocol-dev. No question or answer bodies below.
+
+**Call: NO-GO for Claude Code 2.1.226 as installed (default settings); GO when two environment variables are set.** The PM and owner choose between D1's fallback and requiring the variables. 1.2 stays open until the owner's interactive check (PR #24, comment "Owner check").
+
+Server side (1.1), `@modelcontextprotocol/client` 2.4.0, `apps/mcp/test/approve-test.spike.test.ts`:
+- In-process, `pnpm --filter @a2h/mcp test`: `# tests 31`, `# pass 31`, `# fail 0`. This includes 10 spike tests: input_required with one pre-filled field; accept with an edit gives back the edit byte-identical; auto-fulfilling client; decline; cancel; tampered or foreign state refused; state replayed with other arguments gives `conflict`; no state gives `conflict`; state minted on instance A verifies on instance B (round-robin over two in-process servers); a 2025-era client gets an isError result and is never asked anything.
+- Against the preview, `A2H_MCP_URL=http://<alb>/pr-24/mcp node --test test/approve-test.spike.test.ts`: `# tests 10`, `# pass 8`, `# fail 0`, `# skipped 2` (the two in-process-only cases). The preview runs one MCP task, so it does not exercise two instances. Only the in-process round-robin test does.
+- `pnpm typecheck`, `pnpm lint`: 9/9 tasks successful. Preview run 40721154409: deploy and verify (smoke, contract, e2e) passed.
+
+Claude Code 2.1.226, `claude -p` against `pr-24`. Wire headers come from a local logging proxy that recorded headers and method names only.
+- Default: debug `mcp runtime arm: v1 (source: default)`. Wire: `initialize`, then `mcp-protocol-version: 2025-11-25` on every request. Handling: the tool result is an error, `Cannot request input 'approval' (elicitation/create): the client on this 2025-era connection did not declare the required capability (... per-request legacy serving cannot receive server-to-client requests)`. No dialog, nothing approved.
+- `MCP_SDK_GENERATION=v2` alone: `mcp runtime arm: v2 (source: env)`, but `"protocolEra":"legacy","negotiatedProtocolVersion":"2025-11-25"`. Same error.
+- `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto`: `"protocolEra":"modern","negotiatedProtocolVersion":"2026-07-28"`. Wire: `server/discover` (2026-07-28), `tools/call` gets resultType `input_required`, then `tools/call` with `inputResponses` and `requestState` gets `complete`. Handling: Claude Code recognised the result and fulfilled it; print mode cannot show a form, so it answered `cancel`. The server verified the echoed state and returned `Not sent (cancel): nothing was created.` (`Tool 'approve_test' completed successfully in 241ms`).
+- Why: in the 2.1.226 binary, HTTP servers negotiate `legacy` unless `MCP_PROTOCOL_NEGOTIATION=auto` or the remote flag `tengu_mcp_protocol_negotiation_http` is on. The v2 client runtime needs `MCP_SDK_GENERATION=v2` or the remote flag `tengu_brindle_causeway`. Both flags were off for this account. These are undocumented internals: they can change in any release, and another account may see different flag values.
+
+SDK facts that differ from design.md D1 (for the PM):
+- The SDK ships `createRequestStateCodec({ key, ttlSeconds, bind })`, an HMAC-SHA256 that is signed, not encrypted: the client can read the payload. Use it instead of hand-rolled HMAC. `bind` is the place for `principal_id`. The key must be at least 32 bytes.
+- A state refused by `requestState.verify` never reaches the handler. The SDK answers with JSON-RPC `-32602` "Invalid or expired requestState", `data.reason: "invalid_request_state"`, and the message is fixed. So the "Altered approval state" scenario cannot return a tool error with code `conflict` from the hook. Either the spec accepts `-32602` for forged or expired state, or the hook resolves a marker instead of throwing and the handler returns `conflict`. In the spike, `conflict` covers only a valid state whose `manifest_hash` does not match the retried arguments, and a missing state.
+- 2025-era clients on the stateless server: the SDK's legacy shim cannot send `elicitation/create` per request and returns an isError result. So D1's fallback (SDK sessions, one task) is the only way a default Claude Code 2.1.226 sees the dialog. That fallback is untested here.
+
