@@ -2,8 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { healthPathFor } from "../../apps/mcp/src/health-path.ts";
 import { KEEP_ALIVE_TIMEOUT_MS } from "../../apps/mcp/src/http-timeouts.ts";
+import { PrincipalSchema, ValidationPolicySchema } from "../../packages/protocol/src/index.ts";
 import {
   ALB_IDLE_TIMEOUT_SECONDS,
+  CLEARING_SHARE,
+  DEVELOPMENT_POLICY,
+  developmentPrincipal,
+  FEE_RATE,
   OPEN_NEXT_VERSION,
   PR_STAGE_READS,
   SHARED_PARAMETERS,
@@ -171,4 +176,52 @@ test("OpenNext pinned to 4.1.12, the first release that builds Next 15.5.x witho
   const atLeast = (a: [number, number, number], b: [number, number, number]) =>
     a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] >= b[2];
   assert.ok(atLeast([major, minor, patch], [4, 1, 12]), `${OPEN_NEXT_VERSION} < 4.1.12`);
+});
+
+// m1-protocol-connector design D3, D7; task 6.1.
+test("pg-boss schema per stage: pgboss on dev and prod, pr_<n>_jobs on previews (D3)", () => {
+  assert.equal(stageInfo("dev").jobsSchema, "pgboss");
+  assert.equal(stageInfo("prod").jobsSchema, "pgboss");
+  assert.equal(stageInfo("pr-12").jobsSchema, "pr_12_jobs");
+  for (const s of ["dev", "prod", "pr-12", "pr-48899"]) {
+    const { dbSchema, jobsSchema } = stageInfo(s);
+    assert.notEqual(jobsSchema, dbSchema, s);
+    assert.match(jobsSchema, /^[a-z_][a-z0-9_]{0,62}$/, s);
+  }
+});
+
+test("the simulator is enabled on dev and previews, never on prod", () => {
+  assert.equal(stageInfo("dev").simulatorEnabled, true);
+  assert.equal(stageInfo("pr-12").simulatorEnabled, true);
+  assert.equal(stageInfo("prod").simulatorEnabled, false);
+});
+
+test("development principal per stage: dev-principal-<stage>, verified organisation (D7)", () => {
+  for (const s of ["dev", "prod", "pr-12"]) {
+    assert.deepEqual(developmentPrincipal(stageInfo(s)), {
+      principal_id: `dev-principal-${s}`,
+      identity_mode: "verified_organisation",
+      verified: true,
+    });
+  }
+});
+
+test("fee rate and clearing share are configuration in [0, 1) and [0, 1] (ADR 0002)", () => {
+  assert.ok(FEE_RATE >= 0 && FEE_RATE < 1);
+  assert.ok(CLEARING_SHARE >= 0 && CLEARING_SHARE <= 1);
+  // The policy carries the same fee rate the services receive.
+  assert.equal(DEVELOPMENT_POLICY.fee_rate, FEE_RATE);
+  for (const k of ["monthly_budget_minor", "per_request_cap_minor", "daily_request_limit", "throttled_daily_limit"] as const) {
+    assert.ok(Number.isSafeInteger(DEVELOPMENT_POLICY[k]) && DEVELOPMENT_POLICY[k] >= 0, k);
+  }
+  assert.ok(DEVELOPMENT_POLICY.per_request_cap_minor <= DEVELOPMENT_POLICY.monthly_budget_minor);
+  assert.ok(DEVELOPMENT_POLICY.throttled_daily_limit <= DEVELOPMENT_POLICY.daily_request_limit);
+});
+
+test("the policy and the principal are valid packages/protocol shapes (no duplicated schema)", () => {
+  assert.deepEqual(ValidationPolicySchema.parse(DEVELOPMENT_POLICY), DEVELOPMENT_POLICY);
+  for (const s of ["dev", "prod", "pr-48899"]) {
+    const principal = developmentPrincipal(stageInfo(s));
+    assert.deepEqual(PrincipalSchema.parse(principal), principal, s);
+  }
 });
