@@ -2,6 +2,28 @@
 
 Steps 1–3 are done and approved (issues #1–#3 closed, 2026-10-21). This file covers steps 4 and 5. Owner per task is the agent role; every task names its acceptance. Nothing in this change is deployed by an agent.
 
+## Checklist (status for OpenSpec; details in the tables below)
+
+- [x] 1 Repo baseline (issue #1, 2026-10-21)
+- [x] 2 Methodology: agents, skills, OpenSpec, .mcp.json, runbook (issue #2)
+- [x] 3 ADR 0001, 0002, 0003 accepted (issue #3)
+- [x] 4.1 SST stacks in infra/ (PR #6)
+- [x] 4.2 Dockerfiles for mcp and worker (PR #6)
+- [x] 4.3 ALB idle timeout, health checks, warm, runtime (PR #6; raised to 4000 s in PR #10)
+- [x] 4.4 ci.yml (PR #6)
+- [x] 4.5 preview.yml with URL comment (PR #6)
+- [x] 4.6 teardown.yml with schema, login and secret drop (PR #6)
+- [x] 4.7 deploy.yml (PR #6)
+- [x] 4.8 pr-schema.sh (PR #6)
+- [x] 4.9 docs/runbooks/aws-bootstrap.md (PR #6, #8, #9); bootstrap executed 2026-10-25 in account 442123849268
+- [x] 4.10 Cold reviews of PR #6 (three runs, blockers fixed)
+- [x] 4.11 ESLint real (PR #6)
+- [x] 5.1 apps/mcp ping over Streamable HTTP (PR #10)
+- [x] 5.2 apps/worker heartbeat job (PR #10)
+- [x] 5.3 apps/web one page (PR #10)
+- [x] 5.4 Live contract, e2e and smoke tests; 59-min idle on preview pr-10 (PR #10); 61-min on dev after merge
+- [x] 5.5 PR #10 with "how to validate"; GATE 2 passed by the product owner on 2026-10-27
+
 ## Step 4: infrastructure as code and delivery pipeline (issue #4)
 
 Contract between the two owners (fixed by the PM; change it only through the PM):
