@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
-# Create or drop the database login, schema and secret of a pull-request preview.
+# Create or drop the database login, schemas and secret of a pull-request preview.
 #
 #   .github/scripts/pr-schema.sh create <pr-number>
 #   .github/scripts/pr-schema.sh drop   <pr-number>
 #
 # Contract: openspec/changes/m0-foundation/tasks.md, step 4 and "Contract
-# amendment 1" (per-PR database login, teardown order).
+# amendment 1" (per-PR database login, teardown order); the jobs schema:
+# openspec/changes/m1-protocol-connector/design.md D3.
+#
+# The only secret this script touches is a2h/pr-<n>/db. The stage secrets
+# a2h/pr-<n>/signing and a2h/pr-<n>/approval are SST resources of the preview
+# (design D4 amendment), created and removed with the stage.
 #
 # create <n>
 #   1. Reuses the Secrets Manager secret a2h/pr-<n>/db, or creates it with
@@ -15,7 +20,9 @@
 #      replication): the master user may not even name SUPERUSER or REPLICATION.
 #   3. Grants pr_<n> to the master user, which must be able to SET ROLE pr_<n>
 #      to create a schema it owns (PostgreSQL 16+) and to drop that schema later.
-#   4. CREATE SCHEMA IF NOT EXISTS pr_<n> AUTHORIZATION pr_<n>.
+#   4. CREATE SCHEMA IF NOT EXISTS pr_<n> AUTHORIZATION pr_<n> (Drizzle tables),
+#      then pr_<n>_jobs AUTHORIZATION pr_<n> (pg-boss, design D3). The worker
+#      names the jobs schema explicitly (DB_JOBS_SCHEMA); search_path stays pr_<n>.
 #   5. Revokes CREATE and USAGE on schema public, and CONNECT on databases a2h
 #      and postgres, from PUBLIC; grants CONNECT on a2h to pr_<n>. Databases are
 #      cluster-wide objects, so the postgres REVOKE is valid while connected to
@@ -30,7 +37,7 @@
 #   1. Disables login for pr_<n> so nothing reconnects, and grants it to the
 #      master user (covers a role created without step 3).
 #   2. Terminates the remaining pr_<n> sessions.
-#   3. DROP SCHEMA IF EXISTS pr_<n> CASCADE.
+#   3. DROP SCHEMA IF EXISTS pr_<n> CASCADE, then pr_<n>_jobs.
 #   4. DROP OWNED BY pr_<n> (revokes its CONNECT grant, which would block step 5).
 #   5. DROP ROLE IF EXISTS pr_<n>.
 #   6. Deletes the secret without recovery; an absent secret is success.
@@ -82,6 +89,7 @@ fi
 
 role="pr_${pr}"
 schema="pr_${pr}"
+jobs_schema="pr_${pr}_jobs"
 secret_id="a2h/pr-${pr}/db"
 
 tmp=$(mktemp -d)
@@ -204,7 +212,7 @@ role_exists="SELECT FROM pg_catalog.pg_roles WHERE rolname = '${role}'"
 cluster_arn=$(ssm_param "$SSM_CLUSTER_ARN")
 secret_arn=$(ssm_param "$SSM_SECRET_ARN")
 
-echo "pr-schema: $action role and schema $schema, secret $secret_id, database $DATABASE"
+echo "pr-schema: $action role $role, schemas $schema and $jobs_schema, secret $secret_id, database $DATABASE"
 echo "pr-schema: cluster $cluster_arn"
 
 case "$action" in
@@ -227,6 +235,7 @@ END
 \$\$"
     run_sql "GRANT ${role} TO CURRENT_USER"
     run_sql "CREATE SCHEMA IF NOT EXISTS ${schema} AUTHORIZATION ${role}"
+    run_sql "CREATE SCHEMA IF NOT EXISTS ${jobs_schema} AUTHORIZATION ${role}"
     run_sql "REVOKE CREATE, USAGE ON SCHEMA public FROM PUBLIC"
     run_sql "REVOKE CONNECT ON DATABASE ${DATABASE} FROM PUBLIC"
     # Its own call, still on database a2h. A future read-only role (MCP,
@@ -256,6 +265,7 @@ END
 \$\$"
     run_sql "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = '${role}'"
     run_sql "DROP SCHEMA IF EXISTS ${schema} CASCADE"
+    run_sql "DROP SCHEMA IF EXISTS ${jobs_schema} CASCADE"
     run_sql "DO \$\$
 BEGIN
   IF EXISTS (${role_exists}) THEN
