@@ -17,7 +17,7 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 - [x] 2.6 `validateManifest(manifest, facts, policy)` implementing the ordered pipeline with the deterministic forbidden-content rule set (D6); verify one test per `protocol/request-approval` validation scenario (bid below reserve, push-poll, third-party personal data, labour disguised, quiet hours deferred and rejected, interruption budget) plus the lifecycle table test over every (state, actor, event) pair (`protocol/request-lifecycle` "Legal transitions", "Illegal transition")
 - [x] 2.7 JSON Schema export (`z.toJSONSchema`) for every tool input and output with snapshot tests; verify the snapshots are committed and `pnpm --filter @a2h/protocol test` is green
 - [x] 2.8 Build step: `tsconfig.build.json` emitting ESM to `dist/`, `exports` map, `pnpm --filter @a2h/protocol build` in Turborepo's pipeline (D5); verify a fresh clone builds and `node -e "import('@a2h/protocol')"` resolves from `dist/`
-- [ ] 2.9 Purity check: an ESLint rule (or a test) forbidding `node:` imports and `Date.now`/`Math.random` in the package; verify it fails on a deliberate violation and passes on the package ("The package performs no I/O")
+- [x] 2.9 Purity check: an ESLint rule (or a test) forbidding `node:` imports and `Date.now`/`Math.random` in the package; verify it fails on a deliberate violation and passes on the package ("The package performs no I/O")
 
 ## 3. Database (PD writes, QA tests the scripts)
 
