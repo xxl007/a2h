@@ -7,6 +7,8 @@ export interface DbConfig {
   connectionString: string;
   /** Schema that holds this stage's tables (`public` or `pr_<n>`). */
   schema: string;
+  /** Schema that holds pg-boss's tables (`pgboss`, or `pr_<n>_jobs` on previews; design D3). */
+  jobsSchema: string;
   /** `false`: no TLS (local tests). Otherwise TLS that verifies the server. */
   ssl: false | { ca: string; rejectUnauthorized: true };
 }

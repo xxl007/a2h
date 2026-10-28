@@ -1,7 +1,8 @@
-// The pg-boss worker. M0: one `heartbeat` queue, one job sent at start, so
-// the owner sees a job run in the preview logs (m0-foundation proposal, "How
-// the product owner validates", item 4).
+// The pg-boss worker. pg-boss lives in its own schema (DB_JOBS_SCHEMA,
+// design D3). M0's `heartbeat` queue stays: one job sent at start, so the
+// owner sees a job run in the preview logs.
 import { PgBoss, type ConstructorOptions, type Job } from "pg-boss";
+import type { WorkerConfig } from "./config.ts";
 import type { DbConfig } from "./db-config.ts";
 
 export type WorkerLogLine = Record<string, string | number | boolean | undefined>;
@@ -16,12 +17,13 @@ interface HeartbeatData {
 export function bossOptions(db: DbConfig): ConstructorOptions {
   return {
     connectionString: db.connectionString,
-    schema: db.schema,
+    schema: db.jobsSchema,
     ssl: db.ssl,
-    // Create and migrate pg-boss tables inside the stage schema on start().
+    // Create and migrate pg-boss tables inside the jobs schema on start().
     migrate: true,
-    // The schema already exists (`public`, or `pr_<n>` from pr-schema.sh) and
-    // a preview login has no CREATE on the database, so never CREATE SCHEMA.
+    // The schema already exists (`pgboss` from db-migrate.sh, `pr_<n>_jobs`
+    // from pr-schema.sh) and a preview login has no CREATE on the database,
+    // so never CREATE SCHEMA.
     createSchema: false,
     // Aurora Serverless v2 pauses at 0 ACU; the first connection can take
     // ~15 s while it resumes. pg-boss's default (10 s) would fail it.
@@ -30,8 +32,7 @@ export function bossOptions(db: DbConfig): ConstructorOptions {
 }
 
 export interface WorkerOptions {
-  db: DbConfig;
-  stage: string;
+  config: WorkerConfig;
   log: (line: WorkerLogLine) => void;
 }
 
@@ -40,8 +41,9 @@ export interface RunningWorker {
   stop: () => Promise<void>;
 }
 
-export async function startWorker({ db, stage, log }: WorkerOptions): Promise<RunningWorker> {
-  const boss = new PgBoss(bossOptions(db));
+export async function startWorker({ config, log }: WorkerOptions): Promise<RunningWorker> {
+  const { stage } = config;
+  const boss = new PgBoss(bossOptions(config.db));
   // Never log the error object itself: keep to name and message.
   boss.on("error", (error: Error) =>
     log({ level: "error", msg: "pg-boss error", error: error.name, detail: error.message }),
