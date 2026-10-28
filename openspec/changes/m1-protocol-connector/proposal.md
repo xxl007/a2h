@@ -54,6 +54,8 @@ M0 proved the transport: any MCP client can reach the A2H server over Streamable
 
 ## How the product owner validates (Gate 2)
 
+For M1, launch Claude Code with the two variables that select the 2026-07-28 revision: `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto claude` (decision 5). Without them the first tool call returns an error that says exactly this.
+
 From a terminal, with Claude Code pointed at the preview's MCP endpoint (the exact `claude mcp add` command is in the PR):
 
 1. Ask Claude Code to find a human for a topic the simulated participants cover ("find me someone who can judge whether a patient-information leaflet is alarming"). It calls `find_humans` and shows handles with terms and ranking inputs, no names.
@@ -71,4 +73,4 @@ From a terminal, with Claude Code pointed at the preview's MCP endpoint (the exa
 
 ## Decision needed after the spike (issue #14, 2026-10-28)
 
-5. **Approval path for M1.** (1) Build to 2026-07-28 and require `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto` when launching Claude Code for M1; a 2025-era client gets a clear error telling it how to connect. Recommended: keeps the stateless design, no throwaway code. (2) The fallback of decision 4, deleted after M1. (3) Wait for the client flags. Only task 4.3 waits for this.
+5. **Approval path for M1.** (1) Build to 2026-07-28 and require `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto` when launching Claude Code for M1; a 2025-era client gets a clear error telling it how to connect. Recommended: keeps the stateless design, no throwaway code. (2) The fallback of decision 4, deleted after M1. (3) Wait for the client flags. **Owner's answer (2026-10-28): option 1.**
