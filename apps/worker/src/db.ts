@@ -42,3 +42,8 @@ export async function inTransaction<T>(pool: pg.Pool, fn: (tx: Db, client: pg.Po
     client.release();
   }
 }
+
+/** Drizzle over the pool, for reads and single statements outside a transaction. */
+export function dbOf(pool: pg.Pool): Db {
+  return drizzle(pool, { schema });
+}
