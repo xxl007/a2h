@@ -13,9 +13,9 @@ Owner: QA. One PR, `chore(ci): verify previews and dev after deploy, retry trans
 
 ## Checklist
 
-- [ ] 1 structural tests (red first)
-- [ ] 2 preview.yml verify job + comment line
-- [ ] 3 deploy.yml verify job
-- [ ] 4 deploy retry
-- [ ] 5 README
-- [ ] 6 validation + PR
+- [x] 1 structural tests (red first)
+- [x] 2 preview.yml verify job + comment line
+- [x] 3 deploy.yml verify job
+- [x] 4 deploy retry
+- [x] 5 README
+- [x] 6 validation + PR
