@@ -2,7 +2,8 @@
 // connect the official MCP client to it.
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { createApp, type App, type AppOptions, type LogLine } from "../src/app.ts";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { createApp, type A2hOptions, type App, type AppOptions, type LogLine } from "../src/app.ts";
 
 export interface Running {
   app: App;
@@ -11,12 +12,36 @@ export interface Running {
   stop: () => Promise<void>;
 }
 
+/**
+ * The A2H tools over a database stub: enough to list them and to call ping.
+ * A tool call that reaches the database fails; tool tests use lib/a2h.ts.
+ */
+export function offlineA2h(): A2hOptions {
+  return {
+    db: drizzle.mock(),
+    principal: { principal_id: "dev-principal-test", identity_mode: "verified_organisation", verified: true },
+    policy: {
+      fee_rate: 0.2,
+      currency: "EUR",
+      monthly_budget_minor: 50_000,
+      per_request_cap_minor: 6_000,
+      ask_first_above_minor: null,
+      daily_request_limit: 50,
+      throttled_daily_limit: 5,
+    },
+    clearingShare: 0.5,
+    approvalKey: new Uint8Array(32).fill(1),
+  };
+}
+
+/** The real HTTP app with the A2H tools (offline unless `a2h` is given). */
 export async function start(options: Partial<AppOptions> = {}): Promise<Running> {
   const logs: LogLine[] = [];
   const app = createApp({
     stage: "test",
     mcpBasePath: "/mcp",
     log: (line) => logs.push(line),
+    a2h: offlineA2h(),
     ...options,
   });
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));

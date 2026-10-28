@@ -1,15 +1,35 @@
 // The HTTP shell: health, the MCP endpoint, 404 for everything else, request
 // logging and graceful shutdown. Plain node:http, no framework.
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { toNodeHandler, type NodeIncomingMessageLike } from "@modelcontextprotocol/node";
-import { createMcpHandler, type McpServerFactory } from "@modelcontextprotocol/server";
+import type { McpDb } from "@a2h/db";
+import type { Principal, ValidationPolicy } from "@a2h/protocol";
+import { createMcpHandler, createRequestStateCodec, type McpServerFactory } from "@modelcontextprotocol/server";
 import { healthPathFor } from "./health-path.ts";
 import { HEADERS_TIMEOUT_MS, KEEP_ALIVE_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from "./http-timeouts.ts";
+import type { LogLine } from "./logging.ts";
 import { createMcpServer } from "./mcp-server.ts";
+import type { ApprovalState, ToolDeps } from "./tools/common.ts";
 
-/** One structured log line. Never carries bodies, query strings or PII. */
-export type LogLine = Record<string, string | number | boolean | undefined>;
+export type { LogLine } from "./logging.ts";
+
+/** Approval state lives 15 minutes (design D1); an older state is refused. */
+export const APPROVAL_TTL_SECONDS = 15 * 60;
+
+/** What the A2H tools need; production builds it from infra/env.ts and src/db.ts. */
+export interface A2hOptions {
+  db: McpDb;
+  principal: Principal;
+  policy: ValidationPolicy;
+  clearingShare: number;
+  /** HMAC key of the approval state (32 bytes or more), the same on every instance of the stage. */
+  approvalKey: Uint8Array;
+  /** The clock; tests pin it. */
+  now?: () => Date;
+  /** Randomness for request ids; tests pin it. */
+  randomBytes?: (n: number) => Uint8Array;
+}
 
 export interface AppOptions {
   stage: string;
@@ -18,6 +38,8 @@ export interface AppOptions {
   log: (line: LogLine) => void;
   /** Override the per-request server factory (tests count its calls). */
   factory?: McpServerFactory;
+  /** The A2H tools' dependencies. Without them the server offers `ping` only (M0 tests). */
+  a2h?: A2hOptions;
 }
 
 export interface App {
@@ -43,12 +65,30 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
   res.end(JSON.stringify(body));
 }
 
+function toolDeps(stage: string, o: A2hOptions, log: (line: LogLine) => void): ToolDeps {
+  const principalId = o.principal.principal_id;
+  return {
+    stage,
+    db: o.db,
+    principal: o.principal,
+    policy: o.policy,
+    clearingShare: o.clearingShare,
+    // HMAC-signed (not encrypted) state, bound to the principal of the
+    // connection: a state minted for one principal fails for another.
+    codec: createRequestStateCodec<ApprovalState>({ key: o.approvalKey, ttlSeconds: APPROVAL_TTL_SECONDS, bind: () => principalId }),
+    now: o.now ?? (() => new Date()),
+    randomBytes: o.randomBytes ?? ((n) => new Uint8Array(randomBytes(n))),
+    log,
+  };
+}
+
 export function createApp(options: AppOptions): App {
   const { stage, mcpBasePath, log } = options;
   const healthPath = healthPathFor(mcpBasePath);
   const stopping = new AbortController();
+  const a2h = options.a2h ? toolDeps(stage, options.a2h, log) : undefined;
   const factory: McpServerFactory =
-    options.factory ?? (() => createMcpServer(stage, { signal: stopping.signal }));
+    options.factory ?? (() => createMcpServer(stage, { signal: stopping.signal, ...(a2h ? { a2h } : {}) }));
 
   // Stateless by default: a fresh server per request, no session ids.
   // keepAliveMs 0: no SSE comment frames, so a held ping sends nothing at all
@@ -68,6 +108,8 @@ export function createApp(options: AppOptions): App {
     const method = req.method ?? "GET";
     const path = (req.url ?? "/").split("?")[0] ?? "/";
     res.setHeader("x-request-id", requestId);
+    // The tools read it back for their log lines (correlation with this one).
+    req.headers["x-request-id"] = requestId;
     res.once("close", () => {
       log({
         level: "info",
@@ -76,7 +118,7 @@ export function createApp(options: AppOptions): App {
         path,
         status: res.statusCode,
         duration_ms: Math.round(performance.now() - started),
-        request_id: requestId,
+        http_request_id: requestId,
       });
     });
 

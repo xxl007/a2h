@@ -46,10 +46,27 @@ test(`[${MCP_URL.href}] Scenario: Initialize from a fresh client`, async () => {
   }
 });
 
+// m1-protocol-connector (modified scenario): the three A2H tools are listed
+// next to ping, and each A2H description carries the policy text.
+const A2H_TOOLS = ["find_humans", "request_human", "check_requests"] as const;
+
 test("Scenario: Tools are listed", async () => {
   const { client, close } = await connectFresh();
   try {
     const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
+    for (const name of [...A2H_TOOLS, "ping"]) assert.ok(names.includes(name), `no tool named ${name} in ${JSON.stringify(names)}`);
+    for (const t of tools) {
+      assert.ok(t.description && t.description.trim().length > 0, `${t.name} has an empty description`);
+      assert.equal(t.inputSchema.type, "object", `${t.name} input schema is not an object`);
+    }
+    for (const name of A2H_TOOLS) {
+      const d = tools.find((t) => t.name === name)?.description ?? "";
+      assert.match(d, /last resort/i, `${name}: a human is a last resort`);
+      assert.match(d, /search, existing tools[^.]*come first/i, `${name}: search and existing tools come first`);
+      assert.match(d, /shown the exact question[^.]*before anything is sent/i, `${name}: the question is shown to the principal before sending`);
+      assert.match(d, /pays what clears, never more than the hold/i, `${name}: the principal pays what clears, never more than the hold`);
+    }
     const ping = tools.find((t) => t.name === "ping");
     assert.ok(ping, `no tool named ping in ${JSON.stringify(tools.map((t) => t.name))}`);
     assert.equal(typeof ping.description, "string");

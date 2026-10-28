@@ -6,7 +6,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { connect, start, type Era } from "./helpers.ts";
+import { toolJsonSchemas } from "@a2h/protocol";
 import { PACKAGE_VERSION } from "../src/version.ts";
+
+const A2H_TOOLS = ["find_humans", "request_human", "check_requests"] as const;
+
+/** The policy every A2H tool description carries (spec mcp-transport "Tools are listed"). */
+function assertPolicy(name: string, description: string): void {
+  assert.match(description, /last resort/i, `${name}: a human is a last resort`);
+  assert.match(description, /search, existing tools[^.]*come first/i, `${name}: search and existing tools come first`);
+  assert.match(description, /shown the exact question[^.]*before anything is sent/i, `${name}: the question is shown to the principal before sending`);
+  assert.match(description, /pays what clears, never more than the hold/i, `${name}: pays what clears, never more than the hold`);
+}
 
 const ERAS: Era[] = ["legacy", "modern"];
 
@@ -38,18 +49,26 @@ for (const era of ERAS) {
     }
   });
 
-  test(`[${era}] Tools are listed: ping with a description and an input schema`, async () => {
+  test(`[${era}] Tools are listed: find_humans, request_human, check_requests and ping, each with a description and an input schema`, async () => {
     const s = await start();
     try {
       const client = await connect(`${s.origin}/mcp`, { era });
       try {
         const { tools } = await client.listTools();
+        assert.deepEqual(tools.map((t) => t.name).sort(), ["check_requests", "find_humans", "ping", "request_human"]);
+        for (const t of tools) {
+          assert.ok((t.description ?? "").trim().length > 0, `${t.name} has a description`);
+          assert.equal(t.inputSchema.type, "object", `${t.name} has an object input schema`);
+        }
+        for (const name of A2H_TOOLS) {
+          const description = tools.find((t) => t.name === name)!.description ?? "";
+          assertPolicy(name, description);
+        }
         const ping = tools.find((t) => t.name === "ping");
         assert.ok(ping, "ping is listed");
         assert.match(ping.description ?? "", /pong/);
         assert.match(ping.description ?? "", /stage/);
         assert.match(ping.description ?? "", /holdSeconds/);
-        assert.equal(ping.inputSchema.type, "object");
         const hold = (ping.inputSchema.properties as Record<string, Record<string, unknown>>)[
           "holdSeconds"
         ];
@@ -58,6 +77,26 @@ for (const era of ERAS) {
         assert.equal(hold["minimum"], 0);
         assert.equal(hold["maximum"], 3900);
         assert.ok(!(ping.inputSchema.required ?? []).includes("holdSeconds"));
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await s.stop();
+    }
+  });
+
+  test(`[${era}] Scenario: Tool schemas come from the export: input and output schemas equal the protocol export, field for field`, async () => {
+    const s = await start();
+    try {
+      const client = await connect(`${s.origin}/mcp`, { era });
+      try {
+        const { tools } = await client.listTools();
+        const exported = toolJsonSchemas();
+        for (const name of A2H_TOOLS) {
+          const tool = tools.find((t) => t.name === name)!;
+          assert.deepEqual(tool.inputSchema, exported[name].input, `${name} input schema`);
+          assert.deepEqual(tool.outputSchema, exported[name].output, `${name} output schema`);
+        }
       } finally {
         await client.close();
       }
