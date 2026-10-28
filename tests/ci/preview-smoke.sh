@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Smoke check of a preview stage on the shared ALB, from any shell with curl.
-# Usage: tests/ci/preview-smoke.sh <alb-dns> <pr-number>
+# Smoke check of a preview stage (or of dev) on the shared ALB, from any shell with curl.
+# Usage: tests/ci/preview-smoke.sh <alb-dns> <pr-number>|dev
 #   e.g. tests/ci/preview-smoke.sh AlbLoadBalancer-xxxx.eu-west-3.elb.amazonaws.com 12
-# Checks:
+#        tests/ci/preview-smoke.sh AlbLoadBalancer-xxxx.eu-west-3.elb.amazonaws.com dev
+# Checks for a preview:
 #   /pr-<n>/healthz  200  the preview's MCP task is up (listener rule + target healthy)
 #   /healthz         200  the dev stage's health on the same ALB still answers
 #   /pr-<n>/nope     404  from the app (the preview rule routes /pr-<n>/* to it),
 #                         not the ALB's default 403 (Server: awselb/2.0), which
 #                         would mean the listener rule is missing
+# Checks for dev (deploy.yml, after each deploy from main):
+#   /healthz         200  the dev stage's MCP task is up
 # Then prints the MCP Inspector command the owner runs (Gate 2, step 3).
 # Env: A2H_SCHEME (default http; https once a domain is set).
 # Exit 0 only when every check passed. Spec: mcp-transport "Load balancer
-# probes health"; preview-environments "PR opened".
+# probes health"; preview-environments "PR opened", "Preview verified",
+# "Merge to main verified".
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <alb-dns> <pr-number>" >&2
+  echo "usage: $0 <alb-dns> <pr-number>|dev" >&2
   exit 2
 }
 
@@ -23,7 +27,7 @@ usage() {
 alb="$1"
 pr="$2"
 [[ "$alb" =~ ^[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || { echo "alb-dns must be a host name (optionally :port), got '$alb'" >&2; usage; }
-[[ "$pr" =~ ^[1-9][0-9]*$ ]] || { echo "pr-number must be a positive integer, got '$pr'" >&2; usage; }
+[[ "$pr" =~ ^[1-9][0-9]*$ ]] || [ "$pr" = "dev" ] || { echo "second argument must be a positive PR number or 'dev', got '$pr'" >&2; usage; }
 scheme="${A2H_SCHEME:-http}"
 base="$scheme://$alb"
 failures=0
@@ -54,15 +58,23 @@ check() {
   fi
 }
 
-check "preview health" "/pr-$pr/healthz" 200
-check "dev health" "/healthz" 200
-check "preview routing" "/pr-$pr/nope" 404
+if [ "$pr" = "dev" ]; then
+  check "dev health" "/healthz" 200
+  prefix=""
+  stage="dev"
+else
+  check "preview health" "/pr-$pr/healthz" 200
+  check "dev health" "/healthz" 200
+  check "preview routing" "/pr-$pr/nope" 404
+  prefix="/pr-$pr"
+  stage="pr-$pr"
+fi
 
 echo
-echo "List the MCP tools of pr-$pr (MCP Inspector CLI):"
-echo "  npx -y @modelcontextprotocol/inspector --cli $base/pr-$pr/mcp --method tools/list"
+echo "List the MCP tools of $stage (MCP Inspector CLI):"
+echo "  npx -y @modelcontextprotocol/inspector --cli $base$prefix/mcp --method tools/list"
 echo "Call ping:"
-echo "  npx -y @modelcontextprotocol/inspector --cli $base/pr-$pr/mcp --method tools/call --tool-name ping"
+echo "  npx -y @modelcontextprotocol/inspector --cli $base$prefix/mcp --method tools/call --tool-name ping"
 
 if [ "$failures" -gt 0 ]; then
   echo

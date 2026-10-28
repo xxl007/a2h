@@ -4,12 +4,14 @@ QA-owned suites for A2H. Every scenario in `openspec/specs` (and in the deltas o
 
 | Folder | What | Runs |
 |---|---|---|
-| `ci/` | Tests of the CI scripts and workflows (stubbed `aws`, real Postgres 17 in Docker, parsed YAML, bootstrap JSON) and the preview smoke script | `ci.yml`, "Check CI scripts" |
-| `contract/` | MCP contract tests against a live MCP endpoint (`@modelcontextprotocol/client`, `node:test`) | by hand against a preview or `dev`; not in CI yet (needs a live URL) |
-| `e2e/` | Playwright e2e of the web app against a live web URL, Chromium only, headless | by hand against a preview or `dev`; not in CI yet |
+| `ci/` | Tests of the CI scripts and workflows (stubbed `aws`, real Postgres 17 in Docker, parsed YAML, bootstrap JSON) and the smoke script (`preview-smoke.sh`, with its own test against a fake `curl`) | `ci.yml`, "Check CI scripts"; the smoke script itself runs in the `verify` jobs |
+| `contract/` | MCP contract tests against a live MCP endpoint (`@modelcontextprotocol/client`, `node:test`) | in CI on every preview (`preview.yml`, job `verify pr-<n>`) and on `dev` after each deploy from `main` (`deploy.yml`, job `verify dev`); by hand against any stage. The idle-stream test stays opt-in, by hand |
+| `e2e/` | Playwright e2e of the web app against a live web URL, Chromium only, headless | in CI on every preview and on `dev` (same `verify` jobs; the HTML report is uploaded as a run artifact on failure); by hand against any stage |
 | `src/live-env.ts` | Reads the target URLs from the environment, derives the stage and the health URL | imported by `contract/` and `e2e/` |
 
 ## Running the live suites
+
+CI runs smoke, contract and e2e after every preview deploy and after every `dev` deploy; the PR's preview comment ends with a "Verification" line (passed / FAILED, commit, run link). The commands below are for running them by hand.
 
 The URLs come from the PR's preview comment (table "Web" and "MCP endpoint"), written by `.github/workflows/preview.yml` from `.sst/outputs.json`. For the `dev` stage, the MCP endpoint is `http://<alb-dns>/mcp`.
 
@@ -29,6 +31,8 @@ A2H_WEB_URL=https://<id>.cloudfront.net A2H_MCP_URL=http://<alb-dns>/pr-<n>/mcp 
 
 # Preview smoke (curl only): health, dev health, routing; prints the MCP Inspector commands
 bash tests/ci/preview-smoke.sh <alb-dns> <n>
+# dev smoke: /healthz only
+bash tests/ci/preview-smoke.sh <alb-dns> dev
 ```
 
 | Variable | Used by | Meaning |
@@ -52,7 +56,7 @@ Notes:
 
 Specs: `openspec/changes/m0-foundation/specs/platform/mcp-transport/spec.md` and `.../preview-environments/spec.md`.
 
-"Live, manual" means it runs against a deployed stage and is started by hand (owner, PM or QA) until the `preview-verify` job exists. "CI" means it runs on every PR in `ci.yml`.
+"Live, manual" was the M0 state: run by hand against a deployed stage. Since ci-preview-verify, every "Live, manual" row below except the idle stream runs in the `verify` jobs of `preview.yml` and `deploy.yml`. "CI" means it runs on every PR in `ci.yml`.
 
 ### platform/mcp-transport (6 scenarios)
 
@@ -78,3 +82,14 @@ Specs: `openspec/changes/m0-foundation/specs/platform/mcp-transport/spec.md` and
 | Secrets inventory | `ci/workflows.test.mjs` "no secrets.AWS* and no long-lived AWS key inputs in any workflow"; `ci/bootstrap.test.mjs` (OIDC trust subjects) | CI | Listing the repository's actual CI secrets needs `gh secret list` with admin scope, by hand. |
 
 The web page (owner validation step 2) has no spec scenario of its own; `e2e/hello.spec.ts` covers the PM's contract for it: `<h1>` "A2H", server-rendered (present in the HTML before scripts), stage visible, MCP URL visible, no console or page errors, under 100 KiB transferred, focus order follows the document with no positive `tabindex` and no trap.
+
+## Scenario to test map: ci-preview-verify
+
+Spec: `openspec/changes/ci-preview-verify/specs/platform/preview-environments/spec.md`.
+
+| Scenario | Test | How it runs |
+|---|---|---|
+| Preview verified | `ci/workflows.test.mjs` "preview.yml: a verify job needs deploy and runs only when deploy reports deployed == 'true'" (needs deploy, gated on `deployed`, no `id-token`, smoke then contract then e2e on the deploy job's URLs, report uploaded on failure); `ci/preview-smoke.test.mjs` (preview mode) | CI (structure); live on every PR (`verify pr-<n>`) |
+| Verification outcome on the PR | `ci/workflows.test.mjs` "preview.yml: verify appends a Verification line, with the run link, to the preview comment, whatever the outcome" | CI (structure); the line itself is read on the PR |
+| Merge to main verified | `ci/workflows.test.mjs` "deploy.yml: a verify job needs deploy and runs the suites against dev"; `ci/preview-smoke.test.mjs` (dev mode) | CI (structure); live after each merge (`verify dev`) |
+| Transient failure | `ci/workflows.test.mjs` "deploy.yml and preview.yml run sst deploy a second time, after a pause, when the first attempt fails" (the step is run with a fake `pnpm`: success once, fail then succeed, fail twice) | CI |

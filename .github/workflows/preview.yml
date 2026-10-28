@@ -1,6 +1,7 @@
 # Preview environment per pull request: stage pr-<n>, schema and login pr_<n>.
 # Spec: openspec/.../preview-environments/spec.md
-#   "PR opened", "PR updated", "Two PRs open", "Typecheck fails", "Secrets inventory".
+#   "PR opened", "PR updated", "Two PRs open", "Typecheck fails", "Secrets inventory",
+#   "Preview verified", "Verification outcome on the PR", "Transient failure".
 # Deploys only when the repository variable A2H_DEPLOY_ENABLED is 'true'
 # (set by the owner after docs/runbooks/aws-bootstrap.md), only for
 # same-repository PRs (forked PRs get no OIDC token and a read-only GITHUB_TOKEN),
@@ -55,6 +56,13 @@ jobs:
       closed: >-
         ${{ steps.open.outputs.open == 'false' || steps.state.outputs.open == 'false' ||
         steps.open.outcome == 'failure' || steps.state.outcome == 'failure' }}
+      # 'true' only when this run deployed the stage of an open PR and read its
+      # URLs: the verify job runs against them.
+      deployed: >-
+        ${{ steps.state.outputs.open == 'true' && steps.deploy.outcome == 'success' &&
+        steps.outputs.outcome == 'success' }}
+      web: ${{ steps.outputs.outputs.web }}
+      mcp: ${{ steps.outputs.outputs.mcp }}
     env:
       PR_NUMBER: ${{ github.event.pull_request.number }}
       STAGE: pr-${{ github.event.pull_request.number }}
@@ -162,10 +170,20 @@ jobs:
             echo "::notice::PR #$PR_NUMBER is $state: deploy skipped; the teardown runs instead."
           fi
 
+      # One retry after a pause: M0's deploy failures were transient AWS errors
+      # that passed unchanged on a rerun. No `sst unlock` before the retry: a
+      # deploy that exits on its own releases the state lock; only a killed
+      # process or a concurrent deploy keeps it (sst.dev/docs/reference/cli,
+      # "unlock"), and the concurrency group above rules out the second.
+      # The step's result is the second attempt's.
       - name: Deploy stage ${{ env.STAGE }}
         id: deploy
         if: steps.state.outputs.open == 'true'
-        run: pnpm exec sst deploy --stage "$STAGE" --print-logs
+        run: |
+          if pnpm exec sst deploy --stage "$STAGE" --print-logs; then exit 0; fi
+          echo "::warning::sst deploy of $STAGE failed; retrying once in 45 s."
+          sleep 45
+          pnpm exec sst deploy --stage "$STAGE" --print-logs
 
       - name: Read outputs
         id: outputs
@@ -228,6 +246,116 @@ jobs:
             Commit `${{ github.event.pull_request.head.sha }}` did not deploy. Any URLs posted
             earlier may serve an older commit or nothing. Run log:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+  # The deployed preview proves itself: smoke (curl), MCP contract tests and web
+  # e2e against this run's own URLs; the PR check is red when any fails, and a
+  # Verification line is appended to the preview comment either way.
+  # No AWS credentials: it only reads public URLs. Not in the preview-pr-<n>
+  # concurrency group: a pending verify must never cancel a pending teardown.
+  verify:
+    name: verify pr-${{ github.event.pull_request.number }}
+    needs: deploy
+    if: needs.deploy.outputs.deployed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @a2h/tests exec playwright install --with-deps chromium
+
+      - name: Smoke (health, dev health, routing)
+        id: smoke
+        env:
+          MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          host="${MCP_URL#*://}"
+          host="${host%%/*}"
+          bash tests/ci/preview-smoke.sh "$host" "$PR_NUMBER"
+
+      - name: MCP contract tests
+        id: contract
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: pnpm --filter @a2h/tests contract
+
+      # CloudFront can take a moment to serve a first deploy: wait up to 5 min.
+      - name: Wait for the web URL
+        id: web
+        env:
+          WEB_URL: ${{ needs.deploy.outputs.web }}
+        run: |
+          for attempt in $(seq 1 20); do
+            if curl -fsS -o /dev/null --max-time 10 "$WEB_URL"; then exit 0; fi
+            echo "web not answering yet (attempt $attempt of 20)"
+            sleep 15
+          done
+          echo "::error::$WEB_URL did not answer 2xx within 5 minutes"
+          exit 1
+
+      - name: Web e2e
+        id: e2e
+        env:
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: pnpm --filter @a2h/tests e2e
+
+      - name: Upload the Playwright report
+        if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-pr-${{ github.event.pull_request.number }}
+          path: |
+            tests/playwright-report
+            tests/test-results
+          retention-days: 14
+
+      - name: Write the Verification line
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          SMOKE: ${{ steps.smoke.outcome }}
+          CONTRACT: ${{ steps.contract.outcome }}
+          WEB: ${{ steps.web.outcome }}
+          E2E: ${{ steps.e2e.outcome }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then
+            result="passed (smoke, contract, e2e)"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then result="cancelled"
+          elif [ "$SMOKE" = "failure" ]; then result="FAILED (smoke)"
+          elif [ "$CONTRACT" = "failure" ]; then result="FAILED (contract)"
+          elif [ "$WEB" = "failure" ]; then result="FAILED (web not reachable)"
+          elif [ "$E2E" = "failure" ]; then result="FAILED (e2e)"
+          else result="FAILED (setup, before the suites ran)"
+          fi
+          printf '\n**Verification:** %s · commit %s · run %s\n' "$result" "\`${HEAD_SHA:0:7}\`" "$RUN_URL" > "$RUNNER_TEMP/verification.md"
+          cat "$RUNNER_TEMP/verification.md"
+
+      - name: Append the Verification line to the preview comment
+        if: always()
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: a2h-preview
+          append: true
+          path: ${{ runner.temp }}/verification.md
 
   # The PR was found not open (or its state unreadable) by the deploy job: run the same idempotent
   # sequence as teardown.yml (sst remove, then pr-schema.sh drop, then the PR
