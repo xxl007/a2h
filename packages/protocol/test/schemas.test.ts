@@ -4,7 +4,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import type * as z from "zod";
 import * as protocol from "../src/index.ts";
-import { fixtures, omit, referenceEnvelope, referenceManifest, referenceProfile } from "./fixtures.ts";
+import { fixtures, omit, referenceChecked, referenceEnvelope, referenceManifest, referenceProfile } from "./fixtures.ts";
 
 const schemas = protocol as unknown as Record<string, z.ZodType>;
 /** Every exported schema: PascalCase names ending in Schema. */
@@ -129,5 +129,45 @@ describe("Manifest lanes", () => {
   });
   test("an empty or whitespace-only question is rejected", () => {
     assert.equal(protocol.ManifestSchema.safeParse({ ...referenceManifest, question: "   " }).success, false);
+  });
+});
+
+describe("check_requests result: identity on acceptance only, answer only when answered", () => {
+  const sent = {
+    request_id: "A2H-7f3c",
+    status: "sent",
+    handle: "sim-mv-7f3c",
+    simulated: true,
+    intent: "judgment",
+    transitions: { sent_at: "2026-10-21T08:42:00+02:00" },
+    held_minor: 3500,
+    hold_status: "held",
+    currency: "EUR",
+  } as const;
+  test("Before acceptance: the handle and no display label or verification status", () => {
+    assert.ok(protocol.CheckedRequestSchema.safeParse(sent).success);
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...sent, participant_label: "M. V. (simulated)" }).success, false);
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...sent, identity_verified: true }).success, false);
+  });
+  test("After acceptance: the display label and verification status may be shown", () => {
+    const accepted = { ...sent, status: "accepted", transitions: { ...sent.transitions, accepted_at: "2026-10-21T08:50:00+02:00" }, participant_label: "M. V. (simulated)", identity_verified: false };
+    assert.ok(protocol.CheckedRequestSchema.safeParse(accepted).success);
+  });
+  test("Answered request: envelope, display and cleared amount are required, and only then", () => {
+    assert.equal(protocol.CheckedRequestSchema.safeParse(omit(referenceChecked, "answer")).success, false);
+    assert.equal(protocol.CheckedRequestSchema.safeParse(omit(referenceChecked, "cleared_minor")).success, false);
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...sent, cleared_minor: 3313 }).success, false);
+  });
+});
+
+describe("request_human result: sent carries the request, not_sent carries nothing", () => {
+  const sent = { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 3500, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false } as const;
+  test("a sent result needs every field; a not-sent result has a reason and no id", () => {
+    assert.ok(protocol.RequestHumanOutputSchema.safeParse(sent).success);
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse(omit(sent, "request_id")).success, false);
+    assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "declined" }).success);
+    assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "dismissed" }).success);
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "declined", request_id: "A2H-7f3c" }).success, false);
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent" }).success, false);
   });
 });
