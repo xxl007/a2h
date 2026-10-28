@@ -38,27 +38,28 @@ export type Principal = z.infer<typeof PrincipalSchema>;
 const PollOptionSchema = z.strictObject({ id: z.string().min(1).max(32), label: z.string().min(1).max(200) });
 
 const requestFields = {
-  to: HandleSchema,
-  intent: IntentSchema,
-  audience: AudienceSchema,
-  time_shape: TimeShapeSchema,
-  format: FormatSchema,
+  to: HandleSchema.describe("Handle of the participant, from find_humans (e.g. mv-7f3c)."),
+  intent: IntentSchema.describe("What kind of answer is wanted; fixes the answer schema."),
+  audience: AudienceSchema.describe("Who receives it; named_individual in this version."),
+  time_shape: TimeShapeSchema.describe("one_shot, threaded (priced per round) or recurring."),
+  format: FormatSchema.describe("How the participant answers."),
   question: z
     .string()
     .max(QUESTION_MAX_LENGTH)
-    .refine((q) => q.trim().length > 0, "question must not be empty"),
+    .refine((q) => q.trim().length > 0, "question must not be empty")
+    .describe("The question, verbatim. The principal approves this exact text before anything is sent."),
   /** Poll options for `opinion` with a `choice` answer. */
   options: z.array(PollOptionSchema).min(2).max(10).optional(),
   /** Declared scale for `opinion` with a `scale` answer. */
   scale: z.strictObject({ min: z.int(), max: z.int() }).optional(),
-  lane: LaneSchema,
+  lane: LaneSchema.describe("paid (bid at least the gross reserve) or free (a free lane the participant declared)."),
   /** Required when `lane` is `free`: which declared free lane this request falls under. */
   free_lane: FreeLaneKindSchema.optional(),
   /** Gross bid (fee included); the hold equals it. 0 on a free lane. */
-  bid_minor: MinorAmountSchema,
-  currency: CurrencySchema,
-  expires_at: DatetimeSchema,
-  data_terms: DataTermsSchema,
+  bid_minor: MinorAmountSchema.describe("Gross bid in minor units (cents), fee included. The hold equals the bid; the principal pays what clears, never more."),
+  currency: CurrencySchema.describe("ISO 4217 code of bid_minor, e.g. EUR."),
+  expires_at: DatetimeSchema.describe("ISO 8601 date-time with offset after which the request expires and the hold is released."),
+  data_terms: DataTermsSchema.describe("Storage, attribution and training terms shown to the participant before acceptance."),
   attachments: z.array(AttachmentSchema).max(ATTACHMENTS_MAX).optional(),
 };
 

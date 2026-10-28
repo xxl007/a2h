@@ -21,16 +21,16 @@ export { RequestHumanInputSchema } from "./manifest.ts";
 
 export const FindHumansInputSchema = z
   .strictObject({
-    topic: z.string().min(1).max(200),
-    request_type: IntentSchema,
+    topic: z.string().min(1).max(200).describe("What the person must know about, in plain words."),
+    request_type: IntentSchema.describe("The intent of the request you would send."),
     /** Only profiles with at least one topic evidenced by more than self-declaration. */
-    attested: z.boolean().optional(),
+    attested: z.boolean().optional().describe("Only profiles with expertise evidenced by more than self-declaration."),
     /** Longest acceptable latency promise, in seconds. */
-    latency: SecondsSchema.optional(),
+    latency: SecondsSchema.optional().describe("Longest acceptable latency promise, in seconds."),
     /** Highest acceptable gross reserve, in minor units; requires `currency`. */
-    max_price_minor: MinorAmountSchema.optional(),
-    currency: CurrencySchema.optional(),
-    location: z.string().min(1).max(100).optional(),
+    max_price_minor: MinorAmountSchema.optional().describe("Highest acceptable gross reserve, in minor units; requires currency."),
+    currency: CurrencySchema.optional().describe("ISO 4217 code of max_price_minor."),
+    location: z.string().min(1).max(100).optional().describe("Where the person should be, for observation requests."),
   })
   .refine((i) => i.max_price_minor === undefined || i.currency !== undefined, {
     message: "max_price_minor requires currency",
@@ -81,10 +81,10 @@ export type RequestHumanOutput = z.infer<typeof RequestHumanOutputSchema>;
 
 export const CheckRequestsInputSchema = z
   .strictObject({
-    request_id: RequestIdSchema.optional(),
-    status: RequestStatusSchema.optional(),
-    since: DatetimeSchema.optional(),
-    limit: z.int().min(1).max(100).optional(),
+    request_id: RequestIdSchema.optional().describe("One request, e.g. A2H-7f3c. Omit to list with a filter."),
+    status: RequestStatusSchema.optional().describe("Filter: only requests in this status."),
+    since: DatetimeSchema.optional().describe("Filter: only requests sent at or after this time."),
+    limit: z.int().min(1).max(100).optional().describe("Filter: at most this many requests, newest first."),
   })
   .refine((i) => i.request_id === undefined || (i.status === undefined && i.since === undefined && i.limit === undefined), {
     message: "either a request id or a filter",
