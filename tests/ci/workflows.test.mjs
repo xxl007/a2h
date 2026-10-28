@@ -313,3 +313,165 @@ test("called with require-closed, the teardown re-reads the state first and touc
   assert.equal(fromClosedEvent.out, "proceed=true", "teardown.yml's behaviour must not change");
   assert.equal(fromClosedEvent.calls, 0, "teardown.yml's run must not depend on the GitHub API");
 });
+
+// --- ci-preview-verify -------------------------------------------------------
+// Spec: openspec/changes/ci-preview-verify/specs/platform/preview-environments/spec.md
+// "Preview verified", "Verification outcome on the PR", "Merge to main verified",
+// "Transient failure".
+
+const VERIFY_SUITES = [
+  ["smoke", "tests/ci/preview-smoke.sh"],
+  ["contract", "pnpm --filter @a2h/tests contract"],
+  ["e2e", "pnpm --filter @a2h/tests e2e"],
+];
+const verifyJob = (f) => wf[f]?.jobs?.verify;
+const stepRunning = (j, needle) => steps(j).find((s) => runs(s, needle));
+
+function assertVerifyJob(f) {
+  const j = verifyJob(f);
+  assert.ok(j, `${f} has no verify job`);
+  assert.ok(needsOf(j).includes("deploy"), `${f} verify does not need deploy`);
+  // Reads public URLs only: no AWS role, no OIDC token.
+  assert.equal(j.permissions?.["id-token"], undefined, `${f} verify must not hold id-token`);
+  assert.equal(j.permissions?.contents, "read", `${f} verify contents permission`);
+  assert.ok(!steps(j).some((s) => s.uses?.startsWith("aws-actions/")), `${f} verify configures AWS credentials`);
+  // Suites in order: smoke, contract, e2e; each one a step of its own, so a failure turns the job red.
+  const at = VERIFY_SUITES.map(([label, needle]) => indexOf(j, (s) => runs(s, needle), `${f} verify ${label}`));
+  assert.deepEqual([...at].sort((a, b) => a - b), at, `${f} verify must run smoke, contract, e2e in that order`);
+  for (const i of at) {
+    const s = steps(j)[i];
+    assert.equal(s["continue-on-error"], undefined, `${f} verify ${s.name}: a failing suite must fail the job`);
+  }
+  // Chromium with its system dependencies, before the e2e.
+  const pw = indexOf(j, (s) => runs(s, "playwright install") && runs(s, "--with-deps") && runs(s, "chromium"), "playwright install");
+  assert.ok(pw < at[2], `${f} verify installs Playwright after the e2e`);
+  // The URLs come from the deploy job, through env, never interpolated into a script.
+  const contract = steps(j)[at[1]];
+  const e2e = steps(j)[at[2]];
+  assert.match(String(contract.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} contract A2H_MCP_URL`);
+  assert.match(String(e2e.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} e2e A2H_MCP_URL`);
+  assert.match(String(e2e.env?.A2H_WEB_URL ?? ""), /needs\.deploy\.outputs\.web/, `${f} e2e A2H_WEB_URL`);
+  for (const s of steps(j)) {
+    if (typeof s.run === "string") assert.doesNotMatch(s.run, /\$\{\{/, `${f} verify ${s.name}: pass values through env`);
+  }
+  // The Playwright report is kept when the job fails.
+  const upload = steps(j).find((s) => s.uses?.startsWith("actions/upload-artifact@"));
+  assert.ok(upload, `${f} verify does not upload the Playwright report`);
+  assert.match(String(upload.if ?? ""), /failure\(\)/, `${f} report upload must run on failure`);
+  assert.match(String(upload.with?.path ?? ""), /tests\/playwright-report/, `${f} report path`);
+  return j;
+}
+
+test("preview.yml: a verify job needs deploy and runs only when deploy reports deployed == 'true'", () => {
+  const deploy = wf["preview.yml"].jobs.deploy;
+  const outs = deploy.outputs ?? {};
+  for (const o of ["deployed", "web", "mcp"]) assert.ok(outs[o], `preview.yml deploy has no output ${o}`);
+  const deployed = String(outs.deployed);
+  assert.match(deployed, /steps\.state\.outputs\.open == 'true'/, "deployed must require the PR open at the re-read");
+  const deployStep = steps(deploy).find((s) => runs(s, "sst deploy"));
+  assert.ok(deployStep.id, "the sst deploy step has no id");
+  assert.match(deployed, new RegExp(`steps\\.${deployStep.id}\\.outcome == 'success'`), "deployed must require the deploy step's success");
+  assert.match(String(outs.web), /steps\.outputs\.outputs\.web/);
+  assert.match(String(outs.mcp), /steps\.outputs\.outputs\.mcp/);
+
+  const j = assertVerifyJob("preview.yml");
+  assert.equal(j.name, "verify pr-${{ github.event.pull_request.number }}");
+  assert.match(String(j.if ?? ""), /needs\.deploy\.outputs\.deployed == 'true'/, "verify is not gated on deployed");
+  assert.deepEqual(j.permissions, { contents: "read", "pull-requests": "write" });
+  const smoke = stepRunning(j, "tests/ci/preview-smoke.sh");
+  assert.match(String(smoke.env?.MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, "smoke derives the ALB host from the mcp output");
+});
+
+test("preview.yml: verify appends a Verification line, with the run link, to the preview comment, whatever the outcome", () => {
+  const j = verifyJob("preview.yml");
+  assert.ok(j, "preview.yml has no verify job");
+  const comment = steps(j).find((s) => s.uses?.startsWith("marocchino/sticky-pull-request-comment@"));
+  assert.ok(comment, "verify does not comment on the PR");
+  assert.match(String(comment.if ?? ""), /always\(\)/, "the Verification line must be written on failure too");
+  assert.equal(comment.with?.header, "a2h-preview");
+  assert.equal(comment.with?.append, true, "the line must be appended to the preview comment, not replace it");
+  // The text is written by a step before it; check it says passed / FAILED and links the run.
+  const writer = steps(j).find((s) => runs(s, "Verification"));
+  assert.ok(writer, "no step writes the Verification line");
+  assert.match(writer.run, /passed/);
+  assert.match(writer.run, /FAILED/);
+  assert.match(String(writer.env?.RUN_URL ?? ""), /actions\/runs\/\$\{\{ github\.run_id \}\}/);
+  assert.match(String(writer.if ?? ""), /always\(\)/);
+});
+
+test("deploy.yml: a verify job needs deploy and runs the suites against dev", () => {
+  const deploy = wf["deploy.yml"].jobs.deploy;
+  for (const o of ["web", "mcp"]) assert.ok(deploy.outputs?.[o], `deploy.yml deploy has no output ${o}`);
+  const j = assertVerifyJob("deploy.yml");
+  assert.equal(j.permissions?.["pull-requests"], undefined, "verify dev has no PR to write to");
+  const smoke = stepRunning(j, "tests/ci/preview-smoke.sh");
+  assert.match(smoke.run, /preview-smoke\.sh "\$[A-Za-z_{}]+" dev/, "smoke must run in dev mode");
+  for (const needle of ["@a2h/tests contract", "@a2h/tests e2e"]) {
+    assert.equal(stepRunning(j, needle).env?.A2H_STAGE ?? j.env?.A2H_STAGE, "dev", `${needle}: A2H_STAGE must be dev`);
+  }
+  assert.ok(steps(j).some((s) => runs(s, "GITHUB_STEP_SUMMARY") && String(s.if ?? "").includes("always()")), "outcome not written to the run summary");
+});
+
+// The sst deploy step is extracted and run the way the runner runs it, with a
+// fake pnpm whose first <n> calls fail and a fake sleep.
+function runDeployStep(script, { fails = 0 } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "a2h-deploy-step-"));
+  try {
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "pnpm"),
+      [
+        "#!/usr/bin/env bash",
+        `n=$(cat "${dir}/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "${dir}/count"`,
+        `echo "$*" >> "${dir}/calls"`,
+        `if [ "$n" -le "$FAKE_FAILS" ]; then echo "error: transient" >&2; exit 1; fi`,
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    writeFileSync(join(bin, "sleep"), `#!/usr/bin/env bash\necho "$1" >> "${dir}/sleeps"\n`, { mode: 0o755 });
+    writeFileSync(join(dir, "step.sh"), script);
+    const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", join(dir, "step.sh")], {
+      encoding: "utf8",
+      env: { PATH: `${bin}:${process.env.PATH}`, STAGE: "pr-42", FAKE_FAILS: String(fails) },
+    });
+    const read = (f) => (existsSync(join(dir, f)) ? readFileSync(join(dir, f), "utf8") : "");
+    return {
+      status: r.status,
+      stdout: r.stdout + r.stderr,
+      calls: read("calls").split("\n").filter(Boolean),
+      sleeps: read("sleeps").split("\n").filter(Boolean).map(Number),
+    };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("deploy.yml and preview.yml run sst deploy a second time, after a pause, when the first attempt fails", () => {
+  const deployers = jobsRunning("sst deploy");
+  assert.deepEqual(deployers.map(({ f }) => f).sort(), ["deploy.yml", "preview.yml"]);
+  for (const { f, j } of deployers) {
+    const s = steps(j).find((st) => runs(st, "sst deploy"));
+    assert.doesNotMatch(s.run, /\$\{\{/, `${f}: pass values through env`);
+    const sstCalls = (r) => r.calls.filter((c) => c.startsWith("exec sst deploy"));
+
+    const ok = runDeployStep(s.run, { fails: 0 });
+    assert.equal(ok.status, 0, `${f} first attempt ok:\n${ok.stdout}`);
+    assert.equal(sstCalls(ok).length, 1, `${f}: a successful deploy must not be retried`);
+    assert.deepEqual(ok.sleeps, []);
+
+    const transient = runDeployStep(s.run, { fails: 1 });
+    assert.equal(transient.status, 0, `${f} transient failure must be retried:\n${transient.stdout}`);
+    const calls = sstCalls(transient);
+    assert.equal(calls.length, 2, `${f}: expected two sst deploy attempts, got ${calls.length}`);
+    assert.equal(calls[0], calls[1], `${f}: the retry must deploy the same stage the same way`);
+    assert.match(calls[1], /--stage pr-42/);
+    assert.equal(transient.sleeps.length, 1, `${f}: no pause before the retry`);
+    assert.ok(transient.sleeps[0] >= 30, `${f}: pause too short (${transient.sleeps[0]} s)`);
+    assert.match(transient.stdout, /::warning::/, `${f}: the retry must be visible in the run`);
+
+    const real = runDeployStep(s.run, { fails: 2 });
+    assert.notEqual(real.status, 0, `${f}: a second failure must fail the step`);
+    assert.equal(sstCalls(real).length, 2, `${f}: exactly one retry`);
+  }
+});
