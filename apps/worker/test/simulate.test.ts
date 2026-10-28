@@ -27,7 +27,7 @@ import { loadSigner, registerStageKey } from "../src/signing-keys.ts";
 import { runSimulateStep, simulatedBody, type SimulateContext } from "../src/simulate.ts";
 import { jobsFor, startBoss } from "./lib/boss.ts";
 import { answerCount, createRequest, eventsOf, statusOf } from "./lib/requests.ts";
-import { skipWithoutDocker, startStageDb, testConfig, testSigningKey, type StageDb } from "./lib/stage-db.ts";
+import { rows, skipWithoutDocker, startStageDb, testConfig, testSigningKey, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
 
@@ -135,8 +135,8 @@ describe("simulate queue", { skip }, () => {
     assert.equal(await statusOf(stage.admin, r.id), "declined");
     assert.deepEqual((await eventsOf(stage.admin, r.id)).at(-1), { from_status: "sent", to_status: "declined", actor: "participant", reason_code: "outside_expertise" });
     // Nothing is charged: no cleared amount, the hold is released, no answer.
-    const { rows } = await stage.admin.query(`SELECT cleared_minor FROM requests WHERE id = $1`, [r.id]);
-    assert.equal(rows[0].cleared_minor, null);
+    const [req] = await rows<{ cleared_minor: number | null }>(stage.admin, `SELECT cleared_minor FROM requests WHERE id = $1`, [r.id]);
+    assert.equal(req?.cleared_minor, null);
     assert.equal(holdStatusAfter("declined", { paid: true }), "released");
     assert.equal(await answerCount(stage.admin, r.id), 0);
   });
@@ -182,9 +182,9 @@ describe("simulate queue", { skip }, () => {
     await runSimulateStep(ctx(), { request_id: r.id, step: "act" });
     const env = await storedEnvelope(r.id);
     // Recompute the canonical payload from the stored fields and verify with the key named by key_id.
-    const { rows } = await stage.admin.query(`SELECT public_key, status FROM signing_keys WHERE key_id = $1`, [env.key_id]);
-    assert.equal(rows[0].status, "active");
-    const publicKey = await importPublicKey(new Uint8Array(Buffer.from(rows[0].public_key as string, "base64")));
+    const [k] = await rows<{ public_key: string; status: string }>(stage.admin, `SELECT public_key, status FROM signing_keys WHERE key_id = $1`, [env.key_id]);
+    assert.equal(k?.status, "active");
+    const publicKey = await importPublicKey(new Uint8Array(Buffer.from(k.public_key, "base64")));
     assert.equal(await verifyAnswer(env, publicKey), true);
     assert.equal(await verifyAnswer({ ...env, confidence: env.confidence === 5 ? 4 : 5 }, publicKey), false, "and it is the signature that holds");
   });
@@ -192,14 +192,15 @@ describe("simulate queue", { skip }, () => {
   test("Scenario: Marked in discovery and in answers (worker side: the answer's participant is a marked simulated one)", async () => {
     const r = await createRequest(stage.admin, { handle: "sim-jw-9e48", intent: "observation", bid_minor: 1600 });
     await runSimulateStep(ctx(), { request_id: r.id, step: "act" });
-    const { rows } = await stage.admin.query(
+    const [a] = await rows<{ handle: string; display_label: string; simulated: boolean; body: unknown }>(
+      stage.admin,
       `SELECT p.handle, p.display_label, p.simulated, a.body FROM answers a JOIN participants p ON p.id = a.participant_id WHERE a.request_id = $1`,
       [r.id],
     );
-    assert.equal(rows[0].simulated, true);
-    assert.match(rows[0].handle as string, /^sim-/);
-    assert.match(rows[0].display_label as string, /\(simulated\)$/);
-    assert.match(JSON.stringify(rows[0].body), /\(simulated\)/);
+    assert.equal(a?.simulated, true);
+    assert.match(a.handle, /^sim-/);
+    assert.match(a.display_label, /\(simulated\)$/);
+    assert.match(JSON.stringify(a.body), /\(simulated\)/);
   });
 
   test("every intent a simulated participant accepts is answered with a body its intent accepts", async () => {

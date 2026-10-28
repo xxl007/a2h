@@ -11,7 +11,7 @@ import type { WorkerLogLine } from "../src/log.ts";
 import type { Jobs } from "../src/queues.ts";
 import { jobsFor, startBoss } from "./lib/boss.ts";
 import { createRequest, statusOf } from "./lib/requests.ts";
-import { PRINCIPAL_ID, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
+import { PRINCIPAL_ID, rows, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
 
@@ -36,10 +36,14 @@ describe("deliver", { skip }, () => {
   });
 
   async function deliveryOf(id: string) {
-    return (await stage.admin.query(`SELECT outcome, participant_id FROM request_deliveries WHERE request_id = $1`, [id])).rows;
+    return rows<{ outcome: string; participant_id: string }>(stage.admin, `SELECT outcome, participant_id FROM request_deliveries WHERE request_id = $1`, [id]);
   }
   async function blockedOf(id: string) {
-    return (await stage.admin.query(`SELECT participant_id, principal_id, stage, code FROM blocked_manifests WHERE request_id = $1`, [id])).rows;
+    return rows<{ participant_id: string; principal_id: string; stage: string; code: string }>(
+      stage.admin,
+      `SELECT participant_id, principal_id, stage, code FROM blocked_manifests WHERE request_id = $1`,
+      [id],
+    );
   }
 
   test("Scenario: Rules changed after approval", async () => {
@@ -103,10 +107,10 @@ describe("deliver", { skip }, () => {
     }
     assert.deepEqual(await deliveryOf(r.id), []);
     assert.deepEqual(await jobsFor(stage.admin, "simulate", r.id), []);
-    const { rows } = await stage.admin.query(`SELECT deliver_at FROM requests WHERE id = $1`, [r.id]);
-    const local = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(rows[0].deliver_at);
+    const [row] = await rows<{ deliver_at: Date }>(stage.admin, `SELECT deliver_at FROM requests WHERE id = $1`, [r.id]);
+    const local = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(row!.deliver_at);
     assert.equal(local, "07:00");
-    assert.ok(rows[0].deliver_at.getTime() > lateEvening.getTime());
+    assert.ok(row!.deliver_at.getTime() > lateEvening.getTime());
   });
 
   test("interruption budget at delivery: deliveries already made today count, the next one is blocked", async () => {
@@ -142,7 +146,8 @@ describe("deliver", { skip }, () => {
 
   test("a participant whose rules are gone accepts nothing: blocked as type_not_accepted, counted", async () => {
     const r = await createRequest(stage.admin, { handle: "sim-cf-4c5e", intent: "estimate", bid_minor: 2600, expires_in: 3 * 24 * 3600 });
-    const saved = (await stage.admin.query(`SELECT * FROM rules WHERE participant_id = $1`, [r.participant_id])).rows[0];
+    const [saved] = await rows<Record<string, unknown>>(stage.admin, `SELECT * FROM rules WHERE participant_id = $1`, [r.participant_id]);
+    assert.ok(saved);
     await stage.admin.query(`DELETE FROM rules WHERE participant_id = $1`, [r.participant_id]);
     try {
       await deliverRequest(ctx(), r.id);

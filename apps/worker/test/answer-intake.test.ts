@@ -11,7 +11,7 @@ import { intakeAnswer } from "../src/intake.ts";
 import type { WorkerLogLine } from "../src/log.ts";
 import { registerStageKey } from "../src/signing-keys.ts";
 import { answerCount, createRequest, eventsOf, signedEnvelope, statusOf } from "./lib/requests.ts";
-import { skipWithoutDocker, startStageDb, testConfig, testSigningKey, type StageDb } from "./lib/stage-db.ts";
+import { rows, skipWithoutDocker, startStageDb, testConfig, testSigningKey, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
 const MV = "sim-mv-7f3c"; // judgment reserve 2500 net (3125 gross at f = 0.2)
@@ -55,9 +55,9 @@ describe("answer intake", { skip }, () => {
     assert.equal(await statusOf(stage.admin, r.id), "answered");
     const events = await eventsOf(stage.admin, r.id);
     assert.deepEqual(events.at(-1), { from_status: "accepted", to_status: "answered", actor: "participant", reason_code: null });
-    const { rows } = await stage.admin.query(`SELECT a.signed_at, a.key_id, a.confidence, a.answered_personally, r.cleared_minor
+    const stored = await rows(stage.admin, `SELECT a.signed_at, a.key_id, a.confidence, a.answered_personally, r.cleared_minor
       FROM answers a JOIN requests r ON r.id = a.request_id WHERE a.request_id = $1`, [r.id]);
-    assert.deepEqual(rows[0], {
+    assert.deepEqual(stored[0], {
       signed_at: "2026-10-21T09:10:00+02:00",
       key_id: key.key_id,
       confidence: 4,
@@ -114,8 +114,8 @@ describe("answer intake", { skip }, () => {
     const env = await signedEnvelope(old, { request_id: r.id, participant_id: r.participant_id });
     // The stage rotates to a new key after the answer was signed.
     await registerStageKey(pool, testSigningKey("a2h-pr-12-intakenew00001"));
-    const { rows } = await stage.admin.query(`SELECT status FROM signing_keys WHERE key_id = $1`, [old.key_id]);
-    assert.equal(rows[0].status, "rotated");
+    const [k] = await rows<{ status: string }>(stage.admin, `SELECT status FROM signing_keys WHERE key_id = $1`, [old.key_id]);
+    assert.equal(k?.status, "rotated");
     assert.deepEqual(await intakeAnswer(ctx(), env), { ok: true, replay: false });
     assert.equal(await statusOf(stage.admin, r.id), "answered");
   });

@@ -43,7 +43,7 @@ function invalid(name: string, what: string): Error {
   return new Error(`worker configuration: ${name} is not ${what}`);
 }
 
-function schemaName(env: Env, name: string): string {
+function identifier(env: Env, name: string): string {
   const value = required(env, name);
   if (!SCHEMA_NAME.test(value)) throw invalid(name, "a plain lower-case identifier");
   return value;
@@ -70,7 +70,7 @@ function rate(env: Env, name: string, { allowOne }: { allowOne: boolean }): numb
   return n;
 }
 
-function base64(env: Env, name: string): Uint8Array {
+function bytes(env: Env, name: string): Uint8Array {
   const value = required(env, name);
   if (!BASE64.test(value) || value.length % 4 !== 0) throw invalid(name, "base64");
   return new Uint8Array(Buffer.from(value, "base64"));
@@ -81,8 +81,8 @@ export function dbConfigFromEnv(env: Env = process.env): DbConfig {
   const database = required(env, "DB_NAME");
   const user = required(env, "DB_USER");
   const password = required(env, "DB_PASSWORD");
-  const schema = schemaName(env, "DB_SCHEMA");
-  const jobsSchema = schemaName(env, "DB_JOBS_SCHEMA");
+  const schema = identifier(env, "DB_SCHEMA");
+  const jobsSchema = identifier(env, "DB_JOBS_SCHEMA");
   if (jobsSchema === schema) throw invalid("DB_JOBS_SCHEMA", "a schema of its own (it equals DB_SCHEMA)");
 
   const portText = env["DB_PORT"] || "5432";
@@ -146,7 +146,7 @@ function policyFromEnv(env: Env): ValidationPolicy {
 function signingFromEnv(env: Env): SigningKeyMaterial {
   const key_id = required(env, "SIGNING_KEY_ID");
   if (!OpaqueIdSchema.safeParse(key_id).success) throw invalid("SIGNING_KEY_ID", "an opaque identifier");
-  const private_key_pkcs8 = base64(env, "SIGNING_PRIVATE_KEY");
+  const private_key_pkcs8 = bytes(env, "SIGNING_PRIVATE_KEY");
   const public_key = required(env, "SIGNING_PUBLIC_KEY");
   if (!PUBLIC_KEY_PATTERN.test(public_key)) throw invalid("SIGNING_PUBLIC_KEY", "base64 of a raw 32-byte Ed25519 key");
   return { key_id, private_key_pkcs8, public_key };

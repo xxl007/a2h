@@ -102,3 +102,8 @@ export function testConfig(db: DbConfig, overrides: Partial<WorkerConfig> = {}):
     ...overrides,
   };
 }
+
+/** Typed rows of a query on the arranging connection. */
+export async function rows<T extends object>(client: pg.Client, text: string, params: unknown[] = []): Promise<T[]> {
+  return (await client.query<T & pg.QueryResultRow>(text, params)).rows;
+}

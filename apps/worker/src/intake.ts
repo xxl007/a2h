@@ -50,7 +50,7 @@ async function clearedAmount(ctx: JobContext, db: Db, request: RequestRow): Prom
 async function verifiedEnvelope(db: Db, input: unknown, request: RequestRow): Promise<AnswerEnvelope | null> {
   const parsed = answerEnvelopeSchemaFor(request.intent as Intent).safeParse(input);
   if (!parsed.success) return null;
-  const envelope = parsed.data as AnswerEnvelope;
+  const envelope: AnswerEnvelope = parsed.data;
   if (envelope.participant_id !== request.participant_id) return null;
   const [key] = await db
     .select({ public_key: signingKeys.public_key, status: signingKeys.status, participant_id: signingKeys.participant_id })

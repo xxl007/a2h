@@ -30,7 +30,8 @@ const DISPATCH_BATCH = 100;
 /** Enqueues a deliver job for every due, undelivered `sent` request to a simulated participant. */
 export async function dispatchDue(ctx: DeliverContext): Promise<number> {
   const now = ctx.now();
-  const due = await dbOf(ctx.pool)
+  const db = dbOf(ctx.pool);
+  const due = await db
     .select({ id: requests.id })
     .from(requests)
     .innerJoin(participants, eq(participants.id, requests.participant_id))
@@ -40,7 +41,7 @@ export async function dispatchDue(ctx: DeliverContext): Promise<number> {
         lte(requests.deliver_at, now),
         gt(requests.expires_at, now),
         eq(participants.simulated, true),
-        notExists(dbOf(ctx.pool).select({ one: requestDeliveries.request_id }).from(requestDeliveries).where(eq(requestDeliveries.request_id, requests.id))),
+        notExists(db.select({ one: requestDeliveries.request_id }).from(requestDeliveries).where(eq(requestDeliveries.request_id, requests.id))),
       ),
     )
     .orderBy(asc(requests.deliver_at))

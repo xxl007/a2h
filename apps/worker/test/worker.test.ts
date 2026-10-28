@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { bossOptions, startWorker, type WorkerLogLine } from "../src/worker.ts";
 import type { DbConfig } from "../src/db-config.ts";
-import { JOBS_SCHEMA, SCHEMA, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
+import { JOBS_SCHEMA, SCHEMA, rows, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
 let stage: StageDb;
@@ -48,11 +48,11 @@ test("the worker starts where the jobs schema exists; pg-boss tables are in pr_1
       if (!processed) await sleep(100);
     }
     assert.ok(processed, `no heartbeat processed; logs: ${JSON.stringify(logs)}`);
-    const q = async (sql: string, params: unknown[] = []) => (await stage.admin.query(sql, params)).rows;
+    const q = (sql: string, params: unknown[] = []) => rows<{ tablename?: string; nspname?: string }>(stage.admin, sql, params);
     const jobTables = await q(`SELECT tablename FROM pg_tables WHERE schemaname = $1`, [JOBS_SCHEMA]);
-    assert.ok(jobTables.some((r: { tablename: string }) => r.tablename === "job"), "pg-boss job table in pr_12_jobs");
+    assert.ok(jobTables.some((r) => r.tablename === "job"), "pg-boss job table in pr_12_jobs");
     const stageTables = await q(`SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY 1`, [SCHEMA]);
-    assert.deepEqual(stageTables.map((r: { tablename: string }) => r.tablename), DRIZZLE_TABLES);
+    assert.deepEqual(stageTables.map((r) => r.tablename), DRIZZLE_TABLES);
     assert.deepEqual(await q(`SELECT tablename FROM pg_tables WHERE schemaname = 'public'`), []);
     assert.deepEqual(await q(`SELECT nspname FROM pg_namespace WHERE nspname = 'pgboss'`), [], "no stray pgboss schema");
     for (const line of logs) assert.ok(!JSON.stringify(line).includes("test-only-pr-12"), "password in a log line");

@@ -15,7 +15,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { startWorker, type RunningWorker } from "../src/worker.ts";
 import type { WorkerLogLine } from "../src/log.ts";
 import { createRequest, statusOf } from "./lib/requests.ts";
-import { JOBS_SCHEMA, skipWithoutDocker, startStageDb, testConfig, testSigningKey, type StageDb } from "./lib/stage-db.ts";
+import { JOBS_SCHEMA, rows, skipWithoutDocker, startStageDb, testConfig, testSigningKey, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
 const SRC = new URL("../src/", import.meta.url).pathname;
@@ -33,7 +33,8 @@ async function until<T>(what: string, probe: () => Promise<T | undefined | false
 /** Every outbound connection the process opens while `fn` runs: host and port. */
 function watchOutbound(t: TestContext): { connections: string[]; fetches: number; httpRequests: number } {
   const seen = { connections: [] as string[], fetches: 0, httpRequests: 0 };
-  const original = net.Socket.prototype.connect;
+  // The original method, called with the socket as `this` below.
+  const connectOf = Reflect.get(net.Socket.prototype, "connect") as (...a: unknown[]) => net.Socket;
   t.mock.method(net.Socket.prototype, "connect", function (this: net.Socket, ...args: unknown[]) {
     const [first, second] = args as [unknown, unknown];
     const target =
@@ -41,7 +42,7 @@ function watchOutbound(t: TestContext): { connections: string[]; fetches: number
         ? `${(first as { host?: string; path?: string }).host ?? (first as { path?: string }).path ?? "?"}:${(first as { port?: number }).port ?? ""}`
         : `${typeof second === "string" ? second : "localhost"}:${String(first)}`;
     seen.connections.push(target);
-    return (original as (...a: unknown[]) => net.Socket).apply(this, args);
+    return Reflect.apply(connectOf, this, args);
   });
   t.mock.method(globalThis, "fetch", () => {
     seen.fetches += 1;
@@ -82,8 +83,8 @@ describe("the running worker", { skip }, () => {
         pollingIntervalSeconds: 0.5,
       });
       // The stage key is recorded as the active platform key at start.
-      const { rows } = await stage.admin.query(`SELECT status FROM signing_keys WHERE key_id = $1`, [key.key_id]);
-      assert.equal(rows[0]?.status, "active");
+      const [k] = await rows<{ status: string }>(stage.admin, `SELECT status FROM signing_keys WHERE key_id = $1`, [key.key_id]);
+      assert.equal(k?.status, "active");
 
       const prompt = await createRequest(stage.admin, { handle: "sim-mv-7f3c", intent: "judgment", bid_minor: 3500 });
       const declining = await createRequest(stage.admin, { handle: "sim-rc-8d14", intent: "knowledge", bid_minor: 3200 });
@@ -106,8 +107,7 @@ describe("the running worker", { skip }, () => {
   test("the expire queue is scheduled every minute", async () => {
     const worker = await startWorker({ config: testConfig(stage.db, { signing: testSigningKey("a2h-pr-12-run0000000002") }), log: () => undefined });
     try {
-      const { rows } = await stage.admin.query(`SELECT name, cron FROM ${JOBS_SCHEMA}.schedule`);
-      assert.deepEqual(rows, [{ name: "expire", cron: "* * * * *" }]);
+      assert.deepEqual(await rows(stage.admin, `SELECT name, cron FROM ${JOBS_SCHEMA}.schedule`), [{ name: "expire", cron: "* * * * *" }]);
     } finally {
       await worker.stop();
     }
@@ -126,14 +126,14 @@ describe("the running worker", { skip }, () => {
     });
     try {
       await sleep(1500);
-      const queues = (await stage.admin.query(`SELECT name FROM prod_jobs.queue ORDER BY name`)).rows.map((q: { name: string }) => q.name);
+      const queues = (await rows<{ name: string }>(stage.admin, `SELECT name FROM prod_jobs.queue ORDER BY name`)).map((q) => q.name);
       assert.ok(!queues.includes("simulate"), `queues: ${queues.join(",")}`);
       assert.ok(!queues.includes("deliver"), `queues: ${queues.join(",")}`);
       assert.ok(queues.includes("expire"), "the lifecycle still runs on prod");
       // Nothing is delivered or simulated, and no key is recorded for signing simulated answers.
-      assert.equal((await stage.admin.query(`SELECT count(*)::int AS n FROM request_deliveries WHERE request_id = $1`, [r.id])).rows[0].n, 0);
+      assert.deepEqual(await rows(stage.admin, `SELECT count(*)::int AS n FROM request_deliveries WHERE request_id = $1`, [r.id]), [{ n: 0 }]);
       assert.equal(await statusOf(stage.admin, r.id), "sent");
-      assert.equal((await stage.admin.query(`SELECT count(*)::int AS n FROM signing_keys WHERE key_id = 'a2h-prod-run000000001'`)).rows[0].n, 0);
+      assert.deepEqual(await rows(stage.admin, `SELECT count(*)::int AS n FROM signing_keys WHERE key_id = 'a2h-prod-run000000001'`), [{ n: 0 }]);
       assert.ok(logs.some((l) => l.msg === "simulator disabled"));
     } finally {
       await worker.stop();
