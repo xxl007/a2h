@@ -54,7 +54,9 @@ describe("Money is integers in minor units with a currency", () => {
         for (const [key, value] of Object.entries(props)) {
           if (/^(amount|price|bid|reserve|fee|held|cleared)$/.test(key)) offenders.push(`${where}.${key} lacks _minor`);
           if (key.endsWith("_minor")) {
-            if (value.type !== "integer") offenders.push(`${where}.${key} is not an integer`);
+            const branches = (value.anyOf as Record<string, unknown>[] | undefined) ?? [value];
+            const integer = branches.every((b) => b.type === "integer" || b.type === "null") && branches.some((b) => b.type === "integer");
+            if (!integer) offenders.push(`${where}.${key} is not an integer`);
             if (!("currency" in props)) offenders.push(`${where}.${key} has no sibling currency`);
           }
         }

@@ -14,3 +14,6 @@ export * from "./canonical.ts";
 export * from "./signing.ts";
 export * from "./ids.ts";
 export * from "./display.ts";
+export * from "./lifecycle.ts";
+export * from "./content-rules.ts";
+export * from "./validate.ts";

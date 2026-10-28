@@ -55,3 +55,15 @@ export function canonicalAnswerPayload(answer: UnsignedAnswer | AnswerEnvelope):
   }
   return canonicalJson(picked);
 }
+
+/**
+ * SHA-256 (lower-case hex) of the canonical JSON of `request_human`
+ * arguments: what an approval state binds, so that an approval replayed with
+ * different arguments is detected (`conflict`). WebCrypto only.
+ */
+export async function manifestHash(args: unknown): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new TypeError("WebCrypto (crypto.subtle) is not available");
+  const digest = await subtle.digest("SHA-256", new TextEncoder().encode(canonicalJson(args)));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}

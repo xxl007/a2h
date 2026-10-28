@@ -103,6 +103,17 @@ export const referenceChecked: CheckedRequest = {
   },
 };
 
+const validationFacts = {
+  now: "2026-10-21T08:42:00+02:00",
+  principal: { principal_id: "dev-principal-pr-17", identity_mode: "verified_organisation", verified: true },
+  participant: { participant_id: "p_sim_mv", handle: "sim-mv-7f3c", rules: referenceRules },
+  interruptions_today: 0,
+  budget: { used_minor: 0, currency: "EUR" },
+  requests_today: 0,
+  principal_throttled: false,
+  approval: "pending",
+};
+
 type Fixture = { pass: unknown; fail: unknown; path: (string | number)[] };
 
 export const fixtures: Record<string, Fixture> = {
@@ -151,6 +162,17 @@ export const fixtures: Record<string, Fixture> = {
     pass: { sent_at: "2026-10-21T08:42:00+02:00" },
     fail: { sent_at: "2026-10-21T08:42:00+02:00", accepted_at: "soon" },
     path: ["accepted_at"],
+  },
+  ForbiddenContentClassSchema: { pass: "labour_disguised", fail: "rude", path: [] },
+  ValidationPolicySchema: {
+    pass: { fee_rate: 0.2, currency: "EUR", monthly_budget_minor: 50000, per_request_cap_minor: 6000, ask_first_above_minor: null, daily_request_limit: 20, throttled_daily_limit: 2 },
+    fail: { fee_rate: 0.2, currency: "EUR", monthly_budget_minor: 500.5, per_request_cap_minor: 6000, ask_first_above_minor: null, daily_request_limit: 20, throttled_daily_limit: 2 },
+    path: ["monthly_budget_minor"],
+  },
+  ValidationFactsSchema: {
+    pass: validationFacts,
+    fail: { ...validationFacts, approval: "maybe" },
+    path: ["approval"],
   },
   AnswerDisplaySchema: {
     pass: { signature: "a2h:sig:…c91e", citation: "reviewed by M.V., 21 Oct 2026" },
