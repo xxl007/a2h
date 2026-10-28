@@ -1,9 +1,13 @@
 // A2H MCP server on Fargate behind the environment's ALB.
 // Routing: dev/prod `/mcp`, `/mcp/*`, `/healthz` (priorities 49000-49002);
 // pr-<n> `/pr-<n>/*` (priority 100 + n). See config.ts stageInfo.
+import { executionRolePolicy } from "./access.ts";
 import { MCP_PORT, type StageInfo } from "./config.ts";
 import { serviceListener } from "./cluster.ts";
 import { databaseEnv, type DbAccess } from "./database.ts";
+import { plainEnvironment } from "./service-env.ts";
+import type { StageSecrets } from "./stage-secrets-resources.ts";
+import { secretKindsFor, secretsEnvironment, type Service } from "./stage-secrets.ts";
 import { storageArgs, type StorageGrant } from "./storage.ts";
 
 export interface ServiceDeps {
@@ -14,22 +18,39 @@ export interface ServiceDeps {
   /** `link` on dev/prod; prefix-scoped object permissions on previews. */
   storage: StorageGrant;
   email: sst.aws.Email | undefined;
+  /** `a2h/<stage>/signing` and `a2h/<stage>/approval`, created by the stage (stage-secrets-resources.ts). */
+  secrets: StageSecrets;
 }
 
-/** Environment, secrets, links and permissions shared by the MCP and worker containers. */
-export function containerConfig({ stage, db, storage, email }: ServiceDeps) {
+/**
+ * Environment, secrets, links and permissions of one container. Plain
+ * environment by name in service-env.ts; secrets only through `ssm` (ECS
+ * `secrets.valueFrom`), never in `environment`: DB_PASSWORD, and the stage
+ * keys this service receives (stage-secrets.ts SECRET_SERVICES).
+ */
+export function containerConfig(service: Service, { stage, db, storage, email, secrets }: ServiceDeps) {
   const database = databaseEnv(db, stage);
   const store = storageArgs(storage);
+  const kinds = secretKindsFor(service);
+  const keySecrets = $util
+    .all([secrets.signing.arn, secrets.signing.versionId, secrets.approval.arn, secrets.approval.versionId])
+    .apply(([signingArn, signingVersion, approvalArn, approvalVersion]) =>
+      secretsEnvironment(stage, service, {
+        signing: { arn: signingArn, versionId: signingVersion },
+        approval: { arn: approvalArn, versionId: approvalVersion },
+      }),
+    );
+  const stageSecretArns = $util.all(kinds.map((kind) => secrets[kind].arn));
+  const executionPolicy = $util
+    .all([$output(db.executionSource), stageSecretArns])
+    .apply(([source, arns]) => JSON.stringify(executionRolePolicy(stage, source, arns)));
   return {
     environment: {
-      PORT: String(MCP_PORT),
-      STAGE: stage.name,
-      MCP_BASE_PATH: stage.mcpBasePath,
-      STORAGE_PREFIX: stage.storagePrefix,
+      ...plainEnvironment(service, stage),
       ...store.environment,
       ...database.environment,
     },
-    ssm: database.ssm,
+    ssm: $util.all([database.ssm, keySecrets]).apply(([dbSsm, keys]) => ({ ...dbSsm, ...keys })),
     // `link` grants the task role least-privilege IAM on these resources.
     link: [...store.link, ...(email ? [email] : [])],
     permissions: store.permissions,
@@ -37,12 +58,12 @@ export function containerConfig({ stage, db, storage, email }: ServiceDeps) {
       // Object form: SST merges it over its defaults (`{ ...args, ...transform }`,
       // component.ts), so only `inlinePolicies` changes. It replaces SST's
       // `ReadSsmAndSecrets` (GetSecretValue and ssm:GetParameter* on `*`)
-      // with GetSecretValue on the one DB secret. `managedPolicyArns`
-      // (AmazonECSTaskExecutionRolePolicy: ECR pull, logs) and
-      // `assumeRolePolicy` stay as SST sets them; the boundary still comes
-      // from the $transform in sst.config.ts.
+      // with GetSecretValue on the DB secret and this service's stage
+      // secrets, by ARN. `managedPolicyArns` (AmazonECSTaskExecutionRolePolicy:
+      // ECR pull, logs) and `assumeRolePolicy` stay as SST sets them; the
+      // boundary still comes from the $transform in sst.config.ts.
       executionRole: {
-        inlinePolicies: [{ name: "inline", policy: db.executionPolicy }],
+        inlinePolicies: [{ name: "inline", policy: executionPolicy }],
       },
     },
   };
@@ -59,7 +80,7 @@ export function createMcp(deps: ServiceDeps, alb: sst.aws.Alb) {
     memory: "0.5 GB",
     scaling: stage.mcpScaling,
     ...(stage.spot ? { capacity: "spot" as const } : {}),
-    ...containerConfig(deps),
+    ...containerConfig("mcp", deps),
     // Contract amendment 1: `sst deploy` waits for a steady, healthy service
     // (ECS waitForSteadyState), so an unhealthy deploy fails the job.
     wait: true,

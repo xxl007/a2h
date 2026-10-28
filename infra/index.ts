@@ -7,6 +7,7 @@ import { createDatabase, masterAccess, previewAccess, type DbAccess } from "./da
 import { createEmail, getEmail } from "./email.ts";
 import { createMcp } from "./mcp.ts";
 import { publishShared, readShared } from "./shared.ts";
+import { createStageSecrets } from "./stage-secrets-resources.ts";
 import { createUploads, type StorageGrant } from "./storage.ts";
 import { createVpc, getVpc } from "./vpc.ts";
 import { createWeb, WEB_NOT_DEPLOYED } from "./web.ts";
@@ -77,7 +78,9 @@ export async function deploy(stageName: string, command: string) {
     ? ownResources(stage)
     : await borrowedResources(stage, command);
 
-  const deps = { stage, cluster, db, storage, email };
+  // a2h/<stage>/signing and a2h/<stage>/approval: every stage creates its own.
+  const secrets = createStageSecrets(stage);
+  const deps = { stage, cluster, db, storage, email, secrets };
   createMcp(deps, alb);
   createWorker(deps);
 

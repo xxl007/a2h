@@ -126,9 +126,63 @@ export const OPEN_NEXT_VERSION = "4.1.12";
 /** Container port of the MCP service (env PORT). */
 export const MCP_PORT = 3000;
 
-// Secrets: none in M0. Stripe (M4) and Better Auth (M1) secrets will be
-// declared as `new sst.Secret("StripeSecretKey")` / `new sst.Secret("BetterAuthSecret")`
-// in a future infra/secrets.ts and linked only to the services that use them.
+// Secrets: the per-stage signing and approval keys are created by the stage
+// itself (stage-secrets.ts, design D4 amendment). Stripe (M4) and Better Auth
+// secrets will be declared as `new sst.Secret(...)` and linked only to the
+// services that use them.
+
+/**
+ * Owner-settable, through a reviewed PR. Rotation generation of the per-stage
+ * keys on the long-lived stages (stage-secrets.ts). Bumping a number and
+ * deploying creates a new key and a new version of `a2h/<stage>/<kind>`; the
+ * services roll onto it. Never lower a number. Previews always use 1.
+ * Procedure: docs/runbooks/aws-bootstrap.md §14.
+ */
+export const STAGE_KEY_GENERATIONS = {
+  dev: { signing: 1, approval: 1 },
+  prod: { signing: 1, approval: 1 },
+} as const satisfies Record<"dev" | "prod", { signing: number; approval: number }>;
+
+/**
+ * Platform fee rate `f` (ADR 0002 §4): gross = net / (1 - f). OPEN: the value
+ * is fixed by the ADR before M4; until then this is a development value. No
+ * money moves in M1; the services only compute and display amounts with it.
+ */
+export const FEE_RATE = 0.2;
+/**
+ * Clearing share `s` (ADR 0002 §3): clearing = reserve + s x (bid - reserve).
+ * OPEN like FEE_RATE; development value.
+ */
+export const CLEARING_SHARE = 0.5;
+
+/**
+ * The one principal of a stage while no authorization exists (design D7):
+ * not real-name verified, so the `authorisation` intent is refused for it.
+ * Shape: PrincipalSchema of packages/protocol (checked in config.test.ts).
+ */
+export function developmentPrincipal(stage: StageInfo) {
+  return {
+    principal_id: `dev-principal-${stage.name}`,
+    identity_mode: "verified_organisation" as const,
+    verified: true,
+  };
+}
+
+/**
+ * The development principal's contact policy and the fee rate (design D7),
+ * in the field names of ValidationPolicySchema (packages/protocol), which
+ * config.test.ts parses it with. Amounts in euro cents. Same on every stage.
+ */
+export const DEVELOPMENT_POLICY = {
+  fee_rate: FEE_RATE,
+  currency: "EUR",
+  monthly_budget_minor: 50_000,
+  per_request_cap_minor: 6_000,
+  /** null: every request asks the principal first (M1 always elicits). */
+  ask_first_above_minor: null as number | null,
+  daily_request_limit: 50,
+  throttled_daily_limit: 5,
+};
 
 /** SSM parameters `dev` publishes and `pr-*` reads (contract, tasks.md §Step 4). */
 export const SHARED_PARAMETERS = {
@@ -172,6 +226,10 @@ export interface StageInfo {
   /** dev and prod create VPC, cluster, ALB, Aurora, bucket, email; pr-* borrows dev's. */
   ownsSharedResources: boolean;
   dbSchema: string;
+  /** pg-boss schema (design D3): `pgboss` on dev/prod, `pr_<n>_jobs` on previews. */
+  jobsSchema: string;
+  /** Simulated participants run on dev and previews, never on prod (task 5.6). */
+  simulatorEnabled: boolean;
   mcpBasePath: string;
   /** ALB health check path: `healthPathFor(mcpBasePath)` from apps/mcp. */
   healthPath: string;
@@ -202,6 +260,8 @@ export function stageInfo(stage: string): StageInfo {
       kind: stage,
       ownsSharedResources: true,
       dbSchema: "public",
+      jobsSchema: "pgboss",
+      simulatorEnabled: stage !== "prod",
       mcpBasePath: "/mcp",
       healthPath: healthPathFor("/mcp"),
       // Never "": a dev key at the area root such as `uploads/pr-12/x` would
@@ -239,6 +299,8 @@ export function stageInfo(stage: string): StageInfo {
     prNumber: n,
     ownsSharedResources: false,
     dbSchema: `pr_${n}`,
+    jobsSchema: `pr_${n}_jobs`,
+    simulatorEnabled: true,
     mcpBasePath: `/pr-${n}/mcp`,
     healthPath: healthPathFor(`/pr-${n}/mcp`),
     storagePrefix: `pr-${n}/`,

@@ -46,9 +46,9 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 
 ## 6. Infrastructure and CI (PD for `infra/`, QA for workflows)
 
-- [ ] 6.1 `infra/`: the mcp service gets database environment and secret like the worker; new secrets `a2h/<stage>/approval` (HMAC key, 32 random bytes) and `a2h/<stage>/signing` (Ed25519 private key) are created by SST for every stage, including previews, and wired as ECS secrets (D4 amendment); `DB_JOBS_SCHEMA`, `PRINCIPAL_*` policy and `FEE_RATE`/`CLEARING_SHARE` as plain environment from `infra/config.ts` (D7); verify `pnpm typecheck` and the `tests/ci/infra-consistency.test.sh` extended for the new variables
+- [x] 6.1 `infra/`: the mcp service gets database environment and secret like the worker; new secrets `a2h/<stage>/approval` (HMAC key, 32 random bytes) and `a2h/<stage>/signing` (Ed25519 private key) are created by SST for every stage, including previews, and wired as ECS secrets (D4 amendment); `DB_JOBS_SCHEMA`, `PRINCIPAL_*` policy and `FEE_RATE`/`CLEARING_SHARE` as plain environment from `infra/config.ts` (D7); verify `pnpm typecheck` and the `tests/ci/infra-consistency.test.sh` extended for the new variables
 - [ ] 6.2 Workflows: `db-migrate.sh` step after credentials and before `sst deploy` in `preview.yml` and `deploy.yml`; `pr-schema.sh drop` still last in teardown; verify `tests/ci/workflows.test.mjs` additions and `actionlint`
-- [ ] 6.3 Runbook `docs/runbooks/aws-bootstrap.md` §14: how the per-stage secrets are created by the deploy, how to rotate `a2h/<stage>/signing` (new key id, old key stays `rotated`) and `a2h/<stage>/approval` (pending approvals expire within 15 minutes); verify verify the documented commands are dry-run checked in `tests/ci/bootstrap.test.mjs`
+- [x] 6.3 Runbook `docs/runbooks/aws-bootstrap.md` §14: how the per-stage secrets are created by the deploy, how to rotate `a2h/<stage>/signing` (new key id, old key stays `rotated`) and `a2h/<stage>/approval` (pending approvals expire within 15 minutes); verify verify the documented commands are dry-run checked in `tests/ci/bootstrap.test.mjs`
 
 ## 7. Verification (QA)
 
