@@ -56,6 +56,10 @@ After validation passes, `request_human` SHALL ask the principal for approval wi
 - **WHEN** the retried call carries approval state the server issued, but for a manifest whose hash differs from the retried arguments
 - **THEN** the call is refused with code `conflict` and nothing is created
 
+#### Scenario: Accepted approval replayed
+- **WHEN** a retried call carries approval state that was already used to create a request, with the same arguments and an accept, inside the state's validity window
+- **THEN** the call is refused with code `conflict`, no second request or hold is created, and the first request is unchanged
+
 #### Scenario: Client on an older revision
 - **WHEN** `request_human` is called over a connection negotiated on a revision earlier than 2026-07-28
 - **THEN** the call returns an error result whose text says that approval needs the 2026-07-28 revision and how to enable it in Claude Code, and nothing is created
