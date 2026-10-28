@@ -132,6 +132,18 @@ export const MCP_PORT = 3000;
 // services that use them.
 
 /**
+ * Owner-settable, through a reviewed PR. Rotation generation of the per-stage
+ * keys on the long-lived stages (stage-secrets.ts). Bumping a number and
+ * deploying creates a new key and a new version of `a2h/<stage>/<kind>`; the
+ * services roll onto it. Never lower a number. Previews always use 1.
+ * Procedure: docs/runbooks/aws-bootstrap.md §14.
+ */
+export const STAGE_KEY_GENERATIONS = {
+  dev: { signing: 1, approval: 1 },
+  prod: { signing: 1, approval: 1 },
+} as const satisfies Record<"dev" | "prod", { signing: number; approval: number }>;
+
+/**
  * Platform fee rate `f` (ADR 0002 §4): gross = net / (1 - f). OPEN: the value
  * is fixed by the ADR before M4; until then this is a development value. No
  * money moves in M1; the services only compute and display amounts with it.

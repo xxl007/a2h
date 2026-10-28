@@ -12,7 +12,7 @@ export default $config({
     return {
       name: "a2h",
       home: "aws",
-      providers: { aws: { region: "eu-west-3" } },
+      providers: { aws: { region: "eu-west-3" }, random: "4.16.6", tls: "5.0.1" },
       removal: longLived ? "retain" : "remove",
       protect: longLived,
       version: "4.17.2",

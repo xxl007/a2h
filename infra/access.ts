@@ -26,15 +26,21 @@ export function prDbSecretName(stage: StageInfo): string {
 
 const SECRET_ARN = /^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$/;
 
+const SECRET_VERSION_ID = /^[A-Za-z0-9-]{32,64}$/;
+
 /**
  * ECS `secrets[].valueFrom` for one JSON key of a Secrets Manager secret:
- * `<secretArn>:<jsonKey>::` (empty version stage and version id = AWSCURRENT).
+ * `<secretArn>:<jsonKey>::` (empty version stage and version id = AWSCURRENT),
+ * or `<secretArn>:<jsonKey>::<versionId>` pinned to one version.
  */
-export function secretValueFrom(secretArn: string, jsonKey: string): string {
+export function secretValueFrom(secretArn: string, jsonKey: string, versionId?: string): string {
   if (!SECRET_ARN.test(secretArn)) {
     throw new Error(`Not a Secrets Manager secret ARN: "${secretArn}".`);
   }
-  return `${secretArn}:${jsonKey}::`;
+  if (versionId !== undefined && !SECRET_VERSION_ID.test(versionId)) {
+    throw new Error(`Not a Secrets Manager version id: "${versionId}".`);
+  }
+  return `${secretArn}:${jsonKey}::${versionId ?? ""}`;
 }
 
 export type DbCredentialSource =
@@ -99,13 +105,18 @@ export interface PolicyDocument {
  * Inline policy of the Fargate task execution role (the role the ECS agent
  * uses to pull the image, write logs and resolve `secrets.valueFrom`). It
  * replaces SST's default `ReadSsmAndSecrets`, which allows
- * `secretsmanager:GetSecretValue` and `ssm:GetParameter*` on `*`. The only
- * task secret is DB_PASSWORD (databaseEnv), so the role reads exactly that
- * secret and nothing from SSM. ECR pull and logs stay with the managed
+ * `secretsmanager:GetSecretValue` and `ssm:GetParameter*` on `*`. The task
+ * secrets are DB_PASSWORD (databaseEnv) and the stage's own signing/approval
+ * keys this service receives (`stageSecretArns`, stage-secrets.ts), so the
+ * role reads exactly those secrets, by ARN, and nothing from SSM. ECR pull and logs stay with the managed
  * `AmazonECSTaskExecutionRolePolicy`. Both secrets use the AWS-managed
  * `aws/secretsmanager` key, so no `kms:Decrypt` grant is needed.
  */
-export function executionRolePolicy(stage: StageInfo, source: ExecutionSecretSource): PolicyDocument {
+export function executionRolePolicy(
+  stage: StageInfo,
+  source: ExecutionSecretSource,
+  stageSecretArns: readonly string[] = [],
+): PolicyDocument {
   let resource: string;
   if (stage.kind === "pr") {
     if (source.kind !== "pr-login") {
@@ -123,17 +134,31 @@ export function executionRolePolicy(stage: StageInfo, source: ExecutionSecretSou
     }
     resource = source.secretArn;
   }
-  return {
-    Version: "2012-10-17",
-    Statement: [
-      {
-        Sid: "ReadDbPassword",
-        Effect: "Allow",
-        Action: ["secretsmanager:GetSecretValue"],
-        Resource: [resource],
-      },
-    ],
-  };
+  const statements: PolicyDocument["Statement"] = [
+    {
+      Sid: "ReadDbPassword",
+      Effect: "Allow",
+      Action: ["secretsmanager:GetSecretValue"],
+      Resource: [resource],
+    },
+  ];
+  if (stageSecretArns.length > 0) {
+    // The stage's own signing/approval secrets (stage-secrets.ts), by exact
+    // ARN: they are resources of the stage, so the ARN is always known.
+    const own = new RegExp(`:secret:a2h/${stage.name}/(signing|approval)-[A-Za-z0-9]{6}$`);
+    for (const arn of stageSecretArns) {
+      if (!SECRET_ARN.test(arn) || !own.test(arn)) {
+        throw new Error(`Not a stage secret of "${stage.name}": "${arn}".`);
+      }
+    }
+    statements.push({
+      Sid: "ReadStageSecrets",
+      Effect: "Allow",
+      Action: ["secretsmanager:GetSecretValue"],
+      Resource: [...stageSecretArns],
+    });
+  }
+  return { Version: "2012-10-17", Statement: statements };
 }
 
 /** Result of looking up `a2h/pr-<n>/db` by name (database.ts previewAccess). */
