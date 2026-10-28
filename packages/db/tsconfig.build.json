@@ -1,0 +1,12 @@
+{
+  // Emit config for `build`: src only, ESM into dist/ (the mcp and worker
+  // images copy built workspace packages, design D5).
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

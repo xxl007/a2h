@@ -4,10 +4,35 @@
   "private": true,
   "description": "Drizzle schema + migrations (Postgres).",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "migrations",
+    "seed"
+  ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.build.json --noEmit",
+    "lint": "eslint .",
+    "test": "node --test 'test/*.test.ts'",
+    "generate": "drizzle-kit generate && node scripts/unpin-schema.ts",
+    "seed:sql": "node seed/write-seed-sql.ts"
+  },
+  "dependencies": {
+    "@a2h/protocol": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/pg": "8.23.1",
+    "drizzle-kit": "0.31.11",
+    "eslint": "10.13.0",
+    "typescript": "^5.9.3"
   }
 }
