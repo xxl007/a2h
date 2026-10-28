@@ -216,3 +216,80 @@ Design D2 and Migration Plan step 2: `.github/scripts/db-migrate.sh <stage>` run
 | `PR_SCHEMA_PG_REQUIRED=1`, `DB_MIGRATE_PG_REQUIRED=1` on the steps that run their scripts | "every *_PG_REQUIRED flag a CI script test defines is set to 1 on the step that runs it" | CI |
 | `A2H_DB_PG_REQUIRED=1` on `pnpm test`, and declared in `turbo.json` (turbo's strict env mode dropped it before: checked by running `packages/db` tests through turbo with a failing `docker`, 0 failures without the declaration, 2 with it) | "packages/db's database tests cannot skip in CI: A2H_DB_PG_REQUIRED=1 on pnpm test, and turbo passes it through" | CI |
 | The Postgres job is unconditional and gates the deploys (preview and deploy call the whole of `ci.yml`) | "every ci.yml job runs unconditionally and its test steps cannot be ignored, so the check gates on all of them" | CI |
+
+## Scenario to test map: m1-protocol-connector (apps/mcp, group 4)
+
+Tasks 4.1 to 4.6. `apps/mcp/test/` runs with `pnpm --filter @a2h/mcp test` (part of `pnpm test`). The tool tests run the real HTTP app with the real tools in-process, drive it with the official client (`@modelcontextprotocol/client` 2.4.0, pinned to 2026-07-28 unless the test needs a 2025-era client), and read and write a PostgreSQL 17 container with the real migrations and the real simulated seed (`apps/mcp/test/lib/db.ts`, built on `packages/db/test/lib/postgres.ts`); they are skipped without Docker unless `A2H_DB_PG_REQUIRED=1`. The clock is pinned (Tuesday 27 Oct 2026, 09:00 UTC) except where a scenario needs another time. Where the worker's part of a scenario is needed (accept, answer, expire), the test writes the rows the worker writes; the worker's own behaviour is group 5.
+
+### protocol/discovery (`find-humans.test.ts`)
+
+| Scenario | Test |
+|---|---|
+| Result shape | "Scenario: Result shape" (strict profile shape; no email, URL, phone number or any part of a seeded name in the whole result) |
+| Display string matches the fields | "Scenario: Display string matches the fields" (`sim-mv-7f3c`: `4.8 · 48 answers · 0 disputes · ~6h`) |
+| Maximum price excludes a profile | "Scenario: Maximum price excludes a profile" (gross 3125: present at 3125, absent at 3000) |
+| Attested only | "Scenario: Attested only" (the self-declared profile matches without the filter, not with it) |
+| Empty result | "Scenario: Empty result" (empty list, hint, not an error) |
+| Nothing recorded for participants | "Scenario: Nothing recorded for participants" (no request, event, blocked-manifest or answer row; no jobs schema touched) |
+| Gross reserve with fee metadata | "Scenario: Gross reserve with fee metadata" (3125 and `fee_percent` 20, also in the text) |
+| Filters are honoured (request type, latency) | "Filters: only profiles that accept the request type; latency promise within the limit" |
+
+### protocol/request-approval (`request-human.test.ts`)
+
+| Scenario | Test |
+|---|---|
+| Bid below reserve | "Scenario: Bid below reserve" (no `input_required`, nothing created, no reserve figure in the result, one blocked row) |
+| Push-poll | "Scenario: Push-poll" (`forbidden_content`, stage `content`, question not echoed) |
+| Third-party personal data | "Scenario: Third-party personal data" |
+| Labour disguised as a question | "Scenario: Labour disguised as a question" |
+| Quiet hours | "Scenario: Quiet hours" (deferred to 07:00 London when the expiry allows; `outside_participant_rules`, `retryable: true` when not) |
+| Interruption budget exceeded | "Scenario: Interruption budget exceeded" (third request of the day refused, blocked row `interruption_budget`) |
+| Approval shows the exact wording (form and message) | "Approval: one pre-filled text field holding the question; message with gross bid, format, expiry, data terms and Send · hold" |
+| Accept after editing | "Scenario: Accept after editing" (stored question byte-identical to the edit, UTF-8 compared as hex) |
+| Decline | "Scenario: Decline" (`not_sent`, `declined`, nothing created, `check_requests` lists nothing) |
+| Dismissed | "Scenario: Dismissed" (`not_sent`, `dismissed`) |
+| Forged or expired approval state | "Scenario: Forged or expired approval state" (tampered, minted with another key, malformed, and the genuine state after fifteen minutes: JSON-RPC `-32602`, reason `invalid_request_state`; nothing created) |
+| Approval state replayed with changed arguments | "Scenario: Approval state replayed with changed arguments" (bid, handle, expiry changed; also no state at all: `conflict`) |
+| Client on an older revision | "Scenario: Client on an older revision" (2025-era client: error text names 2026-07-28 and `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto claude`; never asked; nothing created) |
+| Edit turns the question into a push-poll | "Scenario: Edit turns the question into a push-poll" |
+| Return under a second | "Scenario: Return under a second" (retry leg under 1 s; `A2H-xxxx`, ETA = delivery + latency promise, `sent`, held = gross bid) |
+| Principal recorded | "Scenario: Principal recorded" (principal id on the row, first event `null → sent` by the principal; another principal gets `not_found`) |
+| Blocked row | "Scenario: Blocked row" (columns are id, request id, participant id, principal id, stage, code, time; no question) |
+| Design D1: stateless across instances | "The round trip works across two instances" |
+| Design D7: authorisation refused for the development principal | "The development principal cannot send an authorisation request" |
+
+### protocol/request-lifecycle, display (`check-requests.test.ts`)
+
+| Scenario | Test |
+|---|---|
+| Before acceptance | "Scenario: Before acceptance" (handle, no label, no verification status, no name anywhere) |
+| After acceptance | "Scenario: After acceptance" (label and identity verification) |
+| Answered request | "Scenario: Answered request" (envelope returned exactly as signed, cleared amount, `simulated: true`) |
+| Filter by status | "Scenario: Filter by status" (only the caller's `sent` requests; limit; since) |
+| Unknown id | "Scenario: Unknown id" (`not_found`, nothing else revealed) |
+| Expiry by the platform (what check_requests reports) | "Scenario: Expiry by the platform (display)" (hold reported `released`) |
+
+### protocol/answer-attestation, display (`check-requests.test.ts`)
+
+| Scenario | Test |
+|---|---|
+| Display of the reference answer | "Scenario: Display of the reference answer" (`a2h:sig:…` + last four, `reviewed by M.V., 21 Oct 2026`, verification notice only for a not-yet-verified participant) |
+| Old key still verifies (display) | "Scenario: Old key still verifies" (answer signed with a rotated key is shown) |
+| Revoked key, Tampered body (display) | "Revoked key or tampered body: the answer is not presented as verified" (refused by id, left out of lists) |
+| Rejection log line | Intake is group 5 (5.5); the mcp side's log lines are covered below |
+
+### platform/mcp-transport (modified) and protocol/schemas
+
+| Scenario | Test |
+|---|---|
+| Tools are listed | `apps/mcp/test/mcp-transport.test.ts` "[legacy]/[modern] Tools are listed" (four tools, policy text in the three A2H descriptions); live: `tests/contract/mcp-transport.test.ts` "Scenario: Tools are listed" |
+| Tool schemas come from the export | `apps/mcp/test/mcp-transport.test.ts` "Scenario: Tool schemas come from the export" (input and output schemas deep-equal `toolJsonSchemas()`) |
+| Marked in discovery and in answers (tool side) | `find-humans.test.ts` "Marked in discovery"; `check-requests.test.ts` "Scenario: Answered request" |
+
+### design D9 logging and task 4.1 configuration
+
+| What | Test |
+|---|---|
+| No question or body text in logs, ids and codes present | `logging.test.ts` (blocked and rejected paths; approval paths incl. forged state, conflict, decline, accept; find_humans and check_requests with an answered request) |
+| Deployment adapter | `env.test.ts` (connection string, TLS against `DB_CA_BUNDLE`, approval key length, principal and policy, missing or invalid variables named without values) |
+| Refuses to start without a readable `DB_CA_BUNDLE` when set | `env.test.ts` "startup: the service refuses to start…" (spawns `src/index.ts`, exit 1, no secret in the output) |
