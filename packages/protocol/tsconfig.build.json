@@ -1,0 +1,15 @@
+{
+  // Emit config for `build`: src only, ESM into dist/. No Node types: the
+  // package runs wherever WebCrypto and the ES2023 library exist (browser,
+  // Node 22, workers), so src may use neither `node:` modules nor Node globals.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "types": [],
+    "lib": ["ES2023", "DOM"],
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"]
+}

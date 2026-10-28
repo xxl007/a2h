@@ -1,8 +1,15 @@
 {
+  // Typecheck config (editor, ESLint, `pnpm typecheck`): src and test, no emit.
+  // `build` uses tsconfig.build.json, which emits src only and has no Node
+  // types, so a `node:` import in src fails the build as well as the lint.
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist"
+    "noEmit": true,
+    "types": ["node"],
+    // Sources and tests import siblings as `./x.ts` so that `node --test`
+    // (type stripping) can load them; tsc rewrites to `./x.js` on emit.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }
