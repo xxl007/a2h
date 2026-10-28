@@ -1,6 +1,7 @@
 # Deploy the long-lived dev stage from main. workflow_dispatch is how the owner
 # performs the very first dev deployment after docs/runbooks/aws-bootstrap.md.
-# Spec: openspec/.../preview-environments/spec.md, "Merge to main", "Secrets inventory".
+# Spec: openspec/.../preview-environments/spec.md, "Merge to main", "Secrets inventory",
+# "Merge to main verified", "Transient failure".
 #
 # Role: vars.AWS_DEV_ROLE_ARN (gha-a2h-dev), trusted only for
 # repo:xxl007/a2h:ref:refs/heads/main (contract amendment 1). Actions in the job
@@ -43,6 +44,9 @@ jobs:
     concurrency:
       group: deploy-dev
       cancel-in-progress: false
+    outputs:
+      web: ${{ steps.outputs.outputs.web }}
+      mcp: ${{ steps.outputs.outputs.mcp }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -71,8 +75,27 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: a2h-deploy-dev
 
+      # One retry after a pause (transient AWS errors). No `sst unlock` before
+      # it: a deploy that exits on its own releases the state lock; only a
+      # killed process or a concurrent deploy keeps it (sst.dev/docs/reference/cli,
+      # "unlock"), and the deploy-dev group rules out the second.
+      # The step's result is the second attempt's.
       - name: Deploy stage dev
-        run: pnpm exec sst deploy --stage "$STAGE" --print-logs
+        id: deploy
+        run: |
+          if pnpm exec sst deploy --stage "$STAGE" --print-logs; then exit 0; fi
+          echo "::warning::sst deploy of $STAGE failed; retrying once in 45 s."
+          sleep 45
+          pnpm exec sst deploy --stage "$STAGE" --print-logs
+
+      - name: Read outputs
+        id: outputs
+        run: |
+          test -f .sst/outputs.json || { echo "::error::.sst/outputs.json missing after deploy"; exit 1; }
+          {
+            echo "web=$(jq -er '.web' .sst/outputs.json)"
+            echo "mcp=$(jq -er '.mcp' .sst/outputs.json)"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Summary
         run: |
@@ -84,6 +107,109 @@ jobs:
               echo "- web: $(jq -r '.web // "n/a"' .sst/outputs.json)"
               echo "- mcp: \`$(jq -r '.mcp // "n/a"' .sst/outputs.json)\`"
             fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # dev proves itself after each deploy: smoke (curl), MCP contract tests and
+  # web e2e against dev's own URLs; the workflow is red when any fails. The
+  # 61-minute idle-stream test stays opt-in, by hand (tests/README.md).
+  # No AWS credentials: it only reads public URLs.
+  verify:
+    name: verify dev
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @a2h/tests exec playwright install --with-deps chromium
+
+      - name: Smoke (dev health)
+        id: smoke
+        env:
+          MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: |
+          host="${MCP_URL#*://}"
+          host="${host%%/*}"
+          bash tests/ci/preview-smoke.sh "$host" dev
+
+      - name: MCP contract tests
+        id: contract
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          A2H_STAGE: dev
+        run: pnpm --filter @a2h/tests contract
+
+      - name: Wait for the web URL
+        id: web
+        env:
+          WEB_URL: ${{ needs.deploy.outputs.web }}
+        run: |
+          for attempt in $(seq 1 20); do
+            if curl -fsS -o /dev/null --max-time 10 "$WEB_URL"; then exit 0; fi
+            echo "web not answering yet (attempt $attempt of 20)"
+            sleep 15
+          done
+          echo "::error::$WEB_URL did not answer 2xx within 5 minutes"
+          exit 1
+
+      - name: Web e2e
+        id: e2e
+        env:
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          A2H_STAGE: dev
+        run: pnpm --filter @a2h/tests e2e
+
+      - name: Upload the Playwright report
+        if: failure() && steps.e2e.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: playwright-report-dev
+          path: |
+            tests/playwright-report
+            tests/test-results
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          SMOKE: ${{ steps.smoke.outcome }}
+          CONTRACT: ${{ steps.contract.outcome }}
+          WEB: ${{ steps.web.outcome }}
+          E2E: ${{ steps.e2e.outcome }}
+          WEB_URL: ${{ needs.deploy.outputs.web }}
+          MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: |
+          if [ "$JOB_STATUS" = "success" ]; then result="passed"; else result="FAILED"; fi
+          {
+            echo "## dev verification: $result"
+            echo
+            echo "- commit: \`$GITHUB_SHA\`"
+            echo "- web: $WEB_URL"
+            echo "- mcp: \`$MCP_URL\`"
+            echo
+            echo "| Suite | Outcome |"
+            echo "|---|---|"
+            echo "| smoke | ${SMOKE:-not run} |"
+            echo "| contract | ${CONTRACT:-not run} |"
+            echo "| web reachable | ${WEB:-not run} |"
+            echo "| e2e | ${E2E:-not run} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   disabled:
