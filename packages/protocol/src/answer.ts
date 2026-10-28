@@ -97,7 +97,8 @@ const unsignedFields = {
 };
 
 /** Base64 of a 64-byte Ed25519 signature. */
-export const SignatureSchema = z.string().regex(/^[A-Za-z0-9+/]{86}==$/, "base64 Ed25519 signature");
+export const SIGNATURE_PATTERN = /^[A-Za-z0-9+/]{86}==$/;
+export const SignatureSchema = z.string().regex(SIGNATURE_PATTERN, "base64 Ed25519 signature");
 
 /** The fields the signature covers (see `canonicalAnswerPayload`). */
 export const UnsignedAnswerSchema = z.strictObject({ ...unsignedFields, body: AnswerBodySchema });

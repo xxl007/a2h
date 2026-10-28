@@ -129,15 +129,15 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 | Edit turns the question into a push-poll | `validate.test.ts` (function level) | No request exists: 4.3, 7.1 |
 | Return under a second | - | 4.3, 7.1 |
 | Principal recorded | - | 4.3, 4.4, 7.1 |
-| Blocked row | `validate.test.ts` "Scenario: Blocked row (record content)"; `schemas.test.ts` (a record with the question is rejected) | The database row: 3.1, 4.3 |
+| Blocked row | `validate.test.ts` "Scenario: Blocked row (record content)"; `schemas.test.ts` (a record with the question is rejected); database side in the group 3 table below | Row written by the tool: 4.3 |
 
 ### protocol/request-lifecycle
 
 | Scenario | Package test | Remaining |
 |---|---|---|
-| Legal transitions | `lifecycle.test.ts` (state machine, table over all 90 (state, actor, event) triples) | One event row each: 5.x, 7.1 |
-| Illegal transition | `lifecycle.test.ts` | Status unchanged in the database: 5.x |
-| Idempotent replay | `lifecycle.test.ts` (replay is a no-op) | No event row added: 5.4 |
+| Legal transitions | `lifecycle.test.ts` (state machine, table over all 90 (state, actor, event) triples); database side in the group 3 table below | One event row each, written by the code: 5.x, 7.1 |
+| Illegal transition | `lifecycle.test.ts`; database side in the group 3 table below | Status unchanged in the database: 5.x |
+| Idempotent replay | `lifecycle.test.ts` (replay is a no-op); database side in the group 3 table below | No event row added by the job: 5.4 |
 | Expiry by the platform | `lifecycle.test.ts` (transition and `holdStatusAfter` → released) | Worker job: 5.4 |
 | Rules changed after approval | `validate.test.ts` "Scenario: Rules changed after approval (delivery phase)" | Worker `deliver` queue: 5.2 |
 | Before acceptance | `schemas.test.ts` (a `sent` result with a display label is rejected) | Tool: 4.4 |
@@ -156,8 +156,8 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 | Confidence out of range | `schemas.test.ts` | Intake: 5.5 |
 | Body does not match the intent | `schemas.test.ts` (`answerEnvelopeSchemaFor("judgment")`) | Intake: 5.5 |
 | Tampered body | `signing.test.ts` "Scenario: Tampered body" (plus every other signed field, signature flip, wrong key) | Intake: 5.5 |
-| Old key still verifies | - (the package verifies with whatever key it is given) | Key lookup by `key_id`: 5.5 |
-| Revoked key | - | 5.5 |
+| Old key still verifies | - (the package verifies with whatever key it is given); the table keeps rotated keys, group 3 table below | Key lookup by `key_id`: 5.5 |
+| Revoked key | database: a revoked key never comes back, group 3 table below | Verification refuses it: 5.5 |
 | Display of the reference answer | `display.test.ts` (signature display form, `reviewed by M.V., 21 Oct 2026`) | Notice and tool output: 4.4 |
 | Rejection log line | - | 4.6, 5.5 |
 
@@ -169,3 +169,24 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 | Display string matches the fields | `display.test.ts` | Tool: 4.2 |
 | Gross reserve with fee metadata | `money.test.ts` (2500 at 20% → 3125) | Tool: 4.2 |
 | Maximum price excludes a profile, Attested only, Empty result, Nothing recorded for participants | - | 4.2 |
+
+## Scenario to test map: m1-protocol-connector (database and CI scripts, group 3)
+
+Tasks 3.1 to 3.4. `packages/db/test/` runs with `pnpm --filter @a2h/db test` (part of `pnpm test`); its database tests start a PostgreSQL 17 container and are skipped without Docker unless `A2H_DB_PG_REQUIRED=1`. `ci/db-migrate.test.sh` and `ci/pr-schema*.test.sh` run the scripts against the stubbed `aws` (`ci/lib/bin/aws`, which now also plays Data API transactions) and, for the `.pg` parts, Postgres 17 in Docker; `db-migrate.test.sh` skips its database part without Docker unless `DB_MIGRATE_PG_REQUIRED=1`. It takes about four minutes. Wiring `db-migrate.test.sh` into `ci.yml` is task 6.2.
+
+"Database side" means the constraint holds in Postgres whatever the application code does; the scenario's behaviour through a tool or job is still tested by the task named in the last column.
+
+| Scenario | Test | Remaining |
+|---|---|---|
+| request-approval: Blocked row | `packages/db/test/schema.test.ts` "Scenario: Blocked row" (columns are ids, stage, code, time; no unbounded type; code list from `@a2h/protocol`); `constraints.test.ts` "Scenario: Blocked row" (the question in the code column, an unknown code, long text in an id column are refused; no question column; append-only) | Row written on a rules block: 4.3, 5.2 |
+| request-lifecycle: Legal transitions, Illegal transition (closed set) | `constraints.test.ts` "request lifecycle" (event rows accept exactly the protocol's legal (from, to, actor), derived from `transition()`; unknown status refused) | Status and event written together: 5.x |
+| request-lifecycle: Idempotent replay | `constraints.test.ts` (a second event with the same target state is refused, unique `(request_id, to_status)`) | Job treats the replay as a no-op: 5.4 |
+| answer-attestation: Envelope is complete or rejected | `constraints.test.ts` "answers" (attestation false or missing, confidence 0 or 6, no or malformed signature, unknown key refused; `signed_at` kept verbatim; append-only, one per request) | Intake rejects before storing: 5.5 |
+| answer-attestation: Old key still verifies, Revoked key | `constraints.test.ts` "signing keys" (one active key per owner; rotation keeps the public key; rotated or revoked never returns to active; keys never deleted) | Verification by `key_id`: 5.5 |
+| participant-simulation: Marked in discovery and in answers (data side) | `constraints.test.ts` "Simulation is unmistakable" (`sim-` handle ⇔ `simulated` ⇔ label ending "(simulated)" ⇔ persona); `seed.test.ts` "the simulated set" | Tool output: 4.2, 4.4 |
+| participant-simulation: Redeploy | `seed.test.ts` "Scenario: Redeploy" (seed applied twice: twelve participants, once each); `ci/db-migrate.test.sh` section 3 (second run of the script: no migration re-applied, still twelve) | `find_humans` returns each handle once: 4.2, 7.1 |
+| participant-simulation: Nothing on production (seed side) | `seed.test.ts` "never on prod" and "never without a stage" (the SQL refuses); `ci/db-migrate.test.sh` section 8 (prod: migrations only, no participant, no persona, no seed statement) | Simulator not registered on prod: 5.6 |
+| participant-simulation: Scripted personas (delays) | `constraints.test.ts` (persona delay under two minutes, decline reason only on the decline persona); `seed.test.ts` (five personas, each used) | Behaviour: 5.3 |
+| design D2: migrations per stage | `ci/db-migrate.test.sh`: first run (one transaction per file, tracking with SHA-256), re-run (no-op), preview (`SET LOCAL ROLE pr_<n>`, everything owned by `pr_<n>`, nothing in `public`), ownership fallback when the role is not kept, failing file (rolled back, no tracking row, nothing after it), changed file (refused), prod (given ARNs, no seed), retry while resuming | Workflow step: 6.2 |
+| design D3: jobs schemas | `ci/pr-schema.test.sh` and `ci/pr-schema.pg.test.sh` (`pr_<n>_jobs` created owned by `pr_<n>`, isolated from other previews, kept on re-create, dropped with the preview; no secret but `a2h/pr-<n>/db` touched); `ci/db-migrate.test.sh` (`pgboss` on dev and prod) | Worker uses it: 5.1 |
+| preview-environments: Two PRs open, PR closed (both schemas) | `ci/pr-schema.pg.test.sh` | - |

@@ -55,6 +55,7 @@ const calls: Record<string, () => unknown> = {
   rankingDisplay: () => protocol.rankingDisplay({ rating: 4.8, answers: 48, disputes_lost: 0, typical_latency_seconds: 21600 }),
   signAnswer: () => signature,
   signatureDisplay: () => protocol.signatureDisplay(signature),
+  verifiesWith: () => [protocol.verifiesWith("rotated"), protocol.verifiesWith("revoked")],
   toJsonSchema: () => protocol.toJsonSchema(protocol.ManifestSchema),
   toolJsonSchemas: () => protocol.toolJsonSchemas(),
   transition: () => protocol.transition("sent", "participant", "accept"),

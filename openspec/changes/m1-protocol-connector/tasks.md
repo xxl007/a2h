@@ -21,10 +21,10 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 
 ## 3. Database (PD writes, QA tests the scripts)
 
-- [ ] 3.1 Drizzle schema in `packages/db`: `participants` (with `simulated`), `profiles`, `rules`, `requests`, `request_events`, `blocked_manifests` (codes only), `answers`, `signing_keys`, `schema_migrations`; verify `drizzle-kit generate` produces migration SQL that applies cleanly to Postgres 17 in Docker and that no column of `blocked_manifests` can hold text longer than a code
-- [ ] 3.2 Seed file for twelve simulated profiles and five personas (handles `sim-*`, labels ending "(simulated)"), applied idempotently by upsert on handle; verify applying twice leaves twelve rows (`platform/participant-simulation` "Redeploy")
-- [ ] 3.3 `.github/scripts/db-migrate.sh <stage>`: Data API, one transaction per file, `SET ROLE pr_<n>` on previews, `schema_migrations` tracking, seed on non-production stages (D2); verify with a `tests/ci/db-migrate.test.sh` against Docker Postgres (stubbed `aws`) including the `SET ROLE` ownership check and the fallback noted in design.md
-- [ ] 3.4 `pr-schema.sh`: also creates and drops `pr_<n>_jobs` (D3); verify `tests/ci/pr-schema*.test.sh` cover create, idempotent re-create and drop of both schemas. (Secrets are created by SST per stage, D4 amendment; the script no longer touches Secrets Manager beyond `a2h/pr-<n>/db`)
+- [x] 3.1 Drizzle schema in `packages/db`: `participants` (with `simulated`), `profiles`, `rules`, `requests`, `request_events`, `blocked_manifests` (codes only), `answers`, `signing_keys`, `schema_migrations`; verify `drizzle-kit generate` produces migration SQL that applies cleanly to Postgres 17 in Docker and that no column of `blocked_manifests` can hold text longer than a code
+- [x] 3.2 Seed file for twelve simulated profiles and five personas (handles `sim-*`, labels ending "(simulated)"), applied idempotently by upsert on handle; verify applying twice leaves twelve rows (`platform/participant-simulation` "Redeploy")
+- [x] 3.3 `.github/scripts/db-migrate.sh <stage>`: Data API, one transaction per file, `SET ROLE pr_<n>` on previews, `schema_migrations` tracking, seed on non-production stages (D2); verify with a `tests/ci/db-migrate.test.sh` against Docker Postgres (stubbed `aws`) including the `SET ROLE` ownership check and the fallback noted in design.md
+- [x] 3.4 `pr-schema.sh`: also creates and drops `pr_<n>_jobs` (D3); verify `tests/ci/pr-schema*.test.sh` cover create, idempotent re-create and drop of both schemas. (Secrets are created by SST per stage, D4 amendment; the script no longer touches Secrets Manager beyond `a2h/pr-<n>/db`)
 
 ## 4. MCP tools (PD)
 
