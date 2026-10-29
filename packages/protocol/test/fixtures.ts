@@ -152,6 +152,7 @@ export const fixtures: Record<string, Fixture> = {
   AnswerBodySchema: { pass: { verdict: "yes" }, fail: { mood: "fine" }, path: [] },
   SignatureSchema: { pass: SIG, fail: "a2h:sig:…c91e", path: [] },
   ProtocolErrorCodeSchema: { pass: "conflict", fail: "quiet_hours", path: [] },
+  PingInputSchema: { pass: { holdSeconds: 3900 }, fail: { holdSeconds: 3901 }, path: ["holdSeconds"] },
   ProtocolStageSchema: { pass: "lifecycle", fail: "delivery", path: [] },
   ParticipantBlockCodeSchema: { pass: "quiet_hours", fail: "over_budget", path: [] },
   LedgerKindSchema: { pass: "capture", fail: "bonus", path: [] },

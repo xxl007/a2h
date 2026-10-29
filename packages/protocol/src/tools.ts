@@ -17,6 +17,16 @@ import { RequestStatusSchema } from "./request.ts";
 
 export { RequestHumanInputSchema } from "./manifest.ts";
 
+// ---- ping (transport check, spec mcp-transport) --------------------------
+
+/** Upper bound of ping's hold: 65 minutes, enough for the 61-minute "Idle stream survives" scenario. */
+export const PING_MAX_HOLD_SECONDS = 3900;
+
+export const PingInputSchema = z.strictObject({
+  holdSeconds: z.int().min(0).max(PING_MAX_HOLD_SECONDS).optional().describe(`Seconds to wait before answering, 0 to ${PING_MAX_HOLD_SECONDS}.`),
+});
+export type PingInput = z.infer<typeof PingInputSchema>;
+
 // ---- find_humans ---------------------------------------------------------
 
 export const FindHumansInputSchema = z

@@ -34,7 +34,7 @@ Since m1-protocol-connector (task 6.1), every name is listed in `service-env.ts`
 | Variable | mcp | worker | Value |
 |---|---|---|---|
 | `PRINCIPAL_ID`, `PRINCIPAL_IDENTITY_MODE`, `PRINCIPAL_VERIFIED` | yes | yes | `dev-principal-<stage>`, `verified_organisation`, `true` (design D7, `developmentPrincipal()` in `config.ts`) |
-| `PRINCIPAL_CURRENCY`, `PRINCIPAL_MONTHLY_BUDGET_MINOR`, `PRINCIPAL_PER_REQUEST_CAP_MINOR`, `PRINCIPAL_ASK_FIRST_ABOVE_MINOR`, `PRINCIPAL_DAILY_REQUEST_LIMIT`, `PRINCIPAL_THROTTLED_DAILY_LIMIT` | yes | yes | `DEVELOPMENT_POLICY` in `config.ts`, the fields of `ValidationPolicySchema` (packages/protocol); integers in minor units; `PRINCIPAL_ASK_FIRST_ABOVE_MINOR=none` means `null` (every request asks first) |
+| `PRINCIPAL_CURRENCY`, `PRINCIPAL_MONTHLY_BUDGET_MINOR`, `PRINCIPAL_PER_REQUEST_CAP_MINOR`, `PRINCIPAL_ASK_FIRST_ABOVE_MINOR`, `PRINCIPAL_DAILY_REQUEST_LIMIT`, `PRINCIPAL_THROTTLED_DAILY_LIMIT` | yes | yes | `developmentPolicy(stage)` in `config.ts` (`DEVELOPMENT_POLICY`, with the monthly budget ×10 on `dev` only), the fields of `ValidationPolicySchema` (packages/protocol); integers in minor units; `PRINCIPAL_ASK_FIRST_ABOVE_MINOR=none` means `null` (every request asks first) |
 | `FEE_RATE`, `CLEARING_SHARE` | yes | yes | `f` and `s` of ADR 0002, development values (OPEN until the pre-M4 ADR) |
 | `SIMULATOR_ENABLED` | no | yes | `false` on prod, `true` on dev and previews (task 5.6) |
 | `SIGNING_KEY_ID`, `SIGNING_PRIVATE_KEY`, `SIGNING_PUBLIC_KEY` | no (verifies with public keys from `signing_keys`, never signs) | yes | ECS secrets from `a2h/<stage>/signing`, JSON keys `key_id`, `private_key_pkcs8` (base64 PKCS#8 DER), `public_key` (base64 raw 32 bytes) |

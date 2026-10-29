@@ -15,6 +15,8 @@ export const PROTOCOL_ERROR_CODES = [
   "not_found",
   "invalid_transition",
   "conflict",
+  /** A stored answer failed signature verification at read time; it is not shown (spec answer-attestation "Stored answer that no longer verifies"). */
+  "answer_unverified",
 ] as const;
 export const ProtocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);
 export type ProtocolErrorCode = z.infer<typeof ProtocolErrorCodeSchema>;

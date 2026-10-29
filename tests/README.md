@@ -102,7 +102,7 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 
 | Scenario | Package test | Remaining |
 |---|---|---|
-| Tool schemas come from the export | `json-schema.test.ts` (export of every tool input and output, committed snapshots in `packages/protocol/json-schema/`, closed top-level objects) | Equality with the schemas `tools/list` returns: 4.5, 7.1 |
+| Tool schemas come from the export | `json-schema.test.ts` (export of every tool input and output, ping's input included, committed snapshots in `packages/protocol/json-schema/`, closed top-level objects) | Equality with the schemas `tools/list` returns: 4.5, 7.1 |
 | Fixture pair per schema | `schemas.test.ts` "Scenario: Fixture pair per schema" (one pair per exported schema, offending path asserted; a guard fails if a new schema has no pair) | - |
 | Fractional amount rejected | `schemas.test.ts` "Scenario: Fractional amount rejected" | - |
 | Gross from net rounds once, half up | `money.test.ts` "Scenario: Gross from net rounds once, half up" (2500 at 20% → 3125 → 2500, property test over f) | - |
@@ -111,6 +111,8 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 | Request id from given randomness | `ids.test.ts` | - |
 | Malformed id rejected | `ids.test.ts` (`A2H-7F3C`, `A2H-7f3` and others) | - |
 | Works without any environment | `purity.test.ts` (every exported function in a child process where clock, randomness, network and timers throw, `--permission` with read-only fs); ESLint purity rules proven on deliberate violations | - |
+| Request not sent | `schemas.test.ts` "Scenario: Request not sent" (`not_sent` with `declined` or `dismissed`, no `request_id`) | Tool: `apps/mcp/test/request-human.test.ts` "Scenario: Decline", "Scenario: Dismissed" |
+| Free lane with a bid | `schemas.test.ts` "Scenario: Free lane with a bid" (fails on `bid_minor`, and only there) | - |
 
 ### protocol/request-approval
 
@@ -125,7 +127,8 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 | Accept after editing | - | 4.3, 7.1 |
 | Decline | - | 4.3, 7.1 |
 | Dismissed | - | 4.3, 7.1 |
-| Altered approval state | `validate.test.ts` "Approval binding: conflict on a replayed approval with different arguments" (the `conflict` half); `manifest-hash.test.ts` | A forged or expired state is refused by the SDK before the handler (`-32602`): 4.3, 7.1; the spec split is pending (PM) |
+| Forged or expired approval state | - (refused by the SDK's `requestState.verify` hook before any handler, `-32602 invalid_request_state`) | `apps/mcp/test/request-human.test.ts` "Scenario: Forged or expired approval state" (group 4 table below) |
+| Approval state replayed with changed arguments | `validate.test.ts` "Approval binding: conflict on a replayed approval with different arguments"; `manifest-hash.test.ts` | `apps/mcp/test/request-human.test.ts` "Scenario: Approval state replayed with changed arguments" (group 4 table below) |
 | Edit turns the question into a push-poll | `validate.test.ts` (function level) | No request exists: 4.3, 7.1 |
 | Return under a second | - | 4.3, 7.1 |
 | Principal recorded | - | 4.3, 4.4, 7.1 |
@@ -253,6 +256,9 @@ Tasks 4.1 to 4.6. `apps/mcp/test/` runs with `pnpm --filter @a2h/mcp test` (part
 | Client on an older revision | "Scenario: Client on an older revision" (2025-era client: error text names 2026-07-28 and `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto claude`; never asked; nothing created) |
 | Edit turns the question into a push-poll | "Scenario: Edit turns the question into a push-poll" |
 | Accepted approval replayed | `request-human.test.ts` "Scenario: Accepted approval replayed" (same state, arguments and accept: `conflict` "already used", one request, one event, no blocked row, first request row unchanged; a fresh approval may still send); "Accepted approval replayed in parallel" (four concurrent retries: exactly one `sent`); database side: `packages/db/test/constraints.test.ts` "Accepted approval replayed: an approval nonce creates one request only" (unique `requests.approval_nonce`, nulls allowed, 32 lower-case hex only) |
+| Options shown with the question | "Scenario: Options shown with the question" (every option id and label and the scale in the message verbatim, message ends with "Send · hold €N", stored values equal); "An option label never reaches a request without appearing in the approval message" (changed or added options on retry: `conflict`; every stored label was shown); "An option label is re-validated on retry like the question" |
+| Shape outside this change | "Scenario: Shape outside this change: …" (six tests: attachments; audience `panel_sample`, `population_in_place`, `role_qualified_first_to_accept`; time shape `threaded`, `recurring`: `schema_invalid` naming the field and M3, nothing created) |
+| Client without forms | "A 2026-07-28 client that cannot show a form is told so, and nothing is created" |
 | Return under a second | "Scenario: Return under a second" (retry leg under 1 s; `A2H-xxxx`, ETA = delivery + latency promise, `sent`, held = gross bid) |
 | Principal recorded | "Scenario: Principal recorded" (principal id on the row, first event `null → sent` by the principal; another principal gets `not_found`) |
 | Blocked row | "Scenario: Blocked row" (columns are id, request id, participant id, principal id, stage, code, time; no question) |
@@ -275,8 +281,8 @@ Tasks 4.1 to 4.6. `apps/mcp/test/` runs with `pnpm --filter @a2h/mcp test` (part
 | Scenario | Test |
 |---|---|
 | Display of the reference answer | "Scenario: Display of the reference answer" (`a2h:sig:…` + last four, `reviewed by M.V., 21 Oct 2026`, verification notice only for a not-yet-verified participant) |
+| Stored answer that no longer verifies | `check-requests.test.ts` "Scenario: Stored answer that no longer verifies" (key revoked after the answer was stored: envelope not shown, `answer_unverified` by id, left out of lists); "A stored answer whose body differs from what was signed is not shown either" |
 | Old key still verifies (display) | "Scenario: Old key still verifies" (answer signed with a rotated key is shown) |
-| Revoked key, Tampered body (display) | "Revoked key or tampered body: the answer is not presented as verified" (refused by id, left out of lists) |
 | Rejection log line | Intake is group 5 (5.5); the mcp side's log lines are covered below |
 
 ### platform/mcp-transport (modified) and protocol/schemas
@@ -327,3 +333,9 @@ Tasks 5.1 to 5.6. `apps/worker/test/` runs with `pnpm --filter @a2h/worker test`
 | design D4 amendment: stage key recorded at start | `signing-keys.test.ts` (first start active; restart no-op; new key rotates the previous platform key; participant keys untouched; a rotated key or a mismatched pair refused) |
 
 Not covered here, by design: what `check_requests` shows (handle or label, `simulated: true`, cleared amount, signature display) is the mcp side (task 4.4) and the contract suite (7.1).
+
+### platform/participant-simulation, delivery gate (`apps/worker/test/deliver.test.ts`)
+
+| Scenario | Test |
+|---|---|
+| Only simulated participants are delivered | "Scenario: Only simulated participants are delivered" (a request to a participant that is not simulated gets no deliver job, no delivery row and no blocked row, stays `sent`, then expires) |

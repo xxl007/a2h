@@ -5,7 +5,7 @@
 // The SST wiring (Outputs, `ssm`, execution role) is containerConfig() in mcp.ts.
 import {
   CLEARING_SHARE,
-  DEVELOPMENT_POLICY,
+  developmentPolicy,
   developmentPrincipal,
   FEE_RATE,
   MCP_PORT,
@@ -26,7 +26,7 @@ export type { Service } from "./stage-secrets.ts";
  */
 export function plainEnvironment(service: Service, stage: StageInfo): Record<string, string> {
   const principal = developmentPrincipal(stage);
-  const p = DEVELOPMENT_POLICY;
+  const p = developmentPolicy(stage);
   const env: Record<string, string> = {
     PORT: String(MCP_PORT),
     STAGE: stage.name,

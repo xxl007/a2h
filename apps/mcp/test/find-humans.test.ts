@@ -1,6 +1,7 @@
 // Task 4.2: find_humans, one test per scenario of
 // openspec/changes/m1-protocol-connector/specs/protocol/discovery/spec.md,
 // against the real tools and the real seeded simulated set on Postgres 17.
+import { existsSync, readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { Client } from "@modelcontextprotocol/client";
@@ -8,7 +9,7 @@ import type { CallToolResult } from "@modelcontextprotocol/client";
 import { FindHumansOutputSchema, ProfileSchema, type FindHumansOutput } from "@a2h/protocol";
 import { SEED_PARTICIPANTS } from "../../../packages/db/seed/simulated.ts";
 import type { DbConfig } from "../src/config.ts";
-import { freshSchema, skipWithoutDocker, sqlIn, startPostgres, writeCounts, type PgContainer } from "./lib/db.ts";
+import { freshSchema, skipWithoutDocker, startPostgres, writeCounts, type PgContainer } from "./lib/db.ts";
 import { modernClient, startA2h, texts, type RunningA2h } from "./lib/a2h.ts";
 
 describe("find_humans", { skip: skipWithoutDocker() }, () => {
@@ -109,8 +110,10 @@ describe("find_humans", { skip: skipWithoutDocker() }, () => {
     assert.ok(out.results.length >= 1);
     assert.deepEqual(await writeCounts(db), before);
     assert.deepEqual(before, { requests: 0, request_events: 0, blocked_manifests: 0, answers: 0 });
-    const jobs = await sqlIn<{ n: number }>(db, `SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'pgboss'`);
-    assert.equal(jobs[0]!.n, 0, "no job schema touched");
+    // No job: the mcp service cannot enqueue one at all (no pg-boss anywhere in its dependencies); jobs are the worker's.
+    const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { dependencies?: Record<string, string> };
+    assert.ok(!Object.keys(pkg.dependencies ?? {}).some((d) => d.includes("pg-boss")), "apps/mcp has no job queue client");
+    assert.ok(!existsSync(new URL("../node_modules/pg-boss", import.meta.url)), "pg-boss is not even installed for apps/mcp");
   });
 
   test("Scenario: Gross reserve with fee metadata: net 2500 at 20% shows 3125 and fee 20", async () => {

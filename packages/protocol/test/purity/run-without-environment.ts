@@ -58,6 +58,7 @@ const calls: Record<string, () => unknown> = {
   verifiesWith: () => [protocol.verifiesWith("rotated"), protocol.verifiesWith("revoked")],
   toJsonSchema: () => protocol.toJsonSchema(protocol.ManifestSchema),
   toolJsonSchemas: () => protocol.toolJsonSchemas(),
+  pingJsonSchemas: () => protocol.pingJsonSchemas(),
   transition: () => protocol.transition("sent", "participant", "accept"),
   validateManifest: () => {
     const r = protocol.validateManifest(referenceManifest, facts, policy);

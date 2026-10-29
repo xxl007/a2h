@@ -4,19 +4,25 @@
 // the approval state travels with the client (design D1), requests live in
 // Postgres.
 import { setTimeout as sleep } from "node:timers/promises";
-import { toolJsonSchemas, CheckRequestsOutputSchema, FindHumansOutputSchema, RequestHumanOutputSchema } from "@a2h/protocol";
+import {
+  CheckRequestsOutputSchema,
+  FindHumansOutputSchema,
+  PING_MAX_HOLD_SECONDS,
+  PingInputSchema,
+  RequestHumanOutputSchema,
+  pingJsonSchemas,
+  toolJsonSchemas,
+} from "@a2h/protocol";
 import { McpServer, type CallToolResult, type ServerContext } from "@modelcontextprotocol/server";
-import * as z from "zod";
 import { toolLogLine, type ToolLogFields } from "./logging.ts";
 import { checkRequests } from "./tools/check-requests.ts";
-import { httpRequestId, listedInput, listedOutput, type ToolDeps } from "./tools/common.ts";
+import { httpRequestId, listedInput, listedOutput, listedValidated, type ToolDeps } from "./tools/common.ts";
 import { findHumans } from "./tools/find-humans.ts";
 import { CHECK_REQUESTS_DESCRIPTION, FIND_HUMANS_DESCRIPTION, REQUEST_HUMAN_DESCRIPTION } from "./tools/policy.ts";
 import { requestHuman, type RequestHumanOutcome } from "./tools/request-human.ts";
 import { PACKAGE_VERSION } from "./version.ts";
 
-/** Upper bound of ping's hold: 65 minutes, enough for the 61-minute scenario. */
-export const PING_MAX_HOLD_SECONDS = 3900;
+export { PING_MAX_HOLD_SECONDS };
 
 export const PING_DESCRIPTION =
   "Connectivity check. Answers `pong from stage <stage>` with the name of the " +
@@ -46,9 +52,8 @@ export function createMcpServer(stage: string, options: McpServerOptions = {}): 
     "ping",
     {
       description: PING_DESCRIPTION,
-      inputSchema: z.object({
-        holdSeconds: z.number().int().min(0).max(PING_MAX_HOLD_SECONDS).optional(),
-      }),
+      // From the protocol export like every tool (review N6), validated by the SDK.
+      inputSchema: listedValidated(PingInputSchema, pingJsonSchemas().input),
     },
     async ({ holdSeconds = 0 }, ctx) => {
       if (holdSeconds > 0) {

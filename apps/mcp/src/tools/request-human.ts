@@ -120,22 +120,53 @@ function holdText(input: RequestHumanInput): string {
   return input.lane === "free" ? "Send (free lane, nothing held)" : `Send · hold ${money(input.bid_minor, input.currency)}`;
 }
 
-/** The approval message: everything but the question, which is the form's one field. */
+/**
+ * The approval message: everything the participant will receive except the
+ * question, which is the form's one field. Poll options and the scale are
+ * listed verbatim (review B1): nothing reaches the participant that the
+ * principal did not see. MCP form elicitation cannot label its buttons, so
+ * the message ends with the consequence of accepting: "Send · hold €N".
+ */
 function approvalMessage(input: RequestHumanInput, simulated: boolean, deferred: boolean, deliverAt: string): string {
   const lines = [
     `Approve sending this question to ${input.to}${simulated ? " (a simulated participant)" : ""}? ` +
       "Edit the question if needed, then accept to send it exactly as written, or decline to send nothing.",
     `• Request type: ${input.intent} · Format: ${input.format.replaceAll("_", " ")} · Audience: ${input.audience.replaceAll("_", " ")}`,
+  ];
+  if (input.options) {
+    lines.push(`• Poll options, sent exactly as written (the participant picks one):`);
+    for (const o of input.options) lines.push(`    ${o.id}: ${o.label}`);
+  }
+  if (input.scale) lines.push(`• Scale: ${input.scale.min} to ${input.scale.max}`);
+  lines.push(
     input.lane === "free"
       ? `• Free lane (${(input.free_lane ?? "").replaceAll("_", " ")}): nothing is held and nothing is charged.`
-      : `• Bid: ${money(input.bid_minor, input.currency)} gross (platform fee included). ${holdText(input)}: ` +
-        "the principal pays what clears, never more than the hold.",
+      : `• Bid: ${money(input.bid_minor, input.currency)} gross (platform fee included); the principal pays what clears, never more than the hold.`,
     `• Expires: ${input.expires_at} (if unanswered by then, the hold is released and nothing is charged)`,
     `• Data terms: ${dataTerms(input.data_terms)}`,
     `• Delivery: ${deferred ? `deferred to ${deliverAt} (the participant's quiet hours)` : "now"}`,
-    `Accept = ${holdText(input)}. Decline = Don't send.`,
-  ];
+    `Decline = Don't send. Accept = ${holdText(input)}`,
+  );
   return lines.join("\n");
+}
+
+/**
+ * Shapes the protocol defines for later milestones (review B1, N1; spec
+ * "Shape outside this change"). Refused here, at the mcp tool boundary, so
+ * packages/protocol keeps them for M3 and the worker's validation is
+ * unchanged: a request with one of them is never created.
+ */
+function outsideThisChange(input: RequestHumanInput): ProtocolError | null {
+  const refuse = (field: string, why: string): ProtocolError => ({
+    code: "schema_invalid",
+    stage: "schema",
+    retryable: false,
+    detail: `Invalid field: ${field} (${why}; introduced in M3).`,
+  });
+  if (input.attachments !== undefined) return refuse("attachments", "attachments are not supported yet");
+  if (input.audience !== "named_individual") return refuse("audience", "only named_individual for now");
+  if (input.time_shape !== "one_shot") return refuse("time_shape", "only one_shot for now");
+  return null;
 }
 
 async function loadFacts(
@@ -208,6 +239,8 @@ export async function requestHuman(deps: ToolDeps, args: unknown, ctx: ServerCon
   const parsed = parseArgs(RequestHumanInputSchema, args);
   if (!parsed.ok) return refused(parsed.error);
   const input = parsed.data;
+  const outside = outsideThisChange(input);
+  if (outside) return refused(outside);
   const now = deps.now();
 
   const participant = await findPublishedParticipant(deps.db, input.to);

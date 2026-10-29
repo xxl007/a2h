@@ -46,7 +46,7 @@ export function listedInput(json: JsonSchema): StandardSchemaWithJSON<Record<str
   };
 }
 
-/** A tool output schema listed as the protocol export and validated with the protocol schema before it leaves. */
+/** A schema listed as the protocol export (`json`) and validated with the protocol schema: tool outputs, and ping's input. */
 export function listedOutput<T>(schema: z.ZodType<T>, json: JsonSchema): StandardSchemaWithJSON<T> {
   return {
     "~standard": {
@@ -62,6 +62,9 @@ export function listedOutput<T>(schema: z.ZodType<T>, json: JsonSchema): Standar
 }
 
 /** A refusal as a tool result: `isError`, the code and category text, and the ProtocolError as structured content. */
+/** Alias of `listedOutput` for an input the SDK should validate (ping). */
+export const listedValidated = listedOutput;
+
 export function errorResult(error: ProtocolError, extra?: string): CallToolResult {
   const text = `${error.code}: ${error.detail ?? "refused"}${error.retryable ? " (retryable)" : ""}${extra ? `\n${extra}` : ""}`;
   return { isError: true, content: [{ type: "text", text }], structuredContent: { error } };
