@@ -160,6 +160,32 @@ describe("deliver", { skip }, () => {
     assert.deepEqual(await jobsFor(stage.admin, "simulate", r.id), []);
   });
 
+  test("Scenario: Only simulated participants are delivered: a request to a real participant is not delivered and stays sent until it expires", async () => {
+    // A participant that is not simulated, with published terms that accept the request.
+    await stage.admin.query(`INSERT INTO participants (id, handle, display_label, simulated, persona, identity_verified)
+      VALUES ('p_real_ab', 'ab-1a2b', 'Ann Brook', false, NULL, true)`);
+    await stage.admin.query(`INSERT INTO profiles (participant_id, topics, rating, typical_latency_seconds)
+      VALUES ('p_real_ab', '[{"topic":"leaflets","evidence":"job_title"}]', 4.5, 3600)`);
+    await stage.admin.query(`INSERT INTO rules (participant_id, who_may_ask, max_interruptions_per_day, latency_promise_seconds)
+      VALUES ('p_real_ab', 'anyone_verified', 10, 3600)`);
+    await stage.admin.query(`INSERT INTO rule_types (participant_id, intent, accepted, reserve_net_minor, currency) VALUES ('p_real_ab', 'judgment', true, 1000, 'EUR')`);
+    const r = await createRequest(stage.admin, { handle: "ab-1a2b", bid_minor: 3500, expires_in: 2 * 3600 });
+    try {
+      await dispatchDue(ctx());
+      assert.deepEqual(await jobsFor(stage.admin, "deliver", r.id), [], "the dispatcher does not pick it up");
+      await deliverRequest(ctx(), r.id); // even if a job for it existed
+      assert.deepEqual(await deliveryOf(r.id), [], "no delivery row");
+      assert.deepEqual(await blockedOf(r.id), [], "not counted as blocked either");
+      assert.deepEqual(await jobsFor(stage.admin, "simulate", r.id), []);
+      assert.equal(await statusOf(stage.admin, r.id), "sent");
+      clock = () => new Date(Date.now() + 2 * 3600 * 1000 + 1000);
+      await expireDue(ctx());
+      assert.equal(await statusOf(stage.admin, r.id), "expired", "it stays sent until it expires");
+    } finally {
+      clock = () => new Date();
+    }
+  });
+
   test("dispatch: every due, undelivered request to a simulated participant gets one deliver job; future ones none", async () => {
     const due = await createRequest(stage.admin, { handle: "sim-ag-3b62", intent: "knowledge", bid_minor: 4500 });
     const later = await createRequest(stage.admin, { handle: "sim-ag-3b62", intent: "knowledge", bid_minor: 4500, deliver_in: 3600 });
