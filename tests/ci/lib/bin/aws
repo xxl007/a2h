@@ -8,7 +8,22 @@
 #   names   one line per secret operation: <operation> <secret id>
 # STUB_MODE scripts failures; STUB_PASSWORD is what get-random-password returns;
 # STUB_PSQL, if set, is a command that receives each statement on stdin and runs
-# it against a real Postgres (tests/ci/pr-schema.pg.test.sh).
+# it against a real Postgres (tests/ci/pr-schema.pg.test.sh, db-migrate.test.sh).
+#
+# Data API transactions (db-migrate.sh): begin-transaction opens tx/<id>.sql;
+# each execute-statement with a transactionId is checked by replaying the
+# transaction so far plus the statement inside BEGIN ... ROLLBACK (so an error
+# is reported by the call that caused it, and session state such as SET LOCAL
+# ROLE or search_path carries across statements, as on one pinned connection),
+# then appended; commit-transaction replays it all with COMMIT;
+# rollback-transaction discards it. formatRecordsAs JSON wraps the statement in
+# json_agg and returns formattedRecords ("[]" without STUB_PSQL).
+#   tx     one line per transaction operation: begin|commit|rollback <id>
+# STUB_TX_CHECK=commit skips the per-statement replay of statements that return
+# no records (they are checked once, at commit): much faster, errors surface at
+# commit instead of at the failing call. Default: each.
+# STUB_MODE no-set-role: SET ROLE statements inside a transaction are accepted
+# and dropped, as if the Data API did not keep the role (design D2 fallback).
 set -uo pipefail
 : "${STUB_DIR:?}"
 mode=${STUB_MODE:-ok}
@@ -76,9 +91,34 @@ case "${1-} ${2-}" in
     echo '{}'
     exit 0 ;;
 
+  "rds-data begin-transaction")
+    n=$(($(cat "$STUB_DIR/tx_count" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_DIR/tx_count"
+    id="tx-$n"
+    mkdir -p "$STUB_DIR/tx"; : >"$STUB_DIR/tx/$id.sql"
+    echo "begin $id" >>"$STUB_DIR/txlog"
+    echo "{\"transactionId\": \"$id\"}"
+    exit 0 ;;
+
+  "rds-data commit-transaction" | "rds-data rollback-transaction")
+    id=$(arg --transaction-id "$@")
+    [ -f "$STUB_DIR/tx/$id.sql" ] || err BadRequestException "${2}" "Transaction $id is not found"
+    op=${2%-transaction}
+    echo "$op $id" >>"$STUB_DIR/txlog"
+    if [ "$op" = commit ] && [ -n "${STUB_PSQL:-}" ]; then
+      if ! res=$({ echo "BEGIN;"; cat "$STUB_DIR/tx/$id.sql"; echo "COMMIT;"; } | $STUB_PSQL 2>&1); then
+        rm -f "$STUB_DIR/tx/$id.sql"
+        err BadRequestException CommitTransaction "$res"
+      fi
+    fi
+    rm -f "$STUB_DIR/tx/$id.sql"
+    echo "{\"transactionStatus\": \"Transaction ${op/commit/Committed}\"}" | sed 's/Transaction rollback/Rollback Complete/'
+    exit 0 ;;
+
   "rds-data execute-statement")
     input=$(from_file "$(arg --cli-input-json "$@")") || exit 255
     sql=$(jq -r .sql <<<"$input")
+    txid=$(jq -r '.transactionId // empty' <<<"$input")
+    as_json=$(jq -r 'select(.formatRecordsAs == "JSON") | "yes"' <<<"$input")
     jq -r '[.database, .resourceArn, .secretArn, (.sql | gsub("\\s+"; " "))] | @tsv' <<<"$input" >>"$STUB_DIR/rds"
     n=$(($(cat "$STUB_DIR/rds_count" 2>/dev/null || echo 0) + 1)); echo "$n" >"$STUB_DIR/rds_count"
     case "$mode" in
@@ -89,12 +129,33 @@ case "${1-} ${2-}" in
       # Postgres echoes the failing statement; with the role statement that includes the password.
       bad-request-echo) err BadRequestException ExecuteStatement "ERROR: syntax error in statement: $sql" ;;
     esac
-    if [ -n "${STUB_PSQL:-}" ]; then
-      if ! res=$(printf '%s\n' "$sql" | $STUB_PSQL 2>&1); then
-        err BadRequestException ExecuteStatement "$res"
+    if [ -n "$txid" ]; then
+      [ -f "$STUB_DIR/tx/$txid.sql" ] || err BadRequestException ExecuteStatement "Transaction $txid is not found"
+      if [ "$mode" = no-set-role ] && grep -Eiq '^[[:space:]]*SET[[:space:]]+(LOCAL[[:space:]]+)?ROLE[[:space:]]' <<<"$sql"; then
+        echo '{"numberOfRecordsUpdated": 0}'
+        exit 0
       fi
     fi
-    echo '{"numberOfRecordsUpdated": 0}'
+    query=$sql
+    if [ -n "$as_json" ]; then query="SELECT coalesce(jsonb_agg(t), '[]'::jsonb)::text FROM (${sql%;}) t"; fi
+    records='[]'
+    if [ -n "${STUB_PSQL:-}" ] && { [ -z "$txid" ] || [ -n "$as_json" ] || [ "${STUB_TX_CHECK:-each}" != commit ]; }; then
+      if [ -n "$txid" ]; then
+        script=$({ echo "BEGIN;"; cat "$STUB_DIR/tx/$txid.sql"; printf '%s;\n' "$query"; echo "ROLLBACK;"; })
+      else
+        script=$(printf '%s\n' "$query")
+      fi
+      if ! res=$(printf '%s\n' "$script" | $STUB_PSQL -tA 2>&1); then
+        err BadRequestException ExecuteStatement "$res"
+      fi
+      if [ -n "$as_json" ]; then records=$(grep -v '^$' <<<"$res" | tail -1); fi
+    fi
+    if [ -n "$txid" ]; then printf '%s;\n' "$sql" >>"$STUB_DIR/tx/$txid.sql"; fi
+    if [ -n "$as_json" ]; then
+      jq -cn --arg r "$records" '{formattedRecords: $r, numberOfRecordsUpdated: 0}'
+    else
+      echo '{"numberOfRecordsUpdated": 0}'
+    fi
     exit 0 ;;
 esac
 echo "stub: unexpected call: $*" >&2

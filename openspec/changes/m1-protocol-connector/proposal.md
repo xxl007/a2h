@@ -47,12 +47,14 @@ M0 proved the transport: any MCP client can reach the A2H server over Streamable
 
 ## Risks
 
-- **Client support for the 2026-07-28 approval flow.** The server is stateless, so approval must ride the multi-round-trip `input_required` result of the 2026-07-28 revision (the SDK in the lockfile, `@modelcontextprotocol/server` 2.4.0, implements it; the 2025 push-style elicitation needs a session and does not work statelessly). Claude Code's changelog records that it negotiates 2026-07-28 by default with direct HTTP servers and renders form and URL elicitation on that revision (installed here: 2.1.226). Task 1 still proves it against `dev` with a throwaway tool before any A2H tool is written; the fallback is recorded in design.md.
+- **Client support for the 2026-07-28 approval flow.** The server is stateless, so approval must ride the multi-round-trip `input_required` result of the 2026-07-28 revision (the SDK in the lockfile, `@modelcontextprotocol/server` 2.4.0, implements it; the 2025 push-style elicitation needs a session and does not work statelessly). Spike result (task 1, draft PR #24): the server side works; Claude Code 2.1.226 with default settings stays on 2025-11-25 and shows no dialog, and only with `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto` does it negotiate 2026-07-28 and complete the round trip. The changelog claim of default 2026-07-28 negotiation did not hold for this account. Decision 5 below.
 - **Simulated answers mistaken for real ones.** Every simulated participant's handle starts with `sim-`, its display label says "(simulated)", and `check_requests` carries `simulated: true` on such answers. The simulator never runs on `prod`.
 - **Shape churn later.** Shapes are the hardest thing to change; they follow the protocol skill §3–§10 and ADR 0002 verbatim, and every OPEN item stays a parameter, never a number.
 - **Preview database login rights.** A preview login owns one schema; migrations and pg-boss need a second one. `pr-schema.sh` creates both; the login owns both.
 
 ## How the product owner validates (Gate 2)
+
+For M1, launch Claude Code with the two variables that select the 2026-07-28 revision: `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto claude` (decision 5). Without them the first tool call returns an error that says exactly this.
 
 From a terminal, with Claude Code pointed at the preview's MCP endpoint (the exact `claude mcp add` command is in the PR):
 
@@ -67,4 +69,8 @@ From a terminal, with Claude Code pointed at the preview's MCP endpoint (the exa
 1. **Split of M1 into two changes** as described above (this change: protocol and connector on plain HTTP, validated in Claude Code; the next: hosted connector with domain, TLS, authorization). Alternative: one change, which delays any validation until the domain exists.
 2. **Domain name** for `m1-hosted-connector` (runbook §8) so DNS and certificates can be requested in time; nothing in this change depends on it.
 3. **Simulated participant set**: about twelve synthetic profiles across the request intents, in English, with obviously fictional labels. Confirm, or name the topics you want to see.
-4. **Fallback if the spike fails** (unlikely given the changelog, see Risks): a session-ful server on one Fargate task per stage for M1 only, with the stateless flow restored when the client catches up. Alternative: wait for the client. No decision needed now unless you prefer to rule the fallback out.
+4. **Fallback if the spike fails** (see Risks): a session-ful server on one Fargate task per stage for M1 only, with the stateless flow restored when the client catches up. Alternative: wait for the client. Superseded by decision 5.
+
+## Decision needed after the spike (issue #14, 2026-10-28)
+
+5. **Approval path for M1.** (1) Build to 2026-07-28 and require `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto` when launching Claude Code for M1; a 2025-era client gets a clear error telling it how to connect. Recommended: keeps the stateless design, no throwaway code. (2) The fallback of decision 4, deleted after M1. (3) Wait for the client flags. **Owner's answer (2026-10-28): option 1.**

@@ -13,6 +13,10 @@ Nothing leaves a principal that the principal did not approve: `request_human` v
 - **WHEN** the bid is below the participant's gross reserve for that request type
 - **THEN** the call fails with code `outside_participant_rules`, no approval is shown, nothing is created, and the detail does not state the reserve
 
+#### Scenario: Shape outside this change
+- **WHEN** the manifest names an audience other than a named individual, a threaded or recurring time shape, or carries attachments
+- **THEN** the call is refused with `schema_invalid` naming the field and the milestone that introduces it, before anything is created
+
 #### Scenario: Push-poll
 - **WHEN** the question is persuasion disguised as a question
 - **THEN** the call fails with code `forbidden_content`, stage `content`, and no approval is shown
@@ -34,11 +38,15 @@ Nothing leaves a principal that the principal did not approve: `request_human` v
 - **THEN** the call fails with `outside_participant_rules` and the block is counted for the participant
 
 ### Requirement: Approval shows the exact wording
-After validation passes, `request_human` SHALL ask the principal for approval with exactly one pre-filled text field holding the question, a message stating the gross bid, the format, the expiry and the data terms, and a primary action worded "Send · hold €N"; it SHALL create a request only on accept.
+After validation passes, `request_human` SHALL ask the principal for approval with exactly one pre-filled text field holding the question and a message stating the gross bid, the format, the expiry, the data terms and, verbatim, every other field the participant will receive (poll options, scale); the last line of the message SHALL carry the wording "Send · hold €N" for accept (MCP form elicitation cannot label its buttons, so the wording is text in the message); it SHALL create a request only on accept.
 
 #### Scenario: Accept after editing
 - **WHEN** the principal edits the pre-filled question and accepts
 - **THEN** one request is created whose question is byte-identical to the edited text
+
+#### Scenario: Options shown with the question
+- **WHEN** the manifest carries poll options or a scale
+- **THEN** the approval message lists each option label and the scale verbatim, and the request created on accept holds exactly those values
 
 #### Scenario: Decline
 - **WHEN** the principal declines
@@ -48,9 +56,25 @@ After validation passes, `request_human` SHALL ask the principal for approval wi
 - **WHEN** the principal dismisses the approval without choosing
 - **THEN** the outcome is the same as a decline
 
-#### Scenario: Altered approval state
-- **WHEN** the retried call carries approval state that the server did not issue or that was altered
+#### Scenario: Forged or expired approval state
+- **WHEN** the retried call carries approval state that the server did not issue, that was altered, or that is older than fifteen minutes
+- **THEN** the call is refused before any handler runs with JSON-RPC error `-32602` and reason `invalid_request_state`, and nothing is created
+
+#### Scenario: Approval state replayed with changed arguments
+- **WHEN** the retried call carries approval state the server issued, but for a manifest whose hash differs from the retried arguments
 - **THEN** the call is refused with code `conflict` and nothing is created
+
+#### Scenario: Accepted approval replayed
+- **WHEN** a retried call carries approval state that was already used to create a request, with the same arguments and an accept, inside the state's validity window
+- **THEN** the call is refused with code `conflict`, no second request or hold is created, and the first request is unchanged
+
+#### Scenario: Client without forms
+- **WHEN** a client on the 2026-07-28 revision declares no form elicitation
+- **THEN** the call returns an error result that says the approval dialog cannot be shown, and nothing is created or counted
+
+#### Scenario: Client on an older revision
+- **WHEN** `request_human` is called over a connection negotiated on a revision earlier than 2026-07-28
+- **THEN** the call returns an error result whose text says that approval needs the 2026-07-28 revision and how to enable it in Claude Code, and nothing is created
 
 ### Requirement: Approval covers the validated manifest
 The request created on accept SHALL be the validated manifest with the approved text; if the edited text fails validation, the call SHALL fail like any other validation failure and create nothing.

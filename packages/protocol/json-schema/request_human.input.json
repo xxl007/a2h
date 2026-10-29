@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "to": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-[0-9a-f]{4}$",
+      "description": "Handle of the participant, from find_humans (e.g. mv-7f3c)."
+    },
+    "intent": {
+      "type": "string",
+      "enum": [
+        "observation",
+        "verification",
+        "judgment",
+        "opinion",
+        "estimate",
+        "knowledge",
+        "authorisation",
+        "action",
+        "referral"
+      ],
+      "description": "What kind of answer is wanted; fixes the answer schema."
+    },
+    "audience": {
+      "type": "string",
+      "enum": [
+        "named_individual",
+        "role_qualified_first_to_accept",
+        "panel_sample",
+        "population_in_place"
+      ],
+      "description": "Who receives it; named_individual in this version."
+    },
+    "time_shape": {
+      "type": "string",
+      "enum": [
+        "one_shot",
+        "threaded",
+        "recurring"
+      ],
+      "description": "one_shot, threaded (priced per round) or recurring."
+    },
+    "format": {
+      "type": "string",
+      "enum": [
+        "single_field",
+        "poll",
+        "form",
+        "upload",
+        "voice"
+      ],
+      "description": "How the participant answers."
+    },
+    "question": {
+      "type": "string",
+      "maxLength": 2000,
+      "description": "The question, verbatim. The principal approves this exact text before anything is sent."
+    },
+    "options": {
+      "minItems": 2,
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]*$"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[^\\u0000-\\u001F\\u007F-\\u009F\\u2028\\u2029\\u202A-\\u202E\\u2066-\\u2069]*$"
+          }
+        },
+        "required": [
+          "id",
+          "label"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "scale": {
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "max": {
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ],
+      "additionalProperties": false
+    },
+    "lane": {
+      "type": "string",
+      "enum": [
+        "paid",
+        "free",
+        "bounty"
+      ],
+      "description": "paid (bid at least the gross reserve) or free (a free lane the participant declared)."
+    },
+    "free_lane": {
+      "type": "string",
+      "enum": [
+        "own_publications",
+        "facts_about_self"
+      ]
+    },
+    "bid_minor": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Gross bid in minor units (cents), fee included. The hold equals the bid; the principal pays what clears, never more."
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$",
+      "description": "ISO 4217 code of bid_minor, e.g. EUR."
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+      "description": "ISO 8601 date-time with offset after which the request expires and the hold is released."
+    },
+    "data_terms": {
+      "type": "object",
+      "properties": {
+        "storage": {
+          "type": "string",
+          "enum": [
+            "principal_workspace"
+          ]
+        },
+        "attribution": {
+          "type": "string",
+          "enum": [
+            "attributed",
+            "not_attributed"
+          ]
+        },
+        "training": {
+          "type": "string",
+          "enum": [
+            "off",
+            "participant_opt_in"
+          ]
+        }
+      },
+      "required": [
+        "storage",
+        "attribution",
+        "training"
+      ],
+      "additionalProperties": false,
+      "description": "Storage, attribution and training terms shown to the participant before acceptance."
+    },
+    "attachments": {
+      "maxItems": 5,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+          },
+          "media_type": {
+            "type": "string",
+            "pattern": "^[a-z]+\\/[a-z0-9.+-]+$"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 26214400
+          }
+        },
+        "required": [
+          "ref",
+          "media_type",
+          "size_bytes"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "to",
+    "intent",
+    "audience",
+    "time_shape",
+    "format",
+    "question",
+    "lane",
+    "bid_minor",
+    "currency",
+    "expires_at",
+    "data_terms"
+  ],
+  "additionalProperties": false
+}

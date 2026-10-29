@@ -4,12 +4,13 @@
 // prod: its own cluster, min 0.5 ACU, never pauses, no Data API.
 import {
   dbCredentials,
-  executionRolePolicy,
   prDbSecretName,
   previewDbCredentials,
+  type ExecutionSecretSource,
   type SecretLookup,
 } from "./access.ts";
 import type { StageInfo } from "./config.ts";
+import { databaseEnvironment } from "./service-env.ts";
 
 export function createDatabase(stage: StageInfo, vpc: sst.aws.Vpc): sst.aws.Aurora {
   return new sst.aws.Aurora("Database", {
@@ -41,10 +42,10 @@ export interface DbAccess {
   /** Empty only for a pr stage being removed whose secret is gone (access.ts previewDbCredentials). */
   ssm: { DB_PASSWORD: $util.Input<string> } | Record<string, never>;
   /**
-   * JSON inline policy of the Fargate execution role: GetSecretValue on the
-   * one secret DB_PASSWORD comes from (access.ts executionRolePolicy).
+   * Where DB_PASSWORD comes from, for the Fargate execution role's inline
+   * policy (access.ts executionRolePolicy, built in mcp.ts containerConfig).
    */
-  executionPolicy: $util.Input<string>;
+  executionSource: $util.Input<ExecutionSecretSource>;
 }
 
 function hostOnly(endpoint: string | undefined): string {
@@ -68,9 +69,7 @@ export function masterAccess(stage: StageInfo, db: sst.aws.Aurora): DbAccess {
     },
     environment: { DB_USER: creds.apply((c) => c.environment.DB_USER) },
     ssm: { DB_PASSWORD: creds.apply((c) => c.ssm.DB_PASSWORD) },
-    executionPolicy: db.secretArn.apply((secretArn) =>
-      JSON.stringify(executionRolePolicy(stage, { kind: "master", secretArn })),
-    ),
+    executionSource: db.secretArn.apply((secretArn): ExecutionSecretSource => ({ kind: "master", secretArn })),
   };
 }
 
@@ -111,11 +110,9 @@ export async function previewAccess(
     },
     environment: creds.environment,
     ssm: creds.ssm,
-    executionPolicy: aws
+    executionSource: aws
       .getCallerIdentityOutput()
-      .accountId.apply((accountId) =>
-        JSON.stringify(executionRolePolicy(stage, { kind: "pr-login", accountId })),
-      ),
+      .accountId.apply((accountId): ExecutionSecretSource => ({ kind: "pr-login", accountId })),
   };
 }
 
@@ -128,13 +125,8 @@ export async function previewAccess(
  */
 export function databaseEnv(access: DbAccess, stage: StageInfo) {
   return {
-    environment: {
-      DB_HOST: access.endpoint.host,
-      DB_PORT: access.endpoint.port,
-      DB_NAME: access.endpoint.name,
-      DB_USER: access.environment.DB_USER,
-      DB_SCHEMA: stage.dbSchema,
-    },
+    // DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_SCHEMA, DB_JOBS_SCHEMA (service-env.ts).
+    environment: databaseEnvironment<$util.Input<string>>(access.endpoint, access.environment.DB_USER, stage),
     ssm: access.ssm,
   };
 }

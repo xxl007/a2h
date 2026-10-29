@@ -112,19 +112,19 @@ test("one JSON log line per request: method, path, status, duration, request id;
     await new Promise((r) => setTimeout(r, 50));
 
     const requests = s.logs.filter((l) => l.msg === "request");
-    assert.equal(requests[0]?.request_id, "req-abc-123");
+    assert.equal(requests[0]?.http_request_id, "req-abc-123");
     assert.equal(requests[0]?.path, "/healthz");
     assert.equal(requests[0]?.method, "GET");
     assert.equal(requests[0]?.status, 200);
     assert.equal(typeof requests[0]?.duration_ms, "number");
-    assert.equal(requests[1]?.request_id, generated);
+    assert.equal(requests[1]?.http_request_id, generated);
     assert.equal(requests[1]?.status, 404);
     assert.ok(requests.some((l) => l.path === "/mcp" && l.method === "POST" && l.status === 200));
     for (const line of s.logs) {
       const raw = JSON.stringify(line);
       assert.doesNotMatch(raw, /example\.com|holdSeconds|tools\/call|jsonrpc/, raw);
       assert.deepEqual(
-        Object.keys(line).filter((k) => !["level", "msg", "method", "path", "status", "duration_ms", "request_id", "stage"].includes(k)),
+        Object.keys(line).filter((k) => !["level", "msg", "method", "path", "status", "duration_ms", "http_request_id", "stage"].includes(k)),
         [],
         raw,
       );

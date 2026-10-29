@@ -43,6 +43,10 @@ The signature SHALL be verified by recomputing the canonical payload from the st
 ### Requirement: What the principal sees
 `check_requests` SHALL present an answered request with the body, the confidence, the personal attestation, the signed time, the signature in display form `a2h:sig:…` followed by its last four characters, the citable form "reviewed by <initials>, <date>", and a notice when the participant is not yet identity-verified.
 
+#### Scenario: Stored answer that no longer verifies
+- **WHEN** a stored answer fails signature verification at read time (for example its key was revoked since)
+- **THEN** `check_requests` does not show the envelope, reports the request by id with code `answer_unverified`, and leaves it out of lists
+
 #### Scenario: Display of the reference answer
 - **WHEN** the answer signed on 21 Oct 2026 by a participant labelled "M. V." is shown
 - **THEN** the result includes the signature display form, `reviewed by M.V., 21 Oct 2026`, and the verification notice when applicable

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "topic": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "description": "What the person must know about, in plain words."
+    },
+    "request_type": {
+      "type": "string",
+      "enum": [
+        "observation",
+        "verification",
+        "judgment",
+        "opinion",
+        "estimate",
+        "knowledge",
+        "authorisation",
+        "action",
+        "referral"
+      ],
+      "description": "The intent of the request you would send."
+    },
+    "attested": {
+      "description": "Only profiles with expertise evidenced by more than self-declaration.",
+      "type": "boolean"
+    },
+    "latency": {
+      "description": "Longest acceptable latency promise, in seconds.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "max_price_minor": {
+      "description": "Highest acceptable gross reserve, in minor units; requires currency.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "currency": {
+      "description": "ISO 4217 code of max_price_minor.",
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "location": {
+      "description": "Where the person should be, for observation requests.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    }
+  },
+  "required": [
+    "topic",
+    "request_type"
+  ],
+  "additionalProperties": false
+}

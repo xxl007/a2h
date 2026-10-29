@@ -6,7 +6,8 @@
 # that owns database a2h, i.e. the Aurora master user without rds_superuser
 # extras, so anything that passes here does not rely on superuser rights.
 #
-# Spec: preview-environments "Two PRs open" (isolation) and "PR closed" (drop).
+# Spec: preview-environments "Two PRs open" (isolation) and "PR closed" (drop),
+# for both schemas of a preview: pr_<n> and pr_<n>_jobs (design D3).
 # Needs Docker. Without it the test is skipped, unless PR_SCHEMA_PG_REQUIRED=1
 # (set in CI), in which case it fails.
 # Run: bash tests/ci/pr-schema.pg.test.sh
@@ -106,6 +107,8 @@ pr_schema 12 create "$PW12"; expect "create 12 exits 0" 0 "$RC"; [ "$RC" -eq 0 ]
 pr_schema 13 create "$PW13"; expect "create 13 exits 0" 0 "$RC"; [ "$RC" -eq 0 ] || echo "$OUT"
 expect "secret a2h/pr-12/db holds the generated password" "$PW12" "$(secret_password 12)"
 expect "schema pr_12 is owned by pr_12" "pr_12" "$(as_master "select nspowner::regrole from pg_namespace where nspname = 'pr_12'")"
+expect "jobs schema pr_12_jobs (pg-boss, design D3) is owned by pr_12" "pr_12" "$(as_master "select nspowner::regrole from pg_namespace where nspname = 'pr_12_jobs'")"
+expect "jobs schema pr_13_jobs is owned by pr_13" "pr_13" "$(as_master "select nspowner::regrole from pg_namespace where nspname = 'pr_13_jobs'")"
 expect "pr_12 is a plain login role" "t|f|f|f" \
   "$(as_master "select rolcanlogin, rolsuper, rolcreatedb, rolcreaterole from pg_roles where rolname = 'pr_12'")"
 
@@ -120,6 +123,11 @@ expect "pr_12 reads its own row" "12" "$(as pr_12 "$PW12" 'select id from items'
 expect "pr_13 reads its own row, not pr_12's" "13" "$(as pr_13 "$PW13" 'select id from items')"
 expect_denied "pr_13 cannot read pr_12.items" "$(as pr_13 "$PW13" 'select * from pr_12.items' || true)" 'permission denied for schema pr_12'
 expect_denied "pr_13 cannot create in pr_12" "$(as pr_13 "$PW13" 'create table pr_12.x (id int)' || true)" 'permission denied for schema pr_12'
+as pr_12 "$PW12" 'create table pr_12_jobs.job (id int); insert into pr_12_jobs.job values (12)' >/dev/null
+as pr_13 "$PW13" 'create table pr_13_jobs.job (id int); insert into pr_13_jobs.job values (13)' >/dev/null
+expect "pr_12 creates and reads in its jobs schema" "12" "$(as pr_12 "$PW12" 'select id from pr_12_jobs.job')"
+expect_denied "pr_13 cannot read pr_12_jobs" "$(as pr_13 "$PW13" 'select * from pr_12_jobs.job' || true)" 'permission denied for schema pr_12_jobs'
+expect_denied "pr_13 cannot create in pr_12_jobs" "$(as pr_13 "$PW13" 'create table pr_12_jobs.x (id int)' || true)" 'permission denied for schema pr_12_jobs'
 expect_denied "pr_13 cannot create in public" "$(as pr_13 "$PW13" 'create table public.x (id int)' || true)" 'permission denied for schema public'
 expect "pr_13 cannot even resolve public objects (USAGE revoked)" "f" \
   "$(as pr_13 "$PW13" "select has_schema_privilege('public', 'USAGE')")"
@@ -137,6 +145,8 @@ pr_schema 12 create "$(fixture_token neverused)"
 expect "second create 12 exits 0" 0 "$RC"; [ "$RC" -eq 0 ] || echo "$OUT"
 expect "second create 12 reuses the secret" "$PW12" "$(secret_password 12)"
 expect "pr_12 still logs in with the same password and keeps its data" "12" "$(as pr_12 "$PW12" 'select id from items')"
+expect "re-create keeps the jobs schema and its data" "12" "$(as pr_12 "$PW12" 'select id from pr_12_jobs.job')"
+expect "re-create leaves one jobs schema, still owned by pr_12" "pr_12" "$(as_master "select string_agg(nspowner::regrole::text, ',') from pg_namespace where nspname = 'pr_12_jobs'")"
 
 echo "# PR closed: drop with a session still open"
 docker exec -e PGPASSWORD="$PW12" "$C" psql -X -tA -h 127.0.0.1 -U pr_12 -d a2h -c 'select pg_sleep(120)' >"$WORK/session.log" 2>&1 &
@@ -151,11 +161,13 @@ expect "drop 12 exits 0" 0 "$RC"; [ "$RC" -eq 0 ] || echo "$OUT"
 wait "$session" || true
 expect_denied "the open pr_12 session was terminated" "$(cat "$WORK/session.log")" 'terminating connection|server closed the connection'
 expect "schema pr_12 no longer exists" "0" "$(as_master "select count(*) from pg_namespace where nspname = 'pr_12'")"
+expect "schema pr_12_jobs no longer exists" "0" "$(as_master "select count(*) from pg_namespace where nspname = 'pr_12_jobs'")"
 expect "role pr_12 no longer exists" "0" "$(as_master "select count(*) from pg_roles where rolname = 'pr_12'")"
 expect "secret a2h/pr-12/db deleted" "absent" "$([ -f "$WORK/stub-12/secret" ] && echo present || echo absent)"
 pr_schema 12 drop
 expect "drop 12 again (nothing left) exits 0" 0 "$RC"
 expect "pr_13 is untouched by the drop of pr_12" "13" "$(as pr_13 "$PW13" 'select id from items')"
+expect "pr_13_jobs is untouched by the drop of pr_12" "13" "$(as pr_13 "$PW13" 'select id from pr_13_jobs.job')"
 
 echo "# drop of a PR that never had a preview"
 pr_schema 14 drop

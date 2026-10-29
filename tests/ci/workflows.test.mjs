@@ -322,8 +322,11 @@ test("called with require-closed, the teardown re-reads the state first and touc
 const VERIFY_SUITES = [
   ["smoke", "tests/ci/preview-smoke.sh"],
   ["contract", "pnpm --filter @a2h/tests contract"],
+  // m1-protocol-connector task 7.2: the adversarial suite's live half.
+  ["adversarial", "pnpm --filter @a2h/tests adversarial"],
   ["e2e", "pnpm --filter @a2h/tests e2e"],
 ];
+const E2E = VERIFY_SUITES.length - 1;
 const verifyJob = (f) => wf[f]?.jobs?.verify;
 const stepRunning = (j, needle) => steps(j).find((s) => runs(s, needle));
 
@@ -335,20 +338,25 @@ function assertVerifyJob(f) {
   assert.equal(j.permissions?.["id-token"], undefined, `${f} verify must not hold id-token`);
   assert.equal(j.permissions?.contents, "read", `${f} verify contents permission`);
   assert.ok(!steps(j).some((s) => s.uses?.startsWith("aws-actions/")), `${f} verify configures AWS credentials`);
-  // Suites in order: smoke, contract, e2e; each one a step of its own, so a failure turns the job red.
+  // Suites in order: smoke, contract, adversarial, e2e; each one a step of its own, so a failure turns the job red.
   const at = VERIFY_SUITES.map(([label, needle]) => indexOf(j, (s) => runs(s, needle), `${f} verify ${label}`));
-  assert.deepEqual([...at].sort((a, b) => a - b), at, `${f} verify must run smoke, contract, e2e in that order`);
+  assert.deepEqual([...at].sort((a, b) => a - b), at, `${f} verify must run smoke, contract, adversarial, e2e in that order`);
+  // The live suites import @a2h/protocol (dist): its build runs before the first of them.
+  const build = indexOf(j, (s) => runs(s, "build") && runs(s, "@a2h/tests^..."), `${f} verify build of the suites' workspace dependencies`);
+  assert.ok(build < at[1], `${f} verify builds the suites' dependencies after the contract suite`);
   for (const i of at) {
     const s = steps(j)[i];
     assert.equal(s["continue-on-error"], undefined, `${f} verify ${s.name}: a failing suite must fail the job`);
   }
   // Chromium with its system dependencies, before the e2e.
   const pw = indexOf(j, (s) => runs(s, "playwright install") && runs(s, "--with-deps") && runs(s, "chromium"), "playwright install");
-  assert.ok(pw < at[2], `${f} verify installs Playwright after the e2e`);
+  assert.ok(pw < at[E2E], `${f} verify installs Playwright after the e2e`);
   // The URLs come from the deploy job, through env, never interpolated into a script.
   const contract = steps(j)[at[1]];
-  const e2e = steps(j)[at[2]];
+  const adversarial = steps(j)[at[2]];
+  const e2e = steps(j)[at[E2E]];
   assert.match(String(contract.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} contract A2H_MCP_URL`);
+  assert.match(String(adversarial.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} adversarial A2H_MCP_URL`);
   assert.match(String(e2e.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} e2e A2H_MCP_URL`);
   assert.match(String(e2e.env?.A2H_WEB_URL ?? ""), /needs\.deploy\.outputs\.web/, `${f} e2e A2H_WEB_URL`);
   for (const s of steps(j)) {
@@ -395,6 +403,8 @@ test("preview.yml: verify appends a Verification line, with the run link, to the
   assert.ok(writer, "no step writes the Verification line");
   assert.match(writer.run, /passed/);
   assert.match(writer.run, /FAILED/);
+  assert.match(writer.run, /FAILED \(adversarial\)/, "an adversarial failure is named in the Verification line");
+  assert.match(String(writer.env?.ADVERSARIAL ?? ""), /steps\.adversarial\.outcome/);
   assert.match(String(writer.env?.RUN_URL ?? ""), /actions\/runs\/\$\{\{ github\.run_id \}\}/);
   assert.match(String(writer.if ?? ""), /always\(\)/);
 });
@@ -406,7 +416,7 @@ test("deploy.yml: a verify job needs deploy and runs the suites against dev", ()
   assert.equal(j.permissions?.["pull-requests"], undefined, "verify dev has no PR to write to");
   const smoke = stepRunning(j, "tests/ci/preview-smoke.sh");
   assert.match(smoke.run, /preview-smoke\.sh "\$[A-Za-z_{}]+" dev/, "smoke must run in dev mode");
-  for (const needle of ["@a2h/tests contract", "@a2h/tests e2e"]) {
+  for (const needle of ["@a2h/tests contract", "@a2h/tests adversarial", "@a2h/tests e2e"]) {
     assert.equal(stepRunning(j, needle).env?.A2H_STAGE ?? j.env?.A2H_STAGE, "dev", `${needle}: A2H_STAGE must be dev`);
   }
   assert.ok(steps(j).some((s) => runs(s, "GITHUB_STEP_SUMMARY") && String(s.if ?? "").includes("always()")), "outcome not written to the run summary");
@@ -474,4 +484,221 @@ test("deploy.yml and preview.yml run sst deploy a second time, after a pause, wh
     assert.notEqual(real.status, 0, `${f}: a second failure must fail the step`);
     assert.equal(sstCalls(real).length, 2, `${f}: exactly one retry`);
   }
+});
+
+// --- m1-protocol-connector, task 6.2: migrations before every deploy ---------
+// Design D2 and Migration Plan step 2: `.github/scripts/db-migrate.sh <stage>`
+// runs after the AWS credentials and before `sst deploy`; on previews after
+// `pr-schema.sh create`. A failed migration stops the job before the deploy
+// (fail closed). The teardown is unchanged: `pr-schema.sh drop` stays last.
+// Spec: participant-simulation "Seed on a preview", "Nothing on production"
+// (the seed runs through this step), preview-environments "PR closed".
+
+const MIGRATE = "db-migrate.sh";
+const isCreds = (s) => s.uses?.startsWith("aws-actions/configure-aws-credentials@");
+// Status functions that would let a step run after an earlier step failed.
+const RUNS_AFTER_FAILURE = /always\(\)|failure\(\)|cancelled\(\)/;
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
+
+test("db-migrate.sh runs in exactly the jobs that run sst deploy (deploy.yml, preview.yml), nowhere else", () => {
+  const migrators = jobsRunning(MIGRATE).map(({ f, id }) => `${f} ${id}`).sort();
+  const deployers = jobsRunning("sst deploy").map(({ f, id }) => `${f} ${id}`).sort();
+  assert.deepEqual(deployers, ["deploy.yml deploy", "preview.yml deploy"]);
+  assert.deepEqual(migrators, deployers, "every job that runs sst deploy must migrate first, and only those");
+  for (const { f, j } of jobsRunning("sst deploy")) {
+    assert.equal(steps(j).filter((s) => runs(s, MIGRATE)).length, 1, `${f}: exactly one migration step`);
+  }
+});
+
+test("the migration step comes after the AWS credentials and before sst deploy; on previews after pr-schema.sh create", () => {
+  for (const { f, j } of jobsRunning("sst deploy")) {
+    const creds = indexOf(j, isCreds, `${f} AWS credentials`);
+    const migrate = indexOf(j, (s) => runs(s, MIGRATE), `${f} ${MIGRATE}`);
+    const deploy = indexOf(j, (s) => runs(s, "sst deploy"), `${f} sst deploy`);
+    assert.ok(creds < migrate, `${f}: the migration runs before the AWS credentials`);
+    assert.ok(migrate < deploy, `${f}: the migration runs after sst deploy`);
+    if (f === "preview.yml") {
+      const create = indexOf(j, (s) => runs(s, "pr-schema.sh create"), "pr-schema.sh create");
+      assert.ok(create < migrate, "preview.yml: the migration runs before pr-schema.sh create (no login, no schema yet)");
+    }
+  }
+});
+
+test("the migration step migrates the job's own stage: dev in deploy.yml, pr-<n> in preview.yml", () => {
+  const expected = { "deploy.yml": "dev", "preview.yml": "pr-${{ github.event.pull_request.number }}" };
+  for (const { f, j } of jobsRunning("sst deploy")) {
+    const s = steps(j).find((st) => runs(st, MIGRATE));
+    assert.match(s.run.trim(), /^\.github\/scripts\/db-migrate\.sh "\$STAGE"$/, `${f}: the step must run db-migrate.sh "$STAGE" and nothing else`);
+    const stage = s.env?.STAGE ?? j.env?.STAGE ?? wf[f].env?.STAGE;
+    assert.equal(stage, expected[f], `${f}: STAGE`);
+    // The sst deploy step deploys the same stage.
+    assert.match(steps(j).find((st) => runs(st, "sst deploy")).run, /--stage "\$STAGE"/, `${f}: sst deploy stage`);
+  }
+});
+
+test("the migration step reads the cluster from the shared SSM parameters, as pr-schema.sh does: no ARN, no secret, no tracing", () => {
+  for (const { f, j } of jobsRunning("sst deploy")) {
+    const s = steps(j).find((st) => runs(st, MIGRATE));
+    const env = { ...(wf[f].env ?? {}), ...(j.env ?? {}), ...(s.env ?? {}) };
+    for (const k of ["A2H_DB_CLUSTER_ARN", "A2H_DB_SECRET_ARN", "DB_MIGRATE_DIR", "DB_MIGRATE_SEED"]) {
+      assert.equal(env[k], undefined, `${f}: ${k} must not be set for dev or a preview (dev's cluster comes from /a2h/shared/)`);
+    }
+    assert.doesNotMatch(JSON.stringify(s), /secrets\./, `${f}: the migration step must not receive a secret`);
+    assert.doesNotMatch(s.run, /set -x|--debug|\$\{\{/, `${f}: no tracing, values through env`);
+    assert.equal(s.shell, undefined, `${f}: default shell (bash -e)`);
+  }
+});
+
+test("a failed migration fails the job and nothing deploys after it (fail closed)", () => {
+  for (const { f, j } of jobsRunning("sst deploy")) {
+    const migrate = indexOf(j, (s) => runs(s, MIGRATE), MIGRATE);
+    const deploy = indexOf(j, (s) => runs(s, "sst deploy"), "sst deploy");
+    const s = steps(j)[migrate];
+    assert.ok(s.id, `${f}: the migration step has no id`);
+    assert.equal(s["continue-on-error"], undefined, `${f}: continue-on-error would deploy over a failed migration`);
+    assert.doesNotMatch(String(s.if ?? ""), RUNS_AFTER_FAILURE, `${f}: the migration must not run after a failure`);
+    for (let i = migrate + 1; i <= deploy; i++) {
+      assert.doesNotMatch(String(steps(j)[i].if ?? ""), RUNS_AFTER_FAILURE, `${f}: step ${steps(j)[i].name ?? i} would run after a failed migration`);
+    }
+  }
+  // preview.yml: the migration is gated on the first state read like pr-schema.sh create.
+  const { j } = jobsRunning("sst deploy").find(({ f }) => f === "preview.yml");
+  const create = steps(j).find((s) => runs(s, "pr-schema.sh create"));
+  assert.equal(steps(j).find((s) => runs(s, MIGRATE)).if, create.if, "preview.yml: migrate under the same condition as create");
+  // The failure comment covers a failed migration.
+  const failComment = steps(j).find((s) => s.uses?.startsWith("marocchino/") && String(s.if ?? "").includes("failure()"));
+  assert.ok(failComment, "preview.yml: no failure comment");
+});
+
+// The step is run the way the runner runs it, from a temporary checkout whose
+// db-migrate.sh is a fake that records its arguments and exits with FAKE_RC.
+function runMigrateStep(script, { rc = 0, stage }) {
+  const dir = mkdtempSync(join(tmpdir(), "a2h-migrate-step-"));
+  try {
+    mkdirSync(join(dir, ".github", "scripts"), { recursive: true });
+    writeFileSync(
+      join(dir, ".github", "scripts", "db-migrate.sh"),
+      `#!/usr/bin/env bash\nprintf '%s\\n' "$@" > "${dir}/args"\necho "db-migrate: fake"\nexit "$FAKE_RC"\n`,
+      { mode: 0o755 },
+    );
+    writeFileSync(join(dir, "step.sh"), script);
+    const r = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", join(dir, "step.sh")], {
+      cwd: dir,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, STAGE: stage, FAKE_RC: String(rc) },
+    });
+    const args = existsSync(join(dir, "args")) ? readFileSync(join(dir, "args"), "utf8").split("\n").filter(Boolean) : null;
+    return { status: r.status, args };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test("the migration step passes the stage as the one argument and fails with the script", () => {
+  for (const { f, j } of jobsRunning("sst deploy")) {
+    const s = steps(j).find((st) => runs(st, MIGRATE));
+    const stage = f === "deploy.yml" ? "dev" : "pr-42";
+    const ok = runMigrateStep(s.run, { stage });
+    assert.equal(ok.status, 0, `${f}: success`);
+    assert.deepEqual(ok.args, [stage], `${f}: arguments`);
+    for (const rc of [1, 64]) {
+      const bad = runMigrateStep(s.run, { rc, stage });
+      assert.notEqual(bad.status, 0, `${f}: exit ${rc} of db-migrate.sh must fail the step`);
+    }
+  }
+});
+
+test("the CLI contract the workflows rely on: db-migrate.sh accepts dev and pr-<n>, refuses prod without ARNs", () => {
+  // Argument checks happen before any aws call; PATH has no aws here, so a call would fail differently.
+  const script = join(ROOT, ".github", "scripts", "db-migrate.sh");
+  const run = (args, env = {}) =>
+    spawnSync("bash", [script, ...args], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", ...env } });
+  for (const bad of [[], ["pr-0"], ["pr-007"], ["staging"], ["dev", "extra"]]) {
+    assert.equal(run(bad).status, 64, `db-migrate.sh ${bad.join(" ")} must be a usage error`);
+  }
+  const prod = run(["prod"]);
+  assert.equal(prod.status, 1);
+  assert.match(prod.stderr, /prod needs A2H_DB_CLUSTER_ARN and A2H_DB_SECRET_ARN/);
+});
+
+test("the teardown is unchanged: no migration, and pr-schema.sh drop is the last step that touches AWS", () => {
+  const j = teardownJob();
+  assert.ok(!steps(j).some((s) => runs(s, MIGRATE)), "the teardown must not migrate");
+  const drop = indexOf(j, (s) => runs(s, "pr-schema.sh drop"), "pr-schema.sh drop");
+  // Commands, not text: the comment and the failure message mention `sst remove`.
+  const touchesAws = (s) =>
+    isCreds(s) || (typeof s.run === "string" && /pnpm exec sst |\.github\/scripts\/|(^|[;&|]\s*)aws\s/m.test(s.run));
+  const after = steps(j).slice(drop + 1).filter(touchesAws).map((s) => s.name);
+  assert.deepEqual(after, [], "steps after pr-schema.sh drop that touch AWS");
+});
+
+// --- ci.yml: the Docker-backed tests cannot skip silently --------------------
+
+const ciSteps = () => jobs("ci.yml").flatMap(([id, j]) => steps(j).map((s) => ({ id, j, s })));
+const ciEnv = ({ j, s }) => ({ ...(wf["ci.yml"].env ?? {}), ...(j.env ?? {}), ...(s.env ?? {}) });
+
+test("ci.yml runs every tests/ci/*.test.sh script (none left out)", () => {
+  const scripts = readdirSync(join(ROOT, "tests", "ci")).filter((f) => f.endsWith(".test.sh")).sort();
+  assert.ok(scripts.includes("db-migrate.test.sh"));
+  for (const f of scripts) {
+    assert.ok(ciSteps().some(({ s }) => runs(s, `tests/ci/${f}`)), `ci.yml does not run tests/ci/${f}`);
+  }
+});
+
+test("every *_PG_REQUIRED flag a CI script test defines is set to 1 on the step that runs it", () => {
+  const dir = join(ROOT, "tests", "ci");
+  const withFlags = readdirSync(dir)
+    .filter((f) => f.endsWith(".test.sh"))
+    .map((f) => [f, [...new Set(readFileSync(join(dir, f), "utf8").match(/\b[A-Z][A-Z0-9_]*_PG_REQUIRED\b/g) ?? [])]])
+    .filter(([, flags]) => flags.length > 0);
+  assert.deepEqual(withFlags.map(([f]) => f).sort(), ["db-migrate.test.sh", "pr-schema.pg.test.sh"]);
+  for (const [f, flags] of withFlags) {
+    const runners = ciSteps().filter(({ s }) => runs(s, `tests/ci/${f}`));
+    assert.ok(runners.length > 0, `ci.yml does not run ${f}`);
+    for (const r of runners) {
+      for (const flag of flags) assert.equal(ciEnv(r)[flag], "1", `${f}: ${flag} must be "1" in ci.yml ${r.id}`);
+    }
+  }
+});
+
+test("packages/db's database tests cannot skip in CI: A2H_DB_PG_REQUIRED=1 on pnpm test, and turbo passes it through", () => {
+  const testSteps = ciSteps().filter(({ s }) => typeof s.run === "string" && /^pnpm test\b/m.test(s.run));
+  assert.ok(testSteps.length > 0, "ci.yml has no pnpm test step");
+  for (const r of testSteps) assert.equal(ciEnv(r).A2H_DB_PG_REQUIRED, "1", `ci.yml ${r.id}: A2H_DB_PG_REQUIRED`);
+  // turbo's strict env mode drops undeclared variables before the task runs.
+  const turbo = JSON.parse(readFileSync(join(ROOT, "turbo.json"), "utf8"));
+  const declared = [
+    ...(turbo.globalEnv ?? []),
+    ...(turbo.globalPassThroughEnv ?? []),
+    ...(turbo.tasks?.test?.env ?? []),
+    ...(turbo.tasks?.test?.passThroughEnv ?? []),
+  ];
+  assert.ok(declared.includes("A2H_DB_PG_REQUIRED"), "turbo.json does not pass A2H_DB_PG_REQUIRED to the test task");
+});
+
+test("every ci.yml job runs unconditionally and its test steps cannot be ignored, so the check gates on all of them", () => {
+  for (const [id, j] of jobs("ci.yml")) {
+    assert.equal(j.if, undefined, `ci.yml ${id} has a condition; a skipped job reads as green`);
+    assert.equal(j["continue-on-error"], undefined, `ci.yml ${id}: continue-on-error`);
+    for (const s of steps(j)) assert.equal(s["continue-on-error"], undefined, `ci.yml ${id} ${s.name}: continue-on-error`);
+  }
+  // The Docker-backed script tests run in their own job, in parallel with check.
+  const pg = ciSteps().filter(({ s }) => runs(s, "tests/ci/db-migrate.test.sh"));
+  assert.equal(pg.length, 1);
+  assert.notEqual(pg[0].id, "check", "db-migrate.test.sh (about four minutes) belongs in its own job");
+  // preview.yml and deploy.yml call the whole of ci.yml: every job above gates the deploy.
+  for (const f of ["preview.yml", "deploy.yml"]) assert.equal(wf[f].jobs.check.uses, "./.github/workflows/ci.yml");
+});
+
+// --- m1-protocol-connector, task 7.2 -----------------------------------------
+// The in-process half of the adversarial suite (answer intake on Postgres in
+// Docker) runs in ci.yml's `pnpm test`, where A2H_DB_PG_REQUIRED=1 makes a
+// missing Docker a failure, not a skip.
+test("the adversarial suite's in-process half runs in CI's pnpm test and cannot skip there", () => {
+  const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
+  assert.match(pkg.scripts?.test ?? "", /adversarial\/\*\.local\.test\.ts/, "@a2h/tests test must run adversarial/*.local.test.ts");
+  assert.match(pkg.scripts?.adversarial ?? "", /adversarial\/\*\.live\.test\.ts/, "@a2h/tests adversarial must run adversarial/*.live.test.ts");
+  const testStep = Object.values(wf["ci.yml"].jobs).flatMap((j) => steps(j)).find((s) => runs(s, "pnpm test"));
+  assert.ok(testStep, "ci.yml has no pnpm test step");
+  assert.equal(String(testStep.env?.A2H_DB_PG_REQUIRED ?? ""), "1", "pnpm test must run with A2H_DB_PG_REQUIRED=1");
 });

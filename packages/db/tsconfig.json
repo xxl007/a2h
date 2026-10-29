@@ -1,8 +1,14 @@
 {
+  // Typecheck config (editor, ESLint, `pnpm typecheck`): src, seed, test and
+  // the drizzle-kit config, no emit. `build` uses tsconfig.build.json (src only).
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist"
+    "noEmit": true,
+    "types": ["node"],
+    // Imports use `./x.ts` so that `node --test` (type stripping) loads them;
+    // tsc rewrites to `./x.js` on emit.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "seed", "scripts", "test", "drizzle.config.ts"]
 }

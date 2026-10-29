@@ -9,6 +9,10 @@ On development and preview stages a set of synthetic participants with scripted 
 ### Requirement: Simulated participants exist off production only
 Development and preview stages SHALL hold a seeded set of simulated participants with published profiles and rules; the production stage SHALL hold none and SHALL have the simulator disabled.
 
+#### Scenario: Only simulated participants are delivered
+- **WHEN** a request addressed to a participant that is not simulated becomes due in this change
+- **THEN** it is not delivered and stays `sent` until it expires (real delivery arrives with M3)
+
 #### Scenario: Seed on a preview
 - **WHEN** a preview stage is deployed
 - **THEN** `find_humans` returns the simulated set for its topics

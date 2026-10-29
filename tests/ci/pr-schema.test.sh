@@ -92,6 +92,7 @@ create_expected() { # create_expected <n> <password> > file
   cat <<EOF
 GRANT pr_$n TO CURRENT_USER
 CREATE SCHEMA IF NOT EXISTS pr_$n AUTHORIZATION pr_$n
+CREATE SCHEMA IF NOT EXISTS pr_${n}_jobs AUTHORIZATION pr_$n
 REVOKE CREATE, USAGE ON SCHEMA public FROM PUBLIC
 REVOKE CONNECT ON DATABASE a2h FROM PUBLIC
 REVOKE CONNECT ON DATABASE postgres FROM PUBLIC
@@ -106,6 +107,7 @@ drop_expected() { # drop_expected <n> > file
 DO \\\$\\\$ BEGIN IF EXISTS \\(SELECT FROM pg_catalog.pg_roles WHERE rolname = 'pr_$n'\\) THEN ALTER ROLE pr_$n WITH NOLOGIN; GRANT pr_$n TO CURRENT_USER; END IF; END \\\$\\\$
 SELECT pg_terminate_backend\\(pid\\) FROM pg_stat_activity WHERE usename = 'pr_$n'
 DROP SCHEMA IF EXISTS pr_$n CASCADE
+DROP SCHEMA IF EXISTS pr_${n}_jobs CASCADE
 DO \\\$\\\$ BEGIN IF EXISTS \\(SELECT FROM pg_catalog.pg_roles WHERE rolname = 'pr_$n'\\) THEN DROP OWNED BY pr_$n; END IF; END \\\$\\\$
 DROP ROLE IF EXISTS pr_$n
 EOF
@@ -137,7 +139,7 @@ for args in "" "truncate 12" "create 12 extra"; do
   else nok "usage error for '$args'" "rc=$RC calls=$CALLS"; fi
 done
 
-echo "# 2. create, no secret yet: secret created, then the nine statements in order"
+echo "# 2. create, no secret yet: secret created, then the ten statements in order"
 run ok create 12
 check "create 12 exits 0" test "$RC" -eq 0
 check "reads both ARNs from SSM once" \
@@ -150,7 +152,7 @@ check "secret value is {username: pr_12, password: <generated>}" \
   test "$(jq -c '{username, password}' <<<"$SECRET")" = "$(secret_json pr_12 "$PW")"
 check "secret is created before any statement runs" \
   test "$(grep -n 'create-secret' <<<"$CALLS" | cut -d: -f1)" -lt "$(grep -n 'execute-statement' <<<"$CALLS" | head -1 | cut -d: -f1)"
-check "statements, in order: role (create or alter, LOGIN, password), GRANT to master, CREATE SCHEMA AUTHORIZATION, REVOKE public, REVOKE CONNECT a2h, REVOKE CONNECT postgres, check postgres revoked, GRANT CONNECT, search_path" \
+check "statements, in order: role (create or alter, LOGIN, password), GRANT to master, CREATE SCHEMA pr_12 and pr_12_jobs AUTHORIZATION pr_12, REVOKE public, REVOKE CONNECT a2h, REVOKE CONNECT postgres, check postgres revoked, GRANT CONNECT, search_path" \
   matches_in_order "$WORK/create12-new"
 check "REVOKE CONNECT ON DATABASE postgres is its own Data API call, sent to database a2h" \
   test "$(awk -F'\t' '$4 == "REVOKE CONNECT ON DATABASE postgres FROM PUBLIC" { print $1 }' <<<"$RDS")" = a2h
@@ -166,7 +168,7 @@ check "create 12 with existing secret exits 0" test "$RC" -eq 0
 check "secret only read, never created" test "$NAMES" = "get a2h/pr-12/db"
 check "no new password generated" test "$(count get-random-password "$CALLS")" -eq 0
 check "secret value unchanged" test "$SECRET" = "$(secret_json pr_12 "$PW_OLD")"
-check "same nine statements, ALTER/CREATE ROLE with the stored password" matches_in_order "$WORK/create12-reused"
+check "same ten statements, ALTER/CREATE ROLE with the stored password" matches_in_order "$WORK/create12-reused"
 check "reports reuse" grep -q 'reusing secret a2h/pr-12/db' <<<"$OUT"
 check "stored password not in stdout/stderr" no_password_in_output "$PW_OLD"
 check "stored password not in any aws command line" no_password_in_argv "$PW_OLD"
@@ -213,7 +215,7 @@ check "secret not readable (access denied): fails, nothing created, no statement
 echo "# 7. drop: sessions, schema, owned privileges, role, then the secret"
 SEED_SECRET=$(secret_json pr_13 "$PW_OLD") run ok drop 13
 check "drop 13 exits 0" test "$RC" -eq 0
-check "statements, in order: NOLOGIN + GRANT to master, terminate pr_13 sessions, DROP SCHEMA CASCADE, DROP OWNED, DROP ROLE" \
+check "statements, in order: NOLOGIN + GRANT to master, terminate pr_13 sessions, DROP SCHEMA pr_13 and pr_13_jobs CASCADE, DROP OWNED, DROP ROLE" \
   matches_in_order "$WORK/drop13"
 check "every statement on database a2h with the SSM ARNs" all_on_a2h
 check "no --schema, SQL not on the command line" no_schema_flag
@@ -225,20 +227,29 @@ check "drop does not print the secret" no_password_in_output "$PW_OLD"
 run ok drop 13
 check "drop with no secret (already deleted): exits 0" test "$RC" -eq 0
 check "drop with no secret: says so" grep -q 'secret a2h/pr-13/db already absent' <<<"$OUT"
-check "drop with no secret: still runs all five statements" matches_in_order "$WORK/drop13"
+check "drop with no secret: still runs all six statements" matches_in_order "$WORK/drop13"
 run delete-denied drop 13
 check "secret deletion denied: fails, AWS error shown" bash -c '[ "$1" -ne 0 ] && grep -q AccessDeniedException <<<"$2"' _ "$RC" "$OUT"
 run bad-request drop 13
 check "drop: failed statement stops the run before the secret is deleted" \
   bash -c '[ "$1" -ne 0 ] && [ "$2" -eq 1 ] && ! grep -q delete-secret <<<"$3"' _ "$RC" "$(rds_calls)" "$CALLS"
 
+echo "# 7b. the script touches no secret but a2h/pr-<n>/db (the signing and approval secrets are SST's, design D4 amendment)"
+for action in create drop; do
+  SEED_SECRET=$(secret_json pr_12 "$PW_OLD") run ok "$action" 12
+  check "$action 12: every secret operation names a2h/pr-12/db" \
+    bash -c '[ -n "$1" ] && ! grep -v " a2h/pr-12/db$" <<<"$1" | grep -q .' _ "$NAMES"
+  check "$action 12: no aws call mentions a signing or approval secret" \
+    bash -c '! grep -Eq "signing|approval" <<<"$1"' _ "$CALLS"
+done
+
 echo "# 8. retry while the cluster resumes or the API throttles"
 run resume-twice create 7
-check "retries the first statement twice on DatabaseResumingException, then completes (9 + 2 calls)" \
-  bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 11 ]' _ "$RC" "$(rds_calls)"
+check "retries the first statement twice on DatabaseResumingException, then completes (10 + 2 calls)" \
+  bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 12 ]' _ "$RC" "$(rds_calls)"
 run throttle-once drop 7
-check "retries on ThrottlingException, then completes (5 + 1 calls)" \
-  bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 6 ]' _ "$RC" "$(rds_calls)"
+check "retries on ThrottlingException, then completes (6 + 1 calls)" \
+  bash -c '[ "$1" -eq 0 ] && [ "$2" -eq 7 ]' _ "$RC" "$(rds_calls)"
 run always-resume create 7
 check "fails after PR_SCHEMA_MAX_ATTEMPTS (4) resuming errors, error shown" \
   bash -c '[ "$1" -ne 0 ] && [ "$2" -eq 4 ] && grep -q DatabaseResumingException <<<"$3"' _ "$RC" "$(rds_calls)" "$OUT"

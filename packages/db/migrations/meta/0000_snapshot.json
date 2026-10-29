@@ -1,0 +1,1211 @@
+{
+  "id": "43131693-8770-4a54-ab17-fd63286d85b8",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.answers": {
+      "name": "answers",
+      "schema": "",
+      "columns": {
+        "request_id": {
+          "name": "request_id",
+          "type": "varchar(16)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "participant_id": {
+          "name": "participant_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "body": {
+          "name": "body",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "smallint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answered_personally": {
+          "name": "answered_personally",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signed_at": {
+          "name": "signed_at",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key_id": {
+          "name": "key_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "signature": {
+          "name": "signature",
+          "type": "varchar(88)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stored_at": {
+          "name": "stored_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "answers_request_id_requests_id_fk": {
+          "name": "answers_request_id_requests_id_fk",
+          "tableFrom": "answers",
+          "tableTo": "requests",
+          "columnsFrom": [
+            "request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "answers_participant_id_participants_id_fk": {
+          "name": "answers_participant_id_participants_id_fk",
+          "tableFrom": "answers",
+          "tableTo": "participants",
+          "columnsFrom": [
+            "participant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "answers_key_id_signing_keys_key_id_fk": {
+          "name": "answers_key_id_signing_keys_key_id_fk",
+          "tableFrom": "answers",
+          "tableTo": "signing_keys",
+          "columnsFrom": [
+            "key_id"
+          ],
+          "columnsTo": [
+            "key_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "answers_body_object": {
+          "name": "answers_body_object",
+          "value": "jsonb_typeof(\"answers\".\"body\") = 'object'"
+        },
+        "answers_confidence_range": {
+          "name": "answers_confidence_range",
+          "value": "\"answers\".\"confidence\" BETWEEN 1 AND 5"
+        },
+        "answers_answered_personally": {
+          "name": "answers_answered_personally",
+          "value": "\"answers\".\"answered_personally\" = true"
+        },
+        "answers_signed_at_iso": {
+          "name": "answers_signed_at_iso",
+          "value": "\"answers\".\"signed_at\" ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$'"
+        },
+        "answers_signature_format": {
+          "name": "answers_signature_format",
+          "value": "\"answers\".\"signature\" ~ '^[A-Za-z0-9+/]{86}==$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.blocked_manifests": {
+      "name": "blocked_manifests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "blocked_manifests_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "participant_id": {
+          "name": "participant_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "principal_id": {
+          "name": "principal_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage": {
+          "name": "stage",
+          "type": "varchar(8)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "varchar(19)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "at": {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "blocked_manifests_participant_at_idx": {
+          "name": "blocked_manifests_participant_at_idx",
+          "columns": [
+            {
+              "expression": "participant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "blocked_manifests_participant_id_participants_id_fk": {
+          "name": "blocked_manifests_participant_id_participants_id_fk",
+          "tableFrom": "blocked_manifests",
+          "tableTo": "participants",
+          "columnsFrom": [
+            "participant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "blocked_manifests_request_id_format": {
+          "name": "blocked_manifests_request_id_format",
+          "value": "\"blocked_manifests\".\"request_id\" ~ '^A2H-[0-9a-f]{4}$'"
+        },
+        "blocked_manifests_principal_opaque": {
+          "name": "blocked_manifests_principal_opaque",
+          "value": "\"blocked_manifests\".\"principal_id\" ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'"
+        },
+        "blocked_manifests_stage_rules": {
+          "name": "blocked_manifests_stage_rules",
+          "value": "\"blocked_manifests\".\"stage\" = 'rules'"
+        },
+        "blocked_manifests_code_known": {
+          "name": "blocked_manifests_code_known",
+          "value": "\"blocked_manifests\".\"code\" IN ('type_not_accepted', 'bid_below_reserve', 'free_lane_mismatch', 'asker_not_allowed', 'quiet_hours', 'interruption_budget', 'latency_mismatch')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.participants": {
+      "name": "participants",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "handle": {
+          "name": "handle",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_label": {
+          "name": "display_label",
+          "type": "varchar(80)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "simulated": {
+          "name": "simulated",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "persona": {
+          "name": "persona",
+          "type": "varchar(9)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "identity_verified": {
+          "name": "identity_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "participants_persona_simulated_personas_persona_fk": {
+          "name": "participants_persona_simulated_personas_persona_fk",
+          "tableFrom": "participants",
+          "tableTo": "simulated_personas",
+          "columnsFrom": [
+            "persona"
+          ],
+          "columnsTo": [
+            "persona"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "participants_handle_unique": {
+          "name": "participants_handle_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "handle"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "participants_id_opaque": {
+          "name": "participants_id_opaque",
+          "value": "\"participants\".\"id\" ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'"
+        },
+        "participants_handle_format": {
+          "name": "participants_handle_format",
+          "value": "\"participants\".\"handle\" ~ '^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-[0-9a-f]{4}$'"
+        },
+        "participants_label_not_empty": {
+          "name": "participants_label_not_empty",
+          "value": "length(btrim(\"participants\".\"display_label\")) > 0"
+        },
+        "participants_simulated_handle": {
+          "name": "participants_simulated_handle",
+          "value": "\"participants\".\"simulated\" = (left(\"participants\".\"handle\", 4) = 'sim-')"
+        },
+        "participants_simulated_label": {
+          "name": "participants_simulated_label",
+          "value": "\"participants\".\"simulated\" = (right(\"participants\".\"display_label\", 11) = '(simulated)')"
+        },
+        "participants_simulated_persona": {
+          "name": "participants_simulated_persona",
+          "value": "\"participants\".\"simulated\" = (\"participants\".\"persona\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.profiles": {
+      "name": "profiles",
+      "schema": "",
+      "columns": {
+        "participant_id": {
+          "name": "participant_id",
+          "type": "varchar(64)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "topics": {
+          "name": "topics",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rating": {
+          "name": "rating",
+          "type": "numeric(2, 1)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "answers_count": {
+          "name": "answers_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "disputes_lost": {
+          "name": "disputes_lost",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "typical_latency_seconds": {
+          "name": "typical_latency_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "profiles_participant_id_participants_id_fk": {
+          "name": "profiles_participant_id_participants_id_fk",
+          "tableFrom": "profiles",
+          "tableTo": "participants",
+          "columnsFrom": [
+            "participant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "profiles_topics_array": {
+          "name": "profiles_topics_array",
+          "value": "jsonb_typeof(\"profiles\".\"topics\") = 'array' AND jsonb_array_length(\"profiles\".\"topics\") >= 1"
+        },
+        "profiles_rating_range": {
+          "name": "profiles_rating_range",
+          "value": "\"profiles\".\"rating\" BETWEEN 0 AND 5"
+        },
+        "profiles_counts": {
+          "name": "profiles_counts",
+          "value": "\"profiles\".\"answers_count\" >= 0 AND \"profiles\".\"disputes_lost\" >= 0 AND \"profiles\".\"typical_latency_seconds\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.request_events": {
+      "name": "request_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "request_events_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_status": {
+          "name": "from_status",
+          "type": "varchar(9)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "to_status": {
+          "name": "to_status",
+          "type": "varchar(9)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor": {
+          "name": "actor",
+          "type": "varchar(11)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason_code": {
+          "name": "reason_code",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "at": {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "request_events_request_id_requests_id_fk": {
+          "name": "request_events_request_id_requests_id_fk",
+          "tableFrom": "request_events",
+          "tableTo": "requests",
+          "columnsFrom": [
+            "request_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "request_events_request_to_unique": {
+          "name": "request_events_request_to_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "request_id",
+            "to_status"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "request_events_legal": {
+          "name": "request_events_legal",
+          "value": "(\"request_events\".\"from_status\" IS NULL AND \"request_events\".\"to_status\" = 'sent' AND \"request_events\".\"actor\" = 'principal')\n        OR (\"request_events\".\"from_status\", \"request_events\".\"to_status\", \"request_events\".\"actor\") IN (('sent', 'accepted', 'participant'), ('sent', 'declined', 'participant'), ('sent', 'cancelled', 'principal'), ('sent', 'expired', 'platform'), ('accepted', 'answered', 'participant'), ('accepted', 'cancelled', 'principal'), ('accepted', 'expired', 'platform'))"
+        },
+        "request_events_reason_code": {
+          "name": "request_events_reason_code",
+          "value": "\"request_events\".\"reason_code\" ~ '^[a-z][a-z0-9_]*$'"
+        },
+        "request_events_reason_on_decline_only": {
+          "name": "request_events_reason_on_decline_only",
+          "value": "\"request_events\".\"reason_code\" IS NULL OR \"request_events\".\"to_status\" = 'declined'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.requests": {
+      "name": "requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(16)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "principal_id": {
+          "name": "principal_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "participant_id": {
+          "name": "participant_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "intent": {
+          "name": "intent",
+          "type": "varchar(13)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "audience": {
+          "name": "audience",
+          "type": "varchar(30)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "time_shape": {
+          "name": "time_shape",
+          "type": "varchar(9)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "format": {
+          "name": "format",
+          "type": "varchar(12)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "lane": {
+          "name": "lane",
+          "type": "varchar(6)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "free_lane": {
+          "name": "free_lane",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "question": {
+          "name": "question",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "options": {
+          "name": "options",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scale": {
+          "name": "scale",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attachments": {
+          "name": "attachments",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "data_terms": {
+          "name": "data_terms",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bid_minor": {
+          "name": "bid_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cleared_minor": {
+          "name": "cleared_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(9)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'sent'"
+        },
+        "deliver_at": {
+          "name": "deliver_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "requests_principal_created_idx": {
+          "name": "requests_principal_created_idx",
+          "columns": [
+            {
+              "expression": "principal_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "requests_participant_idx": {
+          "name": "requests_participant_idx",
+          "columns": [
+            {
+              "expression": "participant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "requests_open_expiry_idx": {
+          "name": "requests_open_expiry_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"requests\".\"status\" IN ('sent', 'accepted')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "requests_participant_id_participants_id_fk": {
+          "name": "requests_participant_id_participants_id_fk",
+          "tableFrom": "requests",
+          "tableTo": "participants",
+          "columnsFrom": [
+            "participant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "requests_id_format": {
+          "name": "requests_id_format",
+          "value": "\"requests\".\"id\" ~ '^A2H-[0-9a-f]{4}$'"
+        },
+        "requests_principal_opaque": {
+          "name": "requests_principal_opaque",
+          "value": "\"requests\".\"principal_id\" ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'"
+        },
+        "requests_intent_known": {
+          "name": "requests_intent_known",
+          "value": "\"requests\".\"intent\" IN ('observation', 'verification', 'judgment', 'opinion', 'estimate', 'knowledge', 'authorisation', 'action', 'referral')"
+        },
+        "requests_audience_known": {
+          "name": "requests_audience_known",
+          "value": "\"requests\".\"audience\" IN ('named_individual', 'role_qualified_first_to_accept', 'panel_sample', 'population_in_place')"
+        },
+        "requests_time_shape_known": {
+          "name": "requests_time_shape_known",
+          "value": "\"requests\".\"time_shape\" IN ('one_shot', 'threaded', 'recurring')"
+        },
+        "requests_format_known": {
+          "name": "requests_format_known",
+          "value": "\"requests\".\"format\" IN ('single_field', 'poll', 'form', 'upload', 'voice')"
+        },
+        "requests_lane_known": {
+          "name": "requests_lane_known",
+          "value": "\"requests\".\"lane\" IN ('paid', 'free', 'bounty')"
+        },
+        "requests_free_lane_known": {
+          "name": "requests_free_lane_known",
+          "value": "\"requests\".\"free_lane\" IN ('own_publications', 'facts_about_self')"
+        },
+        "requests_status_known": {
+          "name": "requests_status_known",
+          "value": "\"requests\".\"status\" IN ('sent', 'accepted', 'answered', 'declined', 'expired', 'cancelled')"
+        },
+        "requests_question_length": {
+          "name": "requests_question_length",
+          "value": "length(btrim(\"requests\".\"question\")) > 0 AND char_length(\"requests\".\"question\") <= 2000"
+        },
+        "requests_currency_format": {
+          "name": "requests_currency_format",
+          "value": "\"requests\".\"currency\" ~ '^[A-Z]{3}$'"
+        },
+        "requests_lane_coherent": {
+          "name": "requests_lane_coherent",
+          "value": "CASE WHEN \"requests\".\"lane\" = 'free' THEN \"requests\".\"free_lane\" IS NOT NULL AND \"requests\".\"bid_minor\" = 0\n          ELSE \"requests\".\"free_lane\" IS NULL AND \"requests\".\"bid_minor\" > 0 END"
+        },
+        "requests_cleared": {
+          "name": "requests_cleared",
+          "value": "\"requests\".\"cleared_minor\" IS NULL OR (\"requests\".\"status\" = 'answered' AND \"requests\".\"cleared_minor\" BETWEEN 0 AND \"requests\".\"bid_minor\")"
+        },
+        "requests_data_terms_object": {
+          "name": "requests_data_terms_object",
+          "value": "jsonb_typeof(\"requests\".\"data_terms\") = 'object'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.rule_types": {
+      "name": "rule_types",
+      "schema": "",
+      "columns": {
+        "participant_id": {
+          "name": "participant_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "intent": {
+          "name": "intent",
+          "type": "varchar(13)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "accepted": {
+          "name": "accepted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reserve_net_minor": {
+          "name": "reserve_net_minor",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "char(3)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rule_types_participant_id_participants_id_fk": {
+          "name": "rule_types_participant_id_participants_id_fk",
+          "tableFrom": "rule_types",
+          "tableTo": "participants",
+          "columnsFrom": [
+            "participant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "rule_types_pkey": {
+          "name": "rule_types_pkey",
+          "columns": [
+            "participant_id",
+            "intent"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "rule_types_intent_known": {
+          "name": "rule_types_intent_known",
+          "value": "\"rule_types\".\"intent\" IN ('observation', 'verification', 'judgment', 'opinion', 'estimate', 'knowledge', 'authorisation', 'action', 'referral')"
+        },
+        "rule_types_reserve_non_negative": {
+          "name": "rule_types_reserve_non_negative",
+          "value": "\"rule_types\".\"reserve_net_minor\" >= 0"
+        },
+        "rule_types_currency_format": {
+          "name": "rule_types_currency_format",
+          "value": "\"rule_types\".\"currency\" ~ '^[A-Z]{3}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.rules": {
+      "name": "rules",
+      "schema": "",
+      "columns": {
+        "participant_id": {
+          "name": "participant_id",
+          "type": "varchar(64)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "who_may_ask": {
+          "name": "who_may_ask",
+          "type": "varchar(18)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "free_lanes": {
+          "name": "free_lanes",
+          "type": "varchar(32)[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'"
+        },
+        "quiet_start": {
+          "name": "quiet_start",
+          "type": "varchar(5)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quiet_end": {
+          "name": "quiet_end",
+          "type": "varchar(5)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "quiet_time_zone": {
+          "name": "quiet_time_zone",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "max_interruptions_per_day": {
+          "name": "max_interruptions_per_day",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "latency_promise_seconds": {
+          "name": "latency_promise_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "rules_participant_id_participants_id_fk": {
+          "name": "rules_participant_id_participants_id_fk",
+          "tableFrom": "rules",
+          "tableTo": "participants",
+          "columnsFrom": [
+            "participant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "rules_who_may_ask_known": {
+          "name": "rules_who_may_ask_known",
+          "value": "\"rules\".\"who_may_ask\" IN ('anyone_verified', 'organisations_only')"
+        },
+        "rules_free_lanes_known": {
+          "name": "rules_free_lanes_known",
+          "value": "\"rules\".\"free_lanes\" <@ ARRAY['own_publications', 'facts_about_self']::varchar[]"
+        },
+        "rules_quiet_hours_complete": {
+          "name": "rules_quiet_hours_complete",
+          "value": "(\"rules\".\"quiet_start\" IS NULL) = (\"rules\".\"quiet_end\" IS NULL) AND (\"rules\".\"quiet_start\" IS NULL) = (\"rules\".\"quiet_time_zone\" IS NULL)"
+        },
+        "rules_quiet_start_format": {
+          "name": "rules_quiet_start_format",
+          "value": "\"rules\".\"quiet_start\" ~ '^([01]\\d|2[0-3]):[0-5]\\d$'"
+        },
+        "rules_quiet_end_format": {
+          "name": "rules_quiet_end_format",
+          "value": "\"rules\".\"quiet_end\" ~ '^([01]\\d|2[0-3]):[0-5]\\d$'"
+        },
+        "rules_counts": {
+          "name": "rules_counts",
+          "value": "\"rules\".\"max_interruptions_per_day\" >= 0 AND \"rules\".\"latency_promise_seconds\" >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.schema_migrations": {
+      "name": "schema_migrations",
+      "schema": "",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "varchar(255)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "checksum": {
+          "name": "checksum",
+          "type": "char(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "applied_at": {
+          "name": "applied_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.signing_keys": {
+      "name": "signing_keys",
+      "schema": "",
+      "columns": {
+        "key_id": {
+          "name": "key_id",
+          "type": "varchar(64)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "participant_id": {
+          "name": "participant_id",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "public_key": {
+          "name": "public_key",
+          "type": "varchar(44)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "varchar(7)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "rotated_at": {
+          "name": "rotated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "signing_keys_one_active": {
+          "name": "signing_keys_one_active",
+          "columns": [
+            {
+              "expression": "(coalesce(\"participant_id\", ''))",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"signing_keys\".\"status\" = 'active'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "signing_keys_participant_id_participants_id_fk": {
+          "name": "signing_keys_participant_id_participants_id_fk",
+          "tableFrom": "signing_keys",
+          "tableTo": "participants",
+          "columnsFrom": [
+            "participant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "signing_keys_public_key_unique": {
+          "name": "signing_keys_public_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "public_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "signing_keys_key_id_opaque": {
+          "name": "signing_keys_key_id_opaque",
+          "value": "\"signing_keys\".\"key_id\" ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]*$'"
+        },
+        "signing_keys_public_key_format": {
+          "name": "signing_keys_public_key_format",
+          "value": "\"signing_keys\".\"public_key\" ~ '^[A-Za-z0-9+/]{43}=$'"
+        },
+        "signing_keys_status_known": {
+          "name": "signing_keys_status_known",
+          "value": "\"signing_keys\".\"status\" IN ('active', 'rotated', 'revoked')"
+        },
+        "signing_keys_status_times": {
+          "name": "signing_keys_status_times",
+          "value": "CASE \"signing_keys\".\"status\"\n        WHEN 'active' THEN \"signing_keys\".\"rotated_at\" IS NULL AND \"signing_keys\".\"revoked_at\" IS NULL\n        WHEN 'rotated' THEN \"signing_keys\".\"rotated_at\" IS NOT NULL AND \"signing_keys\".\"revoked_at\" IS NULL\n        WHEN 'revoked' THEN \"signing_keys\".\"revoked_at\" IS NOT NULL\n      END"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.simulated_personas": {
+      "name": "simulated_personas",
+      "schema": "",
+      "columns": {
+        "persona": {
+          "name": "persona",
+          "type": "varchar(9)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "delay_seconds": {
+          "name": "delay_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "decline_reason_code": {
+          "name": "decline_reason_code",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "simulated_personas_persona_known": {
+          "name": "simulated_personas_persona_known",
+          "value": "\"simulated_personas\".\"persona\" IN ('prompt', 'decline', 'slow', 'cant_tell', 'silent')"
+        },
+        "simulated_personas_delay_under_two_minutes": {
+          "name": "simulated_personas_delay_under_two_minutes",
+          "value": "\"simulated_personas\".\"delay_seconds\" BETWEEN 1 AND 119"
+        },
+        "simulated_personas_reason_code": {
+          "name": "simulated_personas_reason_code",
+          "value": "\"simulated_personas\".\"decline_reason_code\" ~ '^[a-z][a-z0-9_]*$'"
+        },
+        "simulated_personas_reason_on_decline_only": {
+          "name": "simulated_personas_reason_on_decline_only",
+          "value": "(\"simulated_personas\".\"persona\" = 'decline') = (\"simulated_personas\".\"decline_reason_code\" IS NOT NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult } from "@modelcontextprotocol/client";
+import { toolJsonSchemas } from "@a2h/protocol";
 import { expectedStage, healthUrl, mcpUrl } from "../src/live-env.ts";
 import { PROTOCOL_VERSION, connectFresh, recordingFetch, type Exchange } from "./mcp-client.ts";
 
@@ -46,10 +47,27 @@ test(`[${MCP_URL.href}] Scenario: Initialize from a fresh client`, async () => {
   }
 });
 
+// m1-protocol-connector (modified scenario): the three A2H tools are listed
+// next to ping, and each A2H description carries the policy text.
+const A2H_TOOLS = ["find_humans", "request_human", "check_requests"] as const;
+
 test("Scenario: Tools are listed", async () => {
   const { client, close } = await connectFresh();
   try {
     const { tools } = await client.listTools();
+    const names = tools.map((t) => t.name);
+    for (const name of [...A2H_TOOLS, "ping"]) assert.ok(names.includes(name), `no tool named ${name} in ${JSON.stringify(names)}`);
+    for (const t of tools) {
+      assert.ok(t.description && t.description.trim().length > 0, `${t.name} has an empty description`);
+      assert.equal(t.inputSchema.type, "object", `${t.name} input schema is not an object`);
+    }
+    for (const name of A2H_TOOLS) {
+      const d = tools.find((t) => t.name === name)?.description ?? "";
+      assert.match(d, /last resort/i, `${name}: a human is a last resort`);
+      assert.match(d, /search, existing tools[^.]*come first/i, `${name}: search and existing tools come first`);
+      assert.match(d, /shown the exact question[^.]*before anything is sent/i, `${name}: the question is shown to the principal before sending`);
+      assert.match(d, /pays what clears, never more than the hold/i, `${name}: the principal pays what clears, never more than the hold`);
+    }
     const ping = tools.find((t) => t.name === "ping");
     assert.ok(ping, `no tool named ping in ${JSON.stringify(tools.map((t) => t.name))}`);
     assert.equal(typeof ping.description, "string");
@@ -62,6 +80,25 @@ test("Scenario: Tools are listed", async () => {
     assert.equal(hold.minimum, 0);
     assert.equal(hold.maximum, 3900);
     assert.ok(!(ping.inputSchema.required ?? []).includes("holdSeconds"), "holdSeconds must be optional");
+  } finally {
+    await close();
+  }
+});
+
+// protocol/schemas "Tool schemas come from the export", checked on the
+// deployed stage too: what tools/list serves is the protocol package's JSON
+// Schema export, unchanged (in-process: apps/mcp/test/mcp-transport.test.ts).
+test("Scenario: Tool schemas come from the export (deployed stage)", async () => {
+  const { client, close } = await connectFresh();
+  try {
+    const { tools } = await client.listTools();
+    const exported = toolJsonSchemas();
+    for (const name of A2H_TOOLS) {
+      const tool = tools.find((t) => t.name === name);
+      assert.ok(tool, `no tool named ${name}`);
+      assert.deepEqual(tool.inputSchema, exported[name].input, `${name} input schema`);
+      assert.deepEqual(tool.outputSchema, exported[name].output, `${name} output schema`);
+    }
   } finally {
     await close();
   }

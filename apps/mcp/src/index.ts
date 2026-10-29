@@ -1,6 +1,10 @@
 // Entry point of the A2H MCP service (ECS Fargate behind the shared ALB).
-// Env (infra/README.md): PORT, STAGE, MCP_BASE_PATH.
+// Env (infra/service-env.ts): PORT, STAGE, MCP_BASE_PATH, and what the
+// deployment adapter reads (infra/env.ts): the database, the approval key,
+// the development principal and its policy, FEE_RATE, CLEARING_SHARE.
+import { mcpConfigFromEnv } from "../infra/env.ts";
 import { createApp, type LogLine } from "./app.ts";
+import { openDatabase } from "./db.ts";
 import { healthPathFor } from "./health-path.ts";
 import { PACKAGE_VERSION } from "./version.ts";
 
@@ -10,7 +14,28 @@ const mcpBasePath = process.env.MCP_BASE_PATH ?? "/mcp";
 
 const log = (line: LogLine) => console.log(JSON.stringify({ ...line, stage }));
 
-const app = createApp({ stage, mcpBasePath, log });
+let config;
+try {
+  config = mcpConfigFromEnv();
+} catch (error: unknown) {
+  // The adapter's messages name variables, never values.
+  log({ level: "error", msg: "mcp server failed to start", error: error instanceof Error ? error.name : "unknown", detail: error instanceof Error ? error.message : undefined });
+  process.exit(1);
+}
+
+const database = openDatabase(config.db);
+const app = createApp({
+  stage,
+  mcpBasePath,
+  log,
+  a2h: {
+    db: database.db,
+    principal: config.principal,
+    policy: config.policy,
+    clearingShare: config.clearingShare,
+    approvalKey: config.approvalKey,
+  },
+});
 
 app.server.listen(port, () => {
   log({
@@ -33,11 +58,14 @@ process.on("SIGTERM", () => {
   if (shuttingDown) return;
   shuttingDown = true;
   log({ level: "info", msg: "shutting down" });
-  app.shutdown(SHUTDOWN_GRACE_MS).then(
-    () => process.exit(0),
-    (error: unknown) => {
-      log({ level: "error", msg: "shutdown failed", error: error instanceof Error ? error.name : "unknown" });
-      process.exit(1);
-    },
-  );
+  app
+    .shutdown(SHUTDOWN_GRACE_MS)
+    .then(() => database.close())
+    .then(
+      () => process.exit(0),
+      (error: unknown) => {
+        log({ level: "error", msg: "shutdown failed", error: error instanceof Error ? error.name : "unknown" });
+        process.exit(1);
+      },
+    );
 });
