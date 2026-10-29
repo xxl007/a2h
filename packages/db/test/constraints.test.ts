@@ -72,8 +72,8 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     assert.deepEqual(rows.map((r: { schema: string }) => r.schema), [SCHEMA]);
     const tables = await db.query(`SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY 1`, [SCHEMA]);
     assert.deepEqual(tables.rows.map((r: { tablename: string }) => r.tablename), [
-      "answers", "blocked_manifests", "participants", "profiles", "request_events", "requests", "rule_types", "rules",
-      "schema_migrations", "signing_keys", "simulated_personas",
+      "answers", "blocked_manifests", "participants", "profiles", "request_deliveries", "request_events", "requests", "rule_types",
+      "rules", "schema_migrations", "signing_keys", "simulated_personas",
     ]);
   });
 
@@ -101,6 +101,27 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       await rejects(`UPDATE blocked_manifests SET code = 'quiet_hours'`, [], /append-only/);
       await rejects(`DELETE FROM blocked_manifests`, [], /append-only/);
       await rejects(`TRUNCATE blocked_manifests`, [], /append-only/);
+    });
+  });
+
+  describe("request deliveries (task 5.2: delivered once, counted for the interruption budget)", () => {
+    const ins = `INSERT INTO request_deliveries (request_id, participant_id, outcome) VALUES ($1, $2, $3)`;
+    test("one row per request, outcome delivered or blocked only", async () => {
+      await rejects(ins, ["A2H-7f3c", "p_sim_mv", "sent"]);
+      await rejects(ins, ["A2H-7f3c", "p_sim_mv", "Is this leaflet alarming?"]);
+      await rejects(ins, ["A2H-0000", "p_sim_mv", "delivered"], /foreign key/);
+      await db.query("SAVEPOINT d");
+      await accepts(ins, ["A2H-7f3c", "p_sim_mv", "delivered"]);
+      await rejects(ins, ["A2H-7f3c", "p_sim_mv", "blocked"], /duplicate key/);
+      await db.query("ROLLBACK TO SAVEPOINT d");
+    });
+    test("append-only: no update, no delete", async () => {
+      await db.query("SAVEPOINT d");
+      await accepts(ins, ["A2H-7f3c", "p_sim_mv", "blocked"]);
+      await rejects(`UPDATE request_deliveries SET outcome = 'delivered'`, [], /append-only/);
+      await rejects(`DELETE FROM request_deliveries`, [], /append-only/);
+      await rejects(`TRUNCATE request_deliveries`, [], /append-only/);
+      await db.query("ROLLBACK TO SAVEPOINT d");
     });
   });
 

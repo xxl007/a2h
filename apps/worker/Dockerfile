@@ -13,8 +13,11 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 RUN pnpm fetch
 COPY . .
 RUN pnpm install --offline --frozen-lockfile --filter @a2h/worker...
-RUN pnpm --filter @a2h/worker build
-# Production-only node_modules plus the package's "files" (dist/).
+# The worker and the workspace packages it imports (@a2h/protocol, @a2h/db):
+# Node does not type-strip .ts under node_modules, so they run from dist/.
+RUN pnpm --filter @a2h/worker... build
+# Production-only node_modules plus each package's "files" (dist/; @a2h/db
+# also ships migrations/ and seed/).
 RUN pnpm --filter @a2h/worker deploy --prod --legacy /out
 
 # The AWS RDS global CA bundle, fetched and checked at build time (never at

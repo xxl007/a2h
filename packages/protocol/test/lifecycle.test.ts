@@ -124,3 +124,10 @@ describe("Hold status by state (money represented, not moved)", () => {
     for (const s of REQUEST_STATUSES) assert.equal(holdStatusAfter(s, { paid: false }), "none");
   });
 });
+
+describe("delivery outcomes (re-validation at delivery, task 5.2)", () => {
+  test("a delivery is either delivered or blocked; nothing else is recorded", async () => {
+    const { DELIVERY_OUTCOMES } = await import("../src/index.ts");
+    assert.deepEqual([...DELIVERY_OUTCOMES], ["delivered", "blocked"]);
+  });
+});

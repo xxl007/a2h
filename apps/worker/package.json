@@ -16,9 +16,14 @@
   ],
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "@types/pg": "8.23.1",
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@a2h/db": "workspace:*",
+    "@a2h/protocol": "workspace:*",
+    "drizzle-orm": "0.45.4",
+    "pg": "8.23.1",
     "pg-boss": "12.38.0"
   }
 }

@@ -293,3 +293,36 @@ Tasks 4.1 to 4.6. `apps/mcp/test/` runs with `pnpm --filter @a2h/mcp test` (part
 | No question or body text in logs, ids and codes present | `logging.test.ts` (blocked and rejected paths; approval paths incl. forged state, conflict, decline, accept; find_humans and check_requests with an answered request) |
 | Deployment adapter | `env.test.ts` (connection string, TLS against `DB_CA_BUNDLE`, approval key length, principal and policy, missing or invalid variables named without values) |
 | Refuses to start without a readable `DB_CA_BUNDLE` when set | `env.test.ts` "startup: the service refuses to start…" (spawns `src/index.ts`, exit 1, no secret in the output) |
+
+## Scenario to test map: m1-protocol-connector (apps/worker, group 5)
+
+Tasks 5.1 to 5.6. `apps/worker/test/` runs with `pnpm --filter @a2h/worker test` (part of `pnpm test`). The database tests start PostgreSQL 17 in Docker through `packages/db/test/lib/postgres.ts`, set it up as a preview (`test/lib/stage-db.ts`: login `pr_12` owns `pr_12` and `pr_12_jobs`, no CREATE on the database, migrations applied as the login, the simulated set seeded with `a2h.stage = pr-12`), and are skipped without Docker unless `A2H_DB_PG_REQUIRED=1`. Handlers are called directly with an injected clock; `worker-run.test.ts` runs the whole worker through pg-boss with persona delays shortened to 1 s.
+
+| Scenario | Test |
+|---|---|
+| request-lifecycle: Rules changed after approval | `apps/worker/test/deliver.test.ts` "Scenario: Rules changed after approval" (reserve raised above the bid: no simulate job, `blocked` delivery row, one `blocked_manifests` row with ids, stage `rules` and `bid_below_reserve`, request stays `sent`, a retry does not count it twice, then `expired` at its expiry time; no question text logged) |
+| request-lifecycle: Expiry by the platform | `expire.test.ts` "Scenario: Expiry by the platform" (`sent` and `accepted` → `expired` by `platform` at the expiry time, not before; hold reported `released`) |
+| request-lifecycle: Idempotent replay | `expire.test.ts` "Scenario: Idempotent replay" (expiry twice, also concurrently: one event); `answer-intake.test.ts` "Scenario: Idempotent replay" (same answer twice: one answer, no second event) |
+| request-lifecycle: Atomic transition | `answer-intake.test.ts` "Scenario: Atomic transition" (the `answered` event row cannot be written: status stays `accepted`, no answer stored) |
+| request-lifecycle: Legal transitions (participant and platform moves) | `simulate.test.ts` "Scenario: Prompt answer" (`sent → accepted → answered`, one event each), "Scenario: Decline", `expire.test.ts` |
+| answer-attestation: Unsigned answer | `answer-intake.test.ts` "Scenario: Unsigned answer" |
+| answer-attestation: Attestation missing or false | `answer-intake.test.ts` "Scenario: Attestation missing or false" |
+| answer-attestation: Confidence out of range | `answer-intake.test.ts` "Scenario: Confidence out of range" (0 and 6) |
+| answer-attestation: Body does not match the intent | `answer-intake.test.ts` "Scenario: Body does not match the intent" (signed estimate body on a judgment request) |
+| answer-attestation: Tampered body | `answer-intake.test.ts` "Scenario: Tampered body" |
+| answer-attestation: Old key still verifies | `answer-intake.test.ts` "Scenario: Old key still verifies" (signed, then the stage rotates; accepted through the rotated `key_id`); `signing-keys.test.ts` (rotation at start) |
+| answer-attestation: Revoked key | `answer-intake.test.ts` "Scenario: Revoked key", "an unknown key_id is rejected" |
+| answer-attestation: Rejection log line | `answer-intake.test.ts` "Scenario: Rejection log line" (keys exactly `level`, `msg`, `request_id`, `code`; no body, no identity, no signature) |
+| participant-simulation: Prompt answer | `simulate.test.ts` "Scenario: Prompt answer"; `worker-run.test.ts` (end to end through the queues) |
+| participant-simulation: Decline | `simulate.test.ts` "Scenario: Decline" (reason code `outside_expertise`, no cleared amount, hold released, no answer) |
+| participant-simulation: Can't tell | `simulate.test.ts` "Scenario: Can't tell" (verdict `cant_tell`, complete envelope) |
+| participant-simulation: Silent until expiry | `simulate.test.ts` "Scenario: Silent until expiry" |
+| participant-simulation: Scripted personas (slow; delays under two minutes) | `simulate.test.ts` "slow persona: accepts first, answers at its delay", "every persona acts within its delay" |
+| participant-simulation: Verifies like a real answer | `simulate.test.ts` "Scenario: Verifies like a real answer" (canonical payload recomputed from stored fields, verified with the key named by `key_id`) |
+| participant-simulation: Marked in discovery and in answers (worker side) | `simulate.test.ts` "Scenario: Marked in discovery and in answers" (answer's participant: `sim-` handle, "(simulated)" label, `simulated`; body text marked) |
+| participant-simulation: Nothing on production | `worker-run.test.ts` "Scenario: Nothing on production" (no `simulate` or `deliver` queue, `expire` still there, nothing delivered); `env.test.ts` (STAGE=prod never enables the simulator) |
+| participant-simulation: No outbound traffic | `worker-run.test.ts` "Scenario: Prompt answer, end to end ... with Scenario: No outbound traffic" (fetch, http and https mocked: zero calls; every socket opened goes to the stage database) and "Scenario: No outbound traffic (source)" (no mailer, HTTP client, AWS SDK or model client in `src/`) |
+| design D3: jobs schema (task 5.1) | `worker.test.ts` (pg-boss tables in `pr_12_jobs`; `pr_12` holds only the Drizzle tables; nothing in `public`); `env.test.ts` (`DB_JOBS_SCHEMA` required, distinct from `DB_SCHEMA`) |
+| design D4 amendment: stage key recorded at start | `signing-keys.test.ts` (first start active; restart no-op; new key rotates the previous platform key; participant keys untouched; a rotated key or a mismatched pair refused) |
+
+Not covered here, by design: what `check_requests` shows (handle or label, `simulated: true`, cleared amount, signature display) is the mcp side (task 4.4) and the contract suite (7.1).

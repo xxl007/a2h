@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { dbConfigFromEnv } from "../infra/env.ts";
+import { generateKeyPairSync } from "node:crypto";
+import { dbConfigFromEnv, workerConfigFromEnv } from "../infra/env.ts";
 
 const PASSWORD = "s3cr3t-p@ss:w/rd#?%&=+ é";
 
@@ -18,6 +19,7 @@ const base = {
   DB_USER: "pr_12",
   DB_PASSWORD: PASSWORD,
   DB_SCHEMA: "pr_12",
+  DB_JOBS_SCHEMA: "pr_12_jobs",
 };
 
 function silenceAndWatchConsole(t: TestContext): string[] {
@@ -84,7 +86,7 @@ test("DB_PORT defaults to 5432", (t) => {
 test("missing or invalid variables fail by name, never echoing the password", (t) => {
   const seen = silenceAndWatchConsole(t);
   const cases: Array<[Record<string, string>, RegExp]> = [];
-  for (const name of ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_SCHEMA"] as const) {
+  for (const name of ["DB_HOST", "DB_NAME", "DB_USER", "DB_PASSWORD", "DB_SCHEMA", "DB_JOBS_SCHEMA"] as const) {
     const env: Record<string, string> = { ...base };
     delete env[name];
     cases.push([env, new RegExp(name)]);
@@ -95,6 +97,7 @@ test("missing or invalid variables fail by name, never echoing the password", (t
   // pg-boss interpolates the schema name into SQL: only plain identifiers.
   for (const bad of ["pr_12; drop table x", "Public", "pr-12", "1abc", "a".repeat(64), '"x"']) {
     cases.push([{ ...base, DB_SCHEMA: bad }, /DB_SCHEMA/]);
+    cases.push([{ ...base, DB_JOBS_SCHEMA: bad }, /DB_JOBS_SCHEMA/]);
   }
   for (const [env, expected] of cases) {
     assert.throws(
@@ -113,4 +116,110 @@ test("missing or invalid variables fail by name, never echoing the password", (t
 test("public is an accepted schema (dev and prod stages)", (t) => {
   silenceAndWatchConsole(t);
   assert.equal(dbConfigFromEnv({ ...base, DB_SCHEMA: "public" }).schema, "public");
+});
+
+// ---- task 5.1: pg-boss in its own schema (design D3) ------------------------
+
+test("DB_JOBS_SCHEMA is the pg-boss schema, distinct from the stage's tables", (t) => {
+  silenceAndWatchConsole(t);
+  const config = dbConfigFromEnv({ ...base });
+  assert.equal(config.schema, "pr_12");
+  assert.equal(config.jobsSchema, "pr_12_jobs");
+  assert.equal(dbConfigFromEnv({ ...base, DB_SCHEMA: "public", DB_JOBS_SCHEMA: "pgboss" }).jobsSchema, "pgboss");
+});
+
+test("DB_JOBS_SCHEMA equal to DB_SCHEMA is refused: pg-boss never shares the Drizzle schema", (t) => {
+  silenceAndWatchConsole(t);
+  assert.throws(() => dbConfigFromEnv({ ...base, DB_JOBS_SCHEMA: "pr_12" }), /DB_JOBS_SCHEMA/);
+});
+
+// ---- the whole worker configuration (tasks 5.2 to 5.6) ----------------------
+
+// A throwaway Ed25519 key pair, generated for this test file only.
+const pair = generateKeyPairSync("ed25519");
+const PKCS8 = pair.privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
+const RAW_PUBLIC = pair.publicKey.export({ format: "der", type: "spki" }).subarray(12).toString("base64");
+
+const full = {
+  ...base,
+  STAGE: "pr-12",
+  SIMULATOR_ENABLED: "true",
+  PRINCIPAL_ID: "dev-principal-pr-12",
+  PRINCIPAL_IDENTITY_MODE: "verified_organisation",
+  PRINCIPAL_VERIFIED: "true",
+  PRINCIPAL_CURRENCY: "EUR",
+  PRINCIPAL_MONTHLY_BUDGET_MINOR: "50000",
+  PRINCIPAL_PER_REQUEST_CAP_MINOR: "6000",
+  PRINCIPAL_ASK_FIRST_ABOVE_MINOR: "none",
+  PRINCIPAL_DAILY_REQUEST_LIMIT: "50",
+  PRINCIPAL_THROTTLED_DAILY_LIMIT: "5",
+  FEE_RATE: "0.2",
+  CLEARING_SHARE: "0.5",
+  SIGNING_KEY_ID: "a2h-pr-12-0123456789abcdef",
+  SIGNING_PRIVATE_KEY: PKCS8,
+  SIGNING_PUBLIC_KEY: RAW_PUBLIC,
+};
+
+test("worker configuration: stage, principal and policy, rates, signing key", (t) => {
+  const seen = silenceAndWatchConsole(t);
+  const c = workerConfigFromEnv({ ...full });
+  assert.equal(c.stage, "pr-12");
+  assert.equal(c.simulatorEnabled, true);
+  assert.equal(c.db.jobsSchema, "pr_12_jobs");
+  assert.deepEqual(c.principal, { principal_id: "dev-principal-pr-12", identity_mode: "verified_organisation", verified: true });
+  assert.deepEqual(c.policy, {
+    fee_rate: 0.2,
+    currency: "EUR",
+    monthly_budget_minor: 50000,
+    per_request_cap_minor: 6000,
+    ask_first_above_minor: null,
+    daily_request_limit: 50,
+    throttled_daily_limit: 5,
+  });
+  assert.equal(c.clearingShare, 0.5);
+  assert.equal(c.signing.key_id, "a2h-pr-12-0123456789abcdef");
+  assert.equal(c.signing.public_key, RAW_PUBLIC);
+  assert.deepEqual(Buffer.from(c.signing.private_key_pkcs8), Buffer.from(PKCS8, "base64"));
+  assert.equal(workerConfigFromEnv({ ...full, PRINCIPAL_ASK_FIRST_ABOVE_MINOR: "1500" }).policy.ask_first_above_minor, 1500);
+  assert.deepEqual(seen, [], "the adapter logs nothing");
+});
+
+test("Nothing on production: STAGE=prod never enables the simulator, whatever SIMULATOR_ENABLED says", (t) => {
+  silenceAndWatchConsole(t);
+  assert.equal(workerConfigFromEnv({ ...full, STAGE: "prod", SIMULATOR_ENABLED: "true" }).simulatorEnabled, false);
+  assert.equal(workerConfigFromEnv({ ...full, STAGE: "prod", SIMULATOR_ENABLED: "false" }).simulatorEnabled, false);
+  assert.equal(workerConfigFromEnv({ ...full, STAGE: "dev", SIMULATOR_ENABLED: "false" }).simulatorEnabled, false);
+  assert.equal(workerConfigFromEnv({ ...full, STAGE: "dev", SIMULATOR_ENABLED: "true" }).simulatorEnabled, true);
+});
+
+test("invalid worker configuration fails by name and never echoes key material", (t) => {
+  const seen = silenceAndWatchConsole(t);
+  const bad: Array<[Record<string, string>, RegExp]> = [
+    [{ ...full, SIMULATOR_ENABLED: "yes" }, /SIMULATOR_ENABLED/],
+    [{ ...full, PRINCIPAL_VERIFIED: "1" }, /PRINCIPAL_VERIFIED/],
+    [{ ...full, PRINCIPAL_IDENTITY_MODE: "anyone" }, /PRINCIPAL_IDENTITY_MODE/],
+    [{ ...full, PRINCIPAL_MONTHLY_BUDGET_MINOR: "500.5" }, /PRINCIPAL_MONTHLY_BUDGET_MINOR/],
+    [{ ...full, FEE_RATE: "1" }, /FEE_RATE/],
+    [{ ...full, CLEARING_SHARE: "1.5" }, /CLEARING_SHARE/],
+    [{ ...full, SIGNING_PRIVATE_KEY: "not base64!" }, /SIGNING_PRIVATE_KEY/],
+    [{ ...full, SIGNING_PUBLIC_KEY: "short" }, /SIGNING_PUBLIC_KEY/],
+    [{ ...full, SIGNING_KEY_ID: "has spaces" }, /SIGNING_KEY_ID/],
+  ];
+  for (const name of ["STAGE", "PRINCIPAL_ID", "FEE_RATE", "CLEARING_SHARE", "SIGNING_KEY_ID", "SIGNING_PRIVATE_KEY", "SIGNING_PUBLIC_KEY"]) {
+    const env: Record<string, string> = { ...full };
+    delete env[name];
+    bad.push([env, new RegExp(name)]);
+  }
+  for (const [env, expected] of bad) {
+    assert.throws(
+      () => workerConfigFromEnv(env),
+      (error: Error) => {
+        assert.match(error.message, expected);
+        assert.ok(!error.message.includes(PKCS8), "private key in error message");
+        assert.ok(!error.message.includes(PASSWORD), "password in error message");
+        return true;
+      },
+    );
+  }
+  assert.deepEqual(seen, []);
 });

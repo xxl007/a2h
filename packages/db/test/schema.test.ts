@@ -86,6 +86,7 @@ describe("enums and codes come from @a2h/protocol", () => {
     ["persona", protocol.SIMULATED_PERSONAS],
     ["actor", protocol.ActorSchema.options],
     ["lane", protocol.LaneSchema.options],
+    ["delivery outcome", protocol.DELIVERY_OUTCOMES],
   ];
   for (const [what, values] of cases) {
     test(`${what}: every value appears in a check constraint`, () => {
