@@ -6,7 +6,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { TOOL_SCHEMAS, toolJsonSchemas } from "../src/index.ts";
+import { PING_MAX_HOLD_SECONDS, PingInputSchema, TOOL_SCHEMAS, pingJsonSchemas, toolJsonSchemas } from "../src/index.ts";
 
 const dir = new URL("../json-schema/", import.meta.url);
 const update = process.env.UPDATE_SNAPSHOTS === "1";
@@ -35,6 +35,24 @@ describe("JSON Schema export, snapshot per tool input and output", () => {
   test("covers exactly the three A2H tools of this change", () => {
     assert.deepEqual(Object.keys(exported).sort(), ["check_requests", "find_humans", "request_human"]);
     assert.deepEqual(Object.keys(TOOL_SCHEMAS).sort(), Object.keys(exported).sort());
+  });
+  test("ping input matches json-schema/ping.input.json (review N6: every tool's schema comes from the export)", () => {
+    const file = new URL("ping.input.json", dir);
+    const text = JSON.stringify(pingJsonSchemas().input, null, 2) + "\n";
+    if (update) writeFileSync(file, text);
+    assert.ok(existsSync(file), `snapshot missing: run UPDATE_SNAPSHOTS=1 pnpm --filter @a2h/protocol test`);
+    assert.equal(text, readFileSync(file, "utf8"));
+  });
+  test("ping input: optional integer holdSeconds 0..3900, nothing else", () => {
+    const input = pingJsonSchemas().input as { type: string; properties: Record<string, Record<string, unknown>>; required?: string[] };
+    assert.equal(input.type, "object");
+    const hold = input.properties["holdSeconds"]!;
+    assert.deepEqual([hold["type"], hold["minimum"], hold["maximum"]], ["integer", 0, PING_MAX_HOLD_SECONDS]);
+    assert.ok(!(input.required ?? []).includes("holdSeconds"));
+    assert.equal(PING_MAX_HOLD_SECONDS, 3900);
+    assert.ok(PingInputSchema.safeParse({}).success);
+    assert.ok(!PingInputSchema.safeParse({ holdSeconds: 1.5 }).success);
+    assert.ok(!PingInputSchema.safeParse({ holdSeconds: 3901 }).success);
   });
   test("request_human input requires the manifest fields, never a principal (it comes from the connection)", () => {
     const input = exported.request_human.input as { required: string[]; properties: Record<string, unknown> };

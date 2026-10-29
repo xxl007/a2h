@@ -6,6 +6,7 @@ import {
   CheckRequestsOutputSchema,
   FindHumansInputSchema,
   FindHumansOutputSchema,
+  PingInputSchema,
   RequestHumanInputSchema,
   RequestHumanOutputSchema,
 } from "./tools.ts";
@@ -36,4 +37,9 @@ export function toolJsonSchemas(): Record<ToolName, { input: JsonSchema; output:
     out[name] = { input: toJsonSchema(TOOL_SCHEMAS[name].input, "input"), output: toJsonSchema(TOOL_SCHEMAS[name].output, "output") };
   }
   return out;
+}
+
+/** JSON Schema of `ping`'s input (it has no output schema): every listed tool's schema comes from this package. */
+export function pingJsonSchemas(): { input: JsonSchema } {
+  return { input: toJsonSchema(PingInputSchema, "input") };
 }

@@ -54,7 +54,7 @@ export type ValidationResult =
   | { ok: true; deferred: boolean; deliver_at: string; eta: string }
   | { ok: false; error: ProtocolError; blocked?: BlockedManifest };
 
-const DETAIL: Record<Exclude<ProtocolErrorCode, "not_found" | "invalid_transition" | "schema_invalid" | "forbidden_content">, string> = {
+const DETAIL: Record<Exclude<ProtocolErrorCode, "not_found" | "invalid_transition" | "schema_invalid" | "forbidden_content" | "answer_unverified">, string> = {
   conflict: "The approval does not match these arguments.",
   principal_not_accountable: "The principal is not verified and accountable for this request.",
   principal_not_verified_for_lane: "This request type needs a real-name verified principal.",
