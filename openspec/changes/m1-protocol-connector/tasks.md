@@ -58,7 +58,7 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 
 ## 8. Review and gate (PM)
 
-- [ ] 8.1 Cold review by the reviewer agent on the PR (blocks on missing tests, spec drift, the one rule); verify findings are resolved or recorded in this file
+- [x] 8.1 Cold review by the reviewer agent on the PR (blocks on missing tests, spec drift, the one rule); verify findings are resolved or recorded in this file. Review at de252b5: BLOCK (B1); re-check at 49aa551/9552eb6: PASS (PR #26 comment 6499556839). Re-check notes: adversarial "cases 10 and 11" could pass vacuously, contract tests duplicate the budget number, option labels could carry line breaks (all fixed in the final hardening PR); live tests may skip under the budget guard or by day (in-process coverage exists).
 - [ ] 8.2 Gate 2 post: what shipped, preview URLs, the `claude mcp add` command, issues closed, deliberately not done; verify the owner's validation is recorded before archive
 
 ## Review findings (task 8.1, cold review of PR #26 at de252b5, 2026-10-29)
