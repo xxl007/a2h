@@ -9,7 +9,8 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { CheckRequestsOutputSchema, type CheckedRequest } from "@a2h/protocol";
 import { SEED_PARTICIPANTS, SEED_PERSONAS, type SeedParticipant } from "../../packages/db/seed/simulated.ts";
-import { mcpUrl } from "../src/live-env.ts";
+import { developmentPolicy, stageInfo } from "../../infra/config.ts";
+import { expectedStage, mcpUrl } from "../src/live-env.ts";
 import { PROTOCOL_VERSION, recordingFetch, type Exchange } from "./mcp-client.ts";
 
 export type Args = Record<string, unknown>;
@@ -271,18 +272,25 @@ export async function usage(c: A2hClient): Promise<{ committed_minor: number; to
   return { committed_minor: committed, today, seen: month.length };
 }
 
-/** The development policy of every stage (infra/config.ts, design D7). */
-export const STAGE_POLICY = { monthly_budget_minor: 50_000, daily_request_limit: 50 } as const;
+/**
+ * The development principal's policy on the stage under test, from the same
+ * source the deployment uses (infra/config.ts developmentPolicy, design D7):
+ * dev has ten times the monthly budget, prod and previews the base.
+ */
+export function stagePolicy(): { monthly_budget_minor: number; daily_request_limit: number } {
+  return developmentPolicy(stageInfo(expectedStage()));
+}
 /** Kept free for the owner's own Gate 2 run on a preview. */
 export const OWNER_HEADROOM = { budget_minor: 15_000, requests: 15 } as const;
 
 /** A skip reason when spending `cost_minor` and `requests` would eat into the owner's headroom; false otherwise. */
 export async function budgetGuard(c: A2hClient, cost_minor: number, requests: number): Promise<string | false> {
   const u = await usage(c);
-  const budgetLeft = STAGE_POLICY.monthly_budget_minor - u.committed_minor - cost_minor;
-  const requestsLeft = STAGE_POLICY.daily_request_limit - u.today - requests;
+  const policy = stagePolicy();
+  const budgetLeft = policy.monthly_budget_minor - u.committed_minor - cost_minor;
+  const requestsLeft = policy.daily_request_limit - u.today - requests;
   if (budgetLeft < OWNER_HEADROOM.budget_minor || requestsLeft < OWNER_HEADROOM.requests) {
-    return `budget guard: committed ${u.committed_minor} of ${STAGE_POLICY.monthly_budget_minor} this month, ${u.today} requests today; ` +
+    return `budget guard: committed ${u.committed_minor} of ${policy.monthly_budget_minor} this month, ${u.today} requests today; ` +
       `running would leave less than ${OWNER_HEADROOM.budget_minor} / ${OWNER_HEADROOM.requests} for the owner`;
   }
   return false;
