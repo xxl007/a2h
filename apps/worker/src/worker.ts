@@ -13,10 +13,11 @@ import type { DbConfig } from "./db-config.ts";
 import { createPool } from "./db.ts";
 import { deliverRequest, dispatchDue } from "./deliver.ts";
 import { expireDue } from "./expire.ts";
-import type { Log, WorkerLogLine } from "./log.ts";
+import type { Log } from "./log.ts";
 import { createQueues, EXPIRE_CRON, jobsOf, QUEUES, type DeliverJob, type SimulateJob } from "./queues.ts";
 import { loadSigner, registerStageKey } from "./signing-keys.ts";
 import { runSimulateStep, type SimulateContext } from "./simulate.ts";
+import { errorFields } from "./error-log.ts";
 
 export type { WorkerLogLine } from "./log.ts";
 
@@ -58,10 +59,6 @@ export interface RunningWorker {
   stop: () => Promise<void>;
 }
 
-function errorFields(error: unknown): WorkerLogLine {
-  // Never the error object itself: name and message only (no values, no stack).
-  return { error: error instanceof Error ? error.name : "unknown", detail: error instanceof Error ? error.message : undefined };
-}
 
 export async function startWorker({ config, log, dispatchIntervalMs = 5_000, pollingIntervalSeconds = 2 }: WorkerOptions): Promise<RunningWorker> {
   const { stage } = config;
