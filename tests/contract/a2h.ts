@@ -107,13 +107,13 @@ export interface A2hClient {
  * A 2026-07-28 client that declares form elicitation and never fulfils input
  * requests by itself: the test plays the principal, round by round.
  */
-export async function principalClient(): Promise<A2hClient> {
+export async function principalClient(options: { forms?: boolean } = {}): Promise<A2hClient> {
   const { fetch, exchanges } = recordingFetch();
   const client = new Client(
     { name: "a2h-contract-principal", version: "0.0.0" },
     {
       versionNegotiation: { mode: { pin: PROTOCOL_VERSION } },
-      capabilities: { elicitation: { form: {} } },
+      capabilities: options.forms === false ? {} : { elicitation: { form: {} } },
       inputRequired: { autoFulfill: false },
     },
   );

@@ -161,7 +161,9 @@ describe("protocol/request-approval (live)", () => {
     assert.equal(requestedSchema.properties["question"]!["type"], "string");
     assert.equal(requestedSchema.properties["question"]!["default"], QUESTION, "pre-filled with the question, verbatim");
     assert.match(message, /€32\.00/, "the gross bid");
-    assert.match(message, /Send · hold €32\.00/, "the primary action states the consequence");
+    // "Send · hold €N" is wording in the message (form elicitation cannot label buttons); it closes the message.
+    const lastLine = message.trim().split("\n").at(-1) ?? "";
+    assert.match(lastLine, /Send · hold €32\.00/, `the message's last line states the consequence: ${JSON.stringify(lastLine)}`);
     assert.match(message, /single field/, "the format");
     assert.ok(message.includes(String(base()["expires_at"]).slice(0, 10)), "the expiry");
     assert.match(message, /workspace/i);
@@ -252,6 +254,65 @@ describe("protocol/request-approval (live)", () => {
     const round = await approvalRound(c, base());
     const result = await retryLeg(c, base(), round.requestState, accept("   "));
     assert.equal(errorOf(result).code, "schema_invalid");
+    await assertNothingCreatedFor(c, MV, since);
+  });
+
+  test("Scenario: Options shown with the question (the approval message; stored values: package test)", async () => {
+    // sim-ep-5c07 accepts opinion (net 800 → gross 1000); first leg only, nothing created.
+    const EP = "sim-ep-5c07";
+    const since = serverNow();
+    const options = [
+      { id: "short", label: "Short sentences, «simple» words" },
+      { id: "rich", label: "Richer vocabulary (é, 中文)" },
+    ];
+    const pollArgs = manifest(EP, "opinion", 1100, "Which style suits five-year-olds better?", { format: "poll", options, expires_at: expiresIn(3 * 86_400) });
+    const poll = await approvalRound(c, pollArgs);
+    const pollMessage = poll.inputRequests!["approval"]!.params.message;
+    for (const o of options) assert.ok(pollMessage.includes(o.label), `the approval message does not show the option "${o.label}" verbatim`);
+    await retryLeg(c, pollArgs, poll.requestState, { action: "cancel" });
+
+    const scaleArgs = manifest(EP, "opinion", 1100, "How well does this book suit five-year-olds?", { format: "single_field", scale: { min: 1, max: 7 }, expires_at: expiresIn(3 * 86_400) });
+    const scaled = await approvalRound(c, scaleArgs);
+    const scaleMessage = scaled.inputRequests!["approval"]!.params.message;
+    assert.match(scaleMessage, /\b1\b[^\n]*\b7\b/, "the approval message does not show the scale (1 to 7)");
+    await retryLeg(c, scaleArgs, scaled.requestState, { action: "cancel" });
+    // "the request created on accept holds exactly those values": check_requests
+    // does not return options or scale; apps/mcp/test/request-human.test.ts.
+    await assertNothingCreatedFor(c, EP, since);
+  });
+
+  test("Scenario: Shape outside this change", async () => {
+    const since = serverNow();
+    const shapes: [string, Record<string, unknown>, RegExp][] = [
+      ["audience panel_sample", base({ audience: "panel_sample" }), /audience/],
+      ["audience role_qualified_first_to_accept", base({ audience: "role_qualified_first_to_accept" }), /audience/],
+      ["time shape threaded", base({ time_shape: "threaded" }), /time_shape/],
+      ["time shape recurring", base({ time_shape: "recurring" }), /time_shape/],
+      ["attachments", base({ attachments: [{ ref: "att-0001", media_type: "application/pdf", size_bytes: 1024 }] }), /attachments/],
+    ];
+    for (const [label, args, field] of shapes) {
+      const raw = await firstLeg(c, args);
+      assert.ok(!isInputRequired(raw), `${label}: the approval was shown for a shape this change does not deliver`);
+      const error = errorOf(raw);
+      assert.equal(error.code, "schema_invalid", `${label} → ${error.code}`);
+      assert.match(error.detail ?? "", field, `${label}: the detail does not name the field`);
+      assert.match(error.detail ?? "", /\bM[1-9]\b/, `${label}: the detail does not name the milestone that introduces it`);
+    }
+    await assertNothingCreatedFor(c, MV, since);
+  });
+
+  test("Scenario: Client without forms", async () => {
+    const since = serverNow();
+    const noForms = await principalClient({ forms: false });
+    try {
+      const raw = await firstLeg(noForms, base());
+      assert.ok(!isInputRequired(raw), "a client that cannot show forms was sent the approval");
+      assert.equal(raw.isError, true);
+      assert.match(texts(raw), /form|elicitation/i, "the error says the approval dialog cannot be shown");
+      assert.match(texts(raw), /nothing was created/i);
+    } finally {
+      await noForms.close();
+    }
     await assertNothingCreatedFor(c, MV, since);
   });
 
