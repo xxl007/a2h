@@ -225,17 +225,37 @@ describe("check_requests", { skip: skipWithoutDocker() }, () => {
     assert.deepEqual(r.answer, envelope);
   });
 
-  test("Revoked key or tampered body: the answer is not presented as verified", async () => {
-    const revoked = await newKey("a2h-test-0000000000000003");
-    await sqlIn(db, "INSERT INTO signing_keys (key_id, public_key, status, revoked_at) VALUES ($1, $2, 'revoked', now())", [revoked.key_id, revoked.public_key]);
+  test("Scenario: Stored answer that no longer verifies: not shown, answer_unverified by id, left out of lists", async () => {
+    // Signed with a key that was active, then revoked after the answer was stored.
+    const later = await newKey("a2h-test-0000000000000003");
+    // A second active key needs another owner (one active key per owner): the participant's own key.
+    await sqlIn(db, "INSERT INTO signing_keys (key_id, public_key, status, participant_id) VALUES ($1, $2, 'active', 'p_sim_mv_7f3c')", [later.key_id, later.public_key]);
     const id = await send();
-    await answer(id, "2026-10-27T11:10:00+02:00", revoked);
+    await answer(id, "2026-10-27T11:10:00+02:00", later);
+    assert.equal((await check({ request_id: id })).requests[0]?.status, "answered", "verifies while the key is active");
+    await sqlIn(db, "UPDATE signing_keys SET status = 'revoked', revoked_at = now() WHERE key_id = $1", [later.key_id]);
     const { result } = await check({ request_id: id });
     assert.equal(result.isError, true);
-    assert.equal((result.structuredContent as { error: { code: string } }).error.code, "schema_invalid");
-    assert.ok(!JSON.stringify(result).includes(ANSWER_TEXT), "an unverifiable answer is not shown");
+    const error = (result.structuredContent as { error: { code: string; request_id?: string } }).error;
+    assert.equal(error.code, "answer_unverified");
+    assert.equal(error.request_id, id);
+    assert.ok(!JSON.stringify(result).includes(ANSWER_TEXT), "the envelope is not shown");
     const listed = await check({ status: "answered" });
     assert.ok(!listed.requests.some((r) => r.request_id === id), "and it is left out of lists");
+    assert.match(texts(listed.result).join("\n"), /left out/);
+  });
+
+  test("A stored answer whose body differs from what was signed is not shown either", async () => {
+    const id = await send();
+    await transition(id, "sent", "accepted", "participant", "2026-10-27T09:05:00Z");
+    const signed: UnsignedAnswer = { request_id: id, participant_id: "p_sim_mv_7f3c", body: { verdict: "yes" }, confidence: 4, answered_personally: true, signed_at: "2026-10-27T11:10:00+02:00" };
+    const signature = await key.sign(signed);
+    await sqlIn(db, `INSERT INTO answers (request_id, participant_id, body, confidence, answered_personally, signed_at, key_id, signature)
+      VALUES ($1, 'p_sim_mv_7f3c', $2, 4, true, $3, $4, $5)`, [id, JSON.stringify({ verdict: "no" }), signed.signed_at, key.key_id, signature]);
+    await sqlIn(db, "UPDATE requests SET status = 'answered', cleared_minor = 3163 WHERE id = $1", [id]);
+    await sqlIn(db, "INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ($1, 'accepted', 'answered', 'participant')", [id]);
+    const { result } = await check({ request_id: id });
+    assert.equal((result.structuredContent as { error: { code: string } }).error.code, "answer_unverified");
   });
 
   test("Either an id or a filter, not both", async () => {

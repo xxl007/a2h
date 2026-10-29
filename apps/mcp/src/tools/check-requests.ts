@@ -38,7 +38,7 @@ type LogFields = Omit<ToolLogFields, "tool" | "http_request_id" | "principal_id"
 
 const NOT_FOUND: ProtocolError = { code: "not_found", stage: "lifecycle", retryable: false, detail: "No request with this id." };
 const UNVERIFIED: ProtocolError = {
-  code: "schema_invalid",
+  code: "answer_unverified",
   stage: "lifecycle",
   retryable: false,
   detail: "The stored answer failed signature verification; it is not shown.",

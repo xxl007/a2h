@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { connect, start, type Era } from "./helpers.ts";
-import { toolJsonSchemas } from "@a2h/protocol";
+import { pingJsonSchemas, toolJsonSchemas } from "@a2h/protocol";
 import { PACKAGE_VERSION } from "../src/version.ts";
 
 const A2H_TOOLS = ["find_humans", "request_human", "check_requests"] as const;
@@ -85,7 +85,7 @@ for (const era of ERAS) {
     }
   });
 
-  test(`[${era}] Scenario: Tool schemas come from the export: input and output schemas equal the protocol export, field for field`, async () => {
+  test(`[${era}] Scenario: Tool schemas come from the export: every tool's input and output schemas equal the protocol export, field for field`, async () => {
     const s = await start();
     try {
       const client = await connect(`${s.origin}/mcp`, { era });
@@ -97,6 +97,10 @@ for (const era of ERAS) {
           assert.deepEqual(tool.inputSchema, exported[name].input, `${name} input schema`);
           assert.deepEqual(tool.outputSchema, exported[name].output, `${name} output schema`);
         }
+        // ping too (review N6): its input from the export, no output schema on either side.
+        const ping = tools.find((t) => t.name === "ping")!;
+        assert.deepEqual(ping.inputSchema, pingJsonSchemas().input, "ping input schema");
+        assert.equal(ping.outputSchema, undefined);
       } finally {
         await client.close();
       }

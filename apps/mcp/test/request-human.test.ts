@@ -178,6 +178,106 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
     }
   });
 
+  // ---- Review B1: every field the participant will receive is approved -------
+
+  const POLL = {
+    ...BASE,
+    to: "sim-ep-5c07",
+    intent: "opinion",
+    format: "poll",
+    bid_minor: 1100,
+    question: "Which cover makes a five-year-old want to open the book?",
+    options: [
+      { id: "a", label: "The fox in the rain (cover A)" },
+      { id: "b", label: "Night garden, «lanterns» & owls — cover B" },
+      { id: "c", label: "ZZ-OPTION-LABEL-3 中文" },
+    ],
+  };
+
+  test("Scenario: Options shown with the question: every option label and the scale verbatim; accept stores exactly those values", async () => {
+    const { db, server } = await fresh();
+    for (const args of [POLL, { ...BASE, to: "sim-ep-5c07", intent: "opinion", format: "single_field", bid_minor: 1100, question: "How likely is a child to reread this book?", scale: { min: 1, max: 7 } }]) {
+      const { round, client } = await firstRound(server.url, args);
+      try {
+        const message = round.inputRequests!["approval"]!.params.message;
+        for (const o of (args as { options?: Array<{ id: string; label: string }> }).options ?? []) {
+          assert.ok(message.includes(o.label), `option label shown verbatim: ${o.label}`);
+          assert.ok(message.includes(o.id), `option id shown: ${o.id}`);
+        }
+        const scale = (args as { scale?: { min: number; max: number } }).scale;
+        if (scale) assert.match(message, new RegExp(`Scale: ${scale.min} to ${scale.max}`));
+        assert.match(message, /Send · hold €11\.00$/, "the message ends with the Send · hold wording");
+        const result = await retry(client, "request_human", args, round.requestState, { approval: { action: "accept", content: { question: args.question } } });
+        const id = RequestHumanOutputSchema.parse(result.structuredContent).request_id!;
+        const [row] = await sqlIn<{ options: unknown; scale: unknown }>(db, "SELECT options, scale FROM requests WHERE id = $1", [id]);
+        assert.deepEqual(row!.options, (args as { options?: unknown }).options ?? null);
+        assert.deepEqual(row!.scale, scale ?? null);
+      } finally {
+        await client.close();
+      }
+    }
+  });
+
+  test("An option label never reaches a request without appearing in the approval message (changed options are a conflict)", async () => {
+    const { db, server } = await fresh();
+    const { round, client } = await firstRound(server.url, POLL);
+    try {
+      const message = round.inputRequests!["approval"]!.params.message;
+      const accept = { approval: { action: "accept", content: { question: POLL.question } } };
+      // Options other than the ones shown, presented with the state of the shown ones.
+      const hidden = { ...POLL, options: [...POLL.options.slice(0, 2), { id: "c", label: "ZZ-HIDDEN-OPTION-LABEL" }] };
+      assert.ok(!message.includes("ZZ-HIDDEN-OPTION-LABEL"));
+      assert.equal(errorOf(await retry(client, "request_human", hidden, round.requestState, accept)).code, "conflict");
+      const extra = { ...POLL, options: [...POLL.options, { id: "d", label: "ZZ-HIDDEN-OPTION-LABEL" }] };
+      assert.equal(errorOf(await retry(client, "request_human", extra, round.requestState, accept)).code, "conflict");
+      assert.equal((await writeCounts(db))["requests"], 0);
+      // Every label stored on accept is one the message showed.
+      await retry(client, "request_human", POLL, round.requestState, accept);
+      const [row] = await sqlIn<{ options: Array<{ label: string }> }>(db, "SELECT options FROM requests");
+      for (const o of row!.options) assert.ok(message.includes(o.label), o.label);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("An option label is re-validated on retry like the question (forbidden content)", async () => {
+    const { db, server } = await fresh();
+    const client = await modernClient(server.url);
+    try {
+      const raw = await callRaw(client, "request_human", { ...POLL, options: [...POLL.options.slice(0, 2), { id: "c", label: PUSH_POLL }] });
+      assert.ok(!isInputRequired(raw), "no approval is shown");
+      assert.equal(errorOf(raw).code, "forbidden_content");
+      assert.equal((await writeCounts(db))["requests"], 0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  for (const [field, value, milestone] of [
+    ["attachments", [{ ref: "att-1", media_type: "application/pdf", size_bytes: 1000 }], "M3"],
+    ["audience", "panel_sample", "M3"],
+    ["audience", "population_in_place", "M3"],
+    ["audience", "role_qualified_first_to_accept", "M3"],
+    ["time_shape", "threaded", "M3"],
+    ["time_shape", "recurring", "M3"],
+  ] as const) {
+    test(`Scenario: Shape outside this change: ${field} ${JSON.stringify(value).slice(0, 30)} is schema_invalid naming the field and ${milestone}, nothing created`, async () => {
+      const { db, server } = await fresh();
+      const client = await modernClient(server.url);
+      try {
+        const raw = await callRaw(client, "request_human", { ...BASE, [field]: value });
+        assert.ok(!isInputRequired(raw), "no approval is shown");
+        const error = errorOf(raw);
+        assert.equal(error.code, "schema_invalid");
+        assert.match(error.detail ?? "", new RegExp(field));
+        assert.match(error.detail ?? "", new RegExp(milestone));
+        assert.deepEqual(await writeCounts(db), { requests: 0, request_events: 0, blocked_manifests: 0, answers: 0 });
+      } finally {
+        await client.close();
+      }
+    });
+  }
+
   test("Scenario: Accept after editing: one request whose question is byte-identical to the edited text", async () => {
     const { db, server } = await fresh();
     let seenDefault: unknown;
