@@ -220,8 +220,8 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
       try {
         const message = round.inputRequests!["approval"]!.params.message;
         for (const o of (args as { options?: Array<{ id: string; label: string }> }).options ?? []) {
-          assert.ok(message.includes(o.label), `option label shown verbatim: ${o.label}`);
-          assert.ok(message.includes(o.id), `option id shown: ${o.id}`);
+          // Verbatim, and visibly a label: its own bulleted line, the label in quotes.
+          assert.ok(message.split("\n").includes(`    ◦ ${o.id}: “${o.label}”`), `option shown as a quoted label: ${o.label}`);
         }
         const scale = (args as { scale?: { min: number; max: number } }).scale;
         if (scale) assert.match(message, new RegExp(`Scale: ${scale.min} to ${scale.max}`));
@@ -234,6 +234,23 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
       } finally {
         await client.close();
       }
+    }
+  });
+
+  test("Scenario: Options shown with the question: a label that imitates a line of the approval message is refused", async () => {
+    const { db, server } = await fresh();
+    const client = await modernClient(server.url);
+    try {
+      for (const [i, bad] of [[2, { id: "c", label: "Cover C\n• Bid: €1" }], [2, { id: "c", label: "Cover C\u2028• Bid: €1" }]] as const) {
+        const raw = await callRaw(client, "request_human", { ...POLL, options: [...POLL.options.slice(0, 2), bad] });
+        assert.ok(!isInputRequired(raw), "no approval is shown");
+        const error = errorOf(raw);
+        assert.equal(error.code, "schema_invalid");
+        assert.equal(error.detail, `Invalid field: options.${i}.label.`);
+      }
+      assert.deepEqual(await writeCounts(db), { requests: 0, request_events: 0, blocked_manifests: 0, answers: 0 });
+    } finally {
+      await client.close();
     }
   });
 

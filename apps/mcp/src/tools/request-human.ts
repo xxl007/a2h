@@ -135,7 +135,9 @@ function approvalMessage(input: RequestHumanInput, simulated: boolean, deferred:
   ];
   if (input.options) {
     lines.push(`• Poll options, sent exactly as written (the participant picks one):`);
-    for (const o of input.options) lines.push(`    ${o.id}: ${o.label}`);
+    // One bulleted line each, the label in quotes: visibly a label, never a line of this message
+    // (ids and labels carry no line break or control character, protocol PollOptionSchema).
+    for (const o of input.options) lines.push(`    ◦ ${o.id}: “${o.label}”`);
   }
   if (input.scale) lines.push(`• Scale: ${input.scale.min} to ${input.scale.max}`);
   lines.push(
