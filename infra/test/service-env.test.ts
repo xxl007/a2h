@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { PrincipalSchema, ValidationPolicySchema } from "../../packages/protocol/src/index.ts";
-import { CLEARING_SHARE, DEVELOPMENT_POLICY, developmentPrincipal, FEE_RATE, stageInfo } from "../config.ts";
+import { CLEARING_SHARE, DEVELOPMENT_POLICY, developmentPolicy, developmentPrincipal, FEE_RATE, stageInfo } from "../config.ts";
 import { databaseEnvironment, plainEnvironment, serviceEnvNames } from "../service-env.ts";
 
 const STAGES = ["dev", "prod", "pr-12"];
@@ -34,10 +34,21 @@ test("policy environment round-trips to the protocol's ValidationPolicy and Prin
   for (const s of STAGES) {
     for (const service of ["mcp", "worker"] as const) {
       const { principal, policy } = policyFromEnv(plainEnvironment(service, stageInfo(s)));
-      assert.deepEqual(ValidationPolicySchema.parse(policy), DEVELOPMENT_POLICY, `${s} ${service}`);
+      assert.deepEqual(ValidationPolicySchema.parse(policy), developmentPolicy(stageInfo(s)), `${s} ${service}`);
       assert.deepEqual(PrincipalSchema.parse(principal), developmentPrincipal(stageInfo(s)), `${s} ${service}`);
     }
   }
+});
+
+test("dev's monthly budget is ten times the others' (QA: verify runs must not exhaust it); prod and previews unchanged", () => {
+  const budget = (s: string, service: "mcp" | "worker") => Number(plainEnvironment(service, stageInfo(s))["PRINCIPAL_MONTHLY_BUDGET_MINOR"]);
+  for (const service of ["mcp", "worker"] as const) {
+    assert.equal(budget("dev", service), 10 * DEVELOPMENT_POLICY.monthly_budget_minor);
+    assert.equal(budget("prod", service), DEVELOPMENT_POLICY.monthly_budget_minor);
+    assert.equal(budget("pr-12", service), DEVELOPMENT_POLICY.monthly_budget_minor);
+  }
+  // Only the budget differs.
+  assert.deepEqual({ ...developmentPolicy(stageInfo("dev")), monthly_budget_minor: 0 }, { ...DEVELOPMENT_POLICY, monthly_budget_minor: 0 });
 });
 
 test("FEE_RATE, CLEARING_SHARE, STAGE as plain environment on both services", () => {

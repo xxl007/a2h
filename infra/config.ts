@@ -171,7 +171,8 @@ export function developmentPrincipal(stage: StageInfo) {
 /**
  * The development principal's contact policy and the fee rate (design D7),
  * in the field names of ValidationPolicySchema (packages/protocol), which
- * config.test.ts parses it with. Amounts in euro cents. Same on every stage.
+ * config.test.ts parses it with. Amounts in euro cents. The base for every
+ * stage; `developmentPolicy(stage)` is what a stage receives.
  */
 export const DEVELOPMENT_POLICY = {
   fee_rate: FEE_RATE,
@@ -183,6 +184,21 @@ export const DEVELOPMENT_POLICY = {
   daily_request_limit: 50,
   throttled_daily_limit: 5,
 };
+
+/**
+ * `dev` runs the deploy verification (contract, e2e) on every push to main,
+ * and each run commits about €54 of the principal's budget: at the base budget
+ * about nine pushes in a month would exhaust it and block verification. Dev's
+ * monthly budget is therefore ten times the base; prod and previews keep it.
+ */
+export const DEV_BUDGET_MULTIPLIER = 10;
+
+/** The development principal's policy on a stage (design D7). */
+export function developmentPolicy(stage: StageInfo): typeof DEVELOPMENT_POLICY {
+  return stage.kind === "dev"
+    ? { ...DEVELOPMENT_POLICY, monthly_budget_minor: DEVELOPMENT_POLICY.monthly_budget_minor * DEV_BUDGET_MULTIPLIER }
+    : { ...DEVELOPMENT_POLICY };
+}
 
 /** SSM parameters `dev` publishes and `pr-*` reads (contract, tasks.md §Step 4). */
 export const SHARED_PARAMETERS = {
