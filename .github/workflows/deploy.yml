@@ -120,8 +120,8 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # dev proves itself after each deploy: smoke (curl), MCP contract tests and
-  # web e2e against dev's own URLs; the workflow is red when any fails. The
+  # dev proves itself after each deploy: smoke (curl), MCP contract tests,
+  # the adversarial suite's live half and web e2e against dev's own URLs; the workflow is red when any fails. The
   # 61-minute idle-stream test stays opt-in, by hand (tests/README.md).
   # No AWS credentials: it only reads public URLs.
   verify:
@@ -149,6 +149,11 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @a2h/tests exec playwright install --with-deps chromium
 
+      # The live suites import @a2h/protocol, which resolves to its build
+      # output (dist/); build it and the other workspace packages they import.
+      - name: Build the packages the suites import
+        run: pnpm --filter "@a2h/tests^..." build
+
       - name: Smoke (dev health)
         id: smoke
         env:
@@ -164,6 +169,14 @@ jobs:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
           A2H_STAGE: dev
         run: pnpm --filter @a2h/tests contract
+
+      # Adversarial suite, live half (m1-protocol-connector task 7.2).
+      - name: Adversarial suite
+        id: adversarial
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          A2H_STAGE: dev
+        run: pnpm --filter @a2h/tests adversarial
 
       - name: Wait for the web URL
         id: web
@@ -202,6 +215,7 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           SMOKE: ${{ steps.smoke.outcome }}
           CONTRACT: ${{ steps.contract.outcome }}
+          ADVERSARIAL: ${{ steps.adversarial.outcome }}
           WEB: ${{ steps.web.outcome }}
           E2E: ${{ steps.e2e.outcome }}
           WEB_URL: ${{ needs.deploy.outputs.web }}
@@ -219,6 +233,7 @@ jobs:
             echo "|---|---|"
             echo "| smoke | ${SMOKE:-not run} |"
             echo "| contract | ${CONTRACT:-not run} |"
+            echo "| adversarial | ${ADVERSARIAL:-not run} |"
             echo "| web reachable | ${WEB:-not run} |"
             echo "| e2e | ${E2E:-not run} |"
           } >> "$GITHUB_STEP_SUMMARY"
