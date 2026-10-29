@@ -322,8 +322,11 @@ test("called with require-closed, the teardown re-reads the state first and touc
 const VERIFY_SUITES = [
   ["smoke", "tests/ci/preview-smoke.sh"],
   ["contract", "pnpm --filter @a2h/tests contract"],
+  // m1-protocol-connector task 7.2: the adversarial suite's live half.
+  ["adversarial", "pnpm --filter @a2h/tests adversarial"],
   ["e2e", "pnpm --filter @a2h/tests e2e"],
 ];
+const E2E = VERIFY_SUITES.length - 1;
 const verifyJob = (f) => wf[f]?.jobs?.verify;
 const stepRunning = (j, needle) => steps(j).find((s) => runs(s, needle));
 
@@ -335,20 +338,25 @@ function assertVerifyJob(f) {
   assert.equal(j.permissions?.["id-token"], undefined, `${f} verify must not hold id-token`);
   assert.equal(j.permissions?.contents, "read", `${f} verify contents permission`);
   assert.ok(!steps(j).some((s) => s.uses?.startsWith("aws-actions/")), `${f} verify configures AWS credentials`);
-  // Suites in order: smoke, contract, e2e; each one a step of its own, so a failure turns the job red.
+  // Suites in order: smoke, contract, adversarial, e2e; each one a step of its own, so a failure turns the job red.
   const at = VERIFY_SUITES.map(([label, needle]) => indexOf(j, (s) => runs(s, needle), `${f} verify ${label}`));
-  assert.deepEqual([...at].sort((a, b) => a - b), at, `${f} verify must run smoke, contract, e2e in that order`);
+  assert.deepEqual([...at].sort((a, b) => a - b), at, `${f} verify must run smoke, contract, adversarial, e2e in that order`);
+  // The live suites import @a2h/protocol (dist): its build runs before the first of them.
+  const build = indexOf(j, (s) => runs(s, "build") && runs(s, "@a2h/tests^..."), `${f} verify build of the suites' workspace dependencies`);
+  assert.ok(build < at[1], `${f} verify builds the suites' dependencies after the contract suite`);
   for (const i of at) {
     const s = steps(j)[i];
     assert.equal(s["continue-on-error"], undefined, `${f} verify ${s.name}: a failing suite must fail the job`);
   }
   // Chromium with its system dependencies, before the e2e.
   const pw = indexOf(j, (s) => runs(s, "playwright install") && runs(s, "--with-deps") && runs(s, "chromium"), "playwright install");
-  assert.ok(pw < at[2], `${f} verify installs Playwright after the e2e`);
+  assert.ok(pw < at[E2E], `${f} verify installs Playwright after the e2e`);
   // The URLs come from the deploy job, through env, never interpolated into a script.
   const contract = steps(j)[at[1]];
-  const e2e = steps(j)[at[2]];
+  const adversarial = steps(j)[at[2]];
+  const e2e = steps(j)[at[E2E]];
   assert.match(String(contract.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} contract A2H_MCP_URL`);
+  assert.match(String(adversarial.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} adversarial A2H_MCP_URL`);
   assert.match(String(e2e.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} e2e A2H_MCP_URL`);
   assert.match(String(e2e.env?.A2H_WEB_URL ?? ""), /needs\.deploy\.outputs\.web/, `${f} e2e A2H_WEB_URL`);
   for (const s of steps(j)) {
@@ -395,6 +403,8 @@ test("preview.yml: verify appends a Verification line, with the run link, to the
   assert.ok(writer, "no step writes the Verification line");
   assert.match(writer.run, /passed/);
   assert.match(writer.run, /FAILED/);
+  assert.match(writer.run, /FAILED \(adversarial\)/, "an adversarial failure is named in the Verification line");
+  assert.match(String(writer.env?.ADVERSARIAL ?? ""), /steps\.adversarial\.outcome/);
   assert.match(String(writer.env?.RUN_URL ?? ""), /actions\/runs\/\$\{\{ github\.run_id \}\}/);
   assert.match(String(writer.if ?? ""), /always\(\)/);
 });
@@ -406,7 +416,7 @@ test("deploy.yml: a verify job needs deploy and runs the suites against dev", ()
   assert.equal(j.permissions?.["pull-requests"], undefined, "verify dev has no PR to write to");
   const smoke = stepRunning(j, "tests/ci/preview-smoke.sh");
   assert.match(smoke.run, /preview-smoke\.sh "\$[A-Za-z_{}]+" dev/, "smoke must run in dev mode");
-  for (const needle of ["@a2h/tests contract", "@a2h/tests e2e"]) {
+  for (const needle of ["@a2h/tests contract", "@a2h/tests adversarial", "@a2h/tests e2e"]) {
     assert.equal(stepRunning(j, needle).env?.A2H_STAGE ?? j.env?.A2H_STAGE, "dev", `${needle}: A2H_STAGE must be dev`);
   }
   assert.ok(steps(j).some((s) => runs(s, "GITHUB_STEP_SUMMARY") && String(s.if ?? "").includes("always()")), "outcome not written to the run summary");
@@ -678,4 +688,17 @@ test("every ci.yml job runs unconditionally and its test steps cannot be ignored
   assert.notEqual(pg[0].id, "check", "db-migrate.test.sh (about four minutes) belongs in its own job");
   // preview.yml and deploy.yml call the whole of ci.yml: every job above gates the deploy.
   for (const f of ["preview.yml", "deploy.yml"]) assert.equal(wf[f].jobs.check.uses, "./.github/workflows/ci.yml");
+});
+
+// --- m1-protocol-connector, task 7.2 -----------------------------------------
+// The in-process half of the adversarial suite (answer intake on Postgres in
+// Docker) runs in ci.yml's `pnpm test`, where A2H_DB_PG_REQUIRED=1 makes a
+// missing Docker a failure, not a skip.
+test("the adversarial suite's in-process half runs in CI's pnpm test and cannot skip there", () => {
+  const pkg = JSON.parse(readFileSync(fileURLToPath(new URL("../package.json", import.meta.url)), "utf8"));
+  assert.match(pkg.scripts?.test ?? "", /adversarial\/\*\.local\.test\.ts/, "@a2h/tests test must run adversarial/*.local.test.ts");
+  assert.match(pkg.scripts?.adversarial ?? "", /adversarial\/\*\.live\.test\.ts/, "@a2h/tests adversarial must run adversarial/*.live.test.ts");
+  const testStep = Object.values(wf["ci.yml"].jobs).flatMap((j) => steps(j)).find((s) => runs(s, "pnpm test"));
+  assert.ok(testStep, "ci.yml has no pnpm test step");
+  assert.equal(String(testStep.env?.A2H_DB_PG_REQUIRED ?? ""), "1", "pnpm test must run with A2H_DB_PG_REQUIRED=1");
 });

@@ -260,8 +260,8 @@ jobs:
             earlier may serve an older commit or nothing. Run log:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-  # The deployed preview proves itself: smoke (curl), MCP contract tests and web
-  # e2e against this run's own URLs; the PR check is red when any fails, and a
+  # The deployed preview proves itself: smoke (curl), MCP contract tests, the
+  # adversarial suite's live half and web e2e against this run's own URLs; the PR check is red when any fails, and a
   # Verification line is appended to the preview comment either way.
   # No AWS credentials: it only reads public URLs. Not in the preview-pr-<n>
   # concurrency group: a pending verify must never cancel a pending teardown.
@@ -292,6 +292,11 @@ jobs:
       - name: Install Chromium
         run: pnpm --filter @a2h/tests exec playwright install --with-deps chromium
 
+      # The live suites import @a2h/protocol, which resolves to its build
+      # output (dist/); build it and the other workspace packages they import.
+      - name: Build the packages the suites import
+        run: pnpm --filter "@a2h/tests^..." build
+
       - name: Smoke (health, dev health, routing)
         id: smoke
         env:
@@ -307,6 +312,14 @@ jobs:
         env:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: pnpm --filter @a2h/tests contract
+
+      # Adversarial suite, live half (task 7.2): manifest cases 1 to 6 and the
+      # answers shown to the principal (cases 10, 11). Fail closed expected.
+      - name: Adversarial suite
+        id: adversarial
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: pnpm --filter @a2h/tests adversarial
 
       # CloudFront can take a moment to serve a first deploy: wait up to 5 min.
       - name: Wait for the web URL
@@ -345,16 +358,18 @@ jobs:
           JOB_STATUS: ${{ job.status }}
           SMOKE: ${{ steps.smoke.outcome }}
           CONTRACT: ${{ steps.contract.outcome }}
+          ADVERSARIAL: ${{ steps.adversarial.outcome }}
           WEB: ${{ steps.web.outcome }}
           E2E: ${{ steps.e2e.outcome }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
-            result="passed (smoke, contract, e2e)"
+            result="passed (smoke, contract, adversarial, e2e)"
           elif [ "$JOB_STATUS" = "cancelled" ]; then result="cancelled"
           elif [ "$SMOKE" = "failure" ]; then result="FAILED (smoke)"
           elif [ "$CONTRACT" = "failure" ]; then result="FAILED (contract)"
+          elif [ "$ADVERSARIAL" = "failure" ]; then result="FAILED (adversarial)"
           elif [ "$WEB" = "failure" ]; then result="FAILED (web not reachable)"
           elif [ "$E2E" = "failure" ]; then result="FAILED (e2e)"
           else result="FAILED (setup, before the suites ran)"

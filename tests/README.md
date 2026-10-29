@@ -5,7 +5,9 @@ QA-owned suites for A2H. Every scenario in `openspec/specs` (and in the deltas o
 | Folder | What | Runs |
 |---|---|---|
 | `ci/` | Tests of the CI scripts and workflows (stubbed `aws`, real Postgres 17 in Docker, parsed YAML, bootstrap JSON) and the smoke script (`preview-smoke.sh`, with its own test against a fake `curl`) | `ci.yml`: job `check`, step "Check CI scripts" (stubbed `aws`, YAML, JSON); job `scripts-pg` (the `.pg` and `db-migrate` tests on Postgres 17 in Docker, which fail instead of skipping there); the smoke script itself runs in the `verify` jobs |
-| `contract/` | MCP contract tests against a live MCP endpoint (`@modelcontextprotocol/client`, `node:test`) | in CI on every preview (`preview.yml`, job `verify pr-<n>`) and on `dev` after each deploy from `main` (`deploy.yml`, job `verify dev`); by hand against any stage. The idle-stream test stays opt-in, by hand |
+| `contract/` | MCP contract tests against a live MCP endpoint (`@modelcontextprotocol/client` 2.4.0 pinned to 2026-07-28, `node:test`): transport, discovery, the approval round trip driven by hand (`a2h.ts`), the request flows with the simulated personas | in CI on every preview (`preview.yml`, job `verify pr-<n>`) and on `dev` after each deploy from `main` (`deploy.yml`, job `verify dev`); by hand against any stage. The idle-stream test stays opt-in, by hand |
+| `adversarial/` | Adversarial suite (protocol skill §12, cases 1 to 6, 10, 11): `*.live.test.ts` against a live MCP endpoint, `*.local.test.ts` in-process against the worker's answer intake on Postgres 17 in Docker | live half: same `verify` jobs, step "Adversarial suite" (`pnpm --filter @a2h/tests adversarial`); in-process half: `ci.yml` job `check`, `pnpm test` (`A2H_DB_PG_REQUIRED=1`) |
+| `local/stage.ts` | A local preview-like stage: Postgres 17 in Docker as a preview, the real MCP app at `/pr-12/mcp`, the real worker with the seed's persona delays; optional pinned MCP clock | by hand (`pnpm --filter @a2h/tests local-stage`), for running the live suites without a deploy and for the adversarial red runs |
 | `e2e/` | Playwright e2e of the web app against a live web URL, Chromium only, headless | in CI on every preview and on `dev` (same `verify` jobs; the HTML report is uploaded as a run artifact on failure); by hand against any stage |
 | `src/live-env.ts` | Reads the target URLs from the environment, derives the stage and the health URL | imported by `contract/` and `e2e/` |
 
@@ -21,6 +23,18 @@ pnpm install
 
 # MCP contract tests (one test per mcp-transport scenario; idle stream skipped)
 A2H_MCP_URL=http://<alb-dns>/pr-<n>/mcp pnpm --filter @a2h/tests contract
+
+# Adversarial suite, live half (cases 1 to 6, 10, 11 as seen from outside)
+A2H_MCP_URL=http://<alb-dns>/pr-<n>/mcp pnpm --filter @a2h/tests adversarial
+# Adversarial suite, in-process half (answer intake; needs Docker)
+pnpm --filter @a2h/protocol --filter @a2h/db build && pnpm --filter @a2h/tests test
+
+# A local stage instead of a deploy (prints A2H_MCP_URL; Ctrl-C removes the container)
+pnpm --filter @a2h/protocol --filter @a2h/db build
+pnpm --filter @a2h/tests local-stage
+# ... with the MCP clock pinned at night (quiet hours), and the suites told so:
+A2H_LOCAL_NOW=2026-10-29T23:00:00Z pnpm --filter @a2h/tests local-stage
+A2H_MCP_URL=http://127.0.0.1:<port>/pr-12/mcp A2H_SERVER_NOW=2026-10-29T23:00:00Z pnpm --filter @a2h/tests adversarial
 
 # Idle stream, opt-in: holds one ping for A2H_IDLE_MINUTES minutes (run once per infra change, takes that long)
 A2H_MCP_URL=http://<alb-dns>/pr-<n>/mcp A2H_IDLE_MINUTES=61 pnpm --filter @a2h/tests contract
@@ -42,6 +56,8 @@ bash tests/ci/preview-smoke.sh <alb-dns> dev
 | `A2H_STAGE` | contract, e2e | Expected stage name. Default: `pr-<n>` from the MCP path, `dev` for `/mcp`. Set `prod` for prod. |
 | `A2H_IDLE_MINUTES` | contract | Unset: the idle-stream test is skipped. Integer 1..65: hold `ping` that long. |
 | `A2H_SCHEME` | preview-smoke.sh | `http` (default) or `https` once a domain is set. |
+| `A2H_SERVER_NOW` | contract, adversarial | Only against a local stage started with `A2H_LOCAL_NOW`: the same instant, so the suites know the server's clock (quiet hours). Unset on deployed stages. |
+| `A2H_LOCAL_NOW`, `A2H_LOCAL_PORT`, `A2H_LOCAL_QUIET` | local/stage.ts | Pin the MCP clock; fix the port; `1` silences the log lines. |
 
 Notes:
 
@@ -339,3 +355,109 @@ Not covered here, by design: what `check_requests` shows (handle or label, `simu
 | Scenario | Test |
 |---|---|
 | Only simulated participants are delivered | "Scenario: Only simulated participants are delivered" (a request to a participant that is not simulated gets no deliver job, no delivery row and no blocked row, stays `sent`, then expires) |
+
+## Scenario to test map: m1-protocol-connector (complete, task 7.1)
+
+The one table for the whole change: every scenario of `openspec/changes/m1-protocol-connector/specs/**`, the test that proves it and the suite it runs in. The per-group tables above give the detail of each package test; this table is the map a reviewer checks against. Scenarios that cannot be observed from outside a deployed stage (rows, logs, another principal, the server's clock, production) are proven by the package or in-process tests named here; their live test, where one exists, checks the observable part only and says so in its name.
+
+Suites: **contract** = `tests/contract`, live, `verify` jobs of `preview.yml` and `deploy.yml`; **adversarial** = `tests/adversarial/*.live.test.ts`, live, same jobs; **adversarial (in-process)** = `tests/adversarial/*.local.test.ts`, `ci.yml` `pnpm test`; **package** = the package's `node --test` suite, `ci.yml` `pnpm test` (database tests on Postgres 17 in Docker, `A2H_DB_PG_REQUIRED=1`); **CI scripts** = `tests/ci`, `ci.yml`.
+
+| Spec | Scenario | Live test | Package or in-process test | Suites |
+|---|---|---|---|---|
+| platform/mcp-transport | Initialize from a fresh client | `contract/mcp-transport.test.ts` "Scenario: Initialize from a fresh client" | `apps/mcp/test/mcp-transport.test.ts` | contract, package |
+| platform/mcp-transport | Tools are listed | `contract/mcp-transport.test.ts` "Scenario: Tools are listed" (four tools, policy text) | `apps/mcp/test/mcp-transport.test.ts` "[legacy]/[modern] Tools are listed" | contract, package |
+| platform/participant-simulation | Seed on a preview | `contract/discovery.test.ts` "Scenario: Seed on a preview" (all twelve found by their topic) | `ci/db-migrate.test.sh` (seed on previews) | contract, CI scripts |
+| platform/participant-simulation | Only simulated participants are delivered | none: no stage holds a participant that is not simulated | `apps/worker/test/deliver.test.ts` "Scenario: Only simulated participants are delivered…"; `adversarial/delivery.local.test.ts` (also a forged deliver job delivers nothing) | package, adversarial (in-process) |
+| platform/participant-simulation | Nothing on production | none: no `prod` stage exists | `apps/worker/test/worker-run.test.ts` "Scenario: Nothing on production", `env.test.ts`; `packages/db/test/seed.test.ts` "never on prod"; `ci/db-migrate.test.sh` section 8 | package, CI scripts |
+| platform/participant-simulation | Marked in discovery and in answers | `contract/discovery.test.ts` "Scenario: Marked in discovery and in answers (discovery side…)"; `contract/request-flows.test.ts` "Scenario: Marked in discovery and in answers (answer side)" | `packages/db/test/constraints.test.ts` "Simulation is unmistakable"; `apps/worker/test/simulate.test.ts` | contract, package |
+| platform/participant-simulation | Prompt answer | `contract/request-flows.test.ts` "Scenario: Prompt answer" (sim-jw-9e48, real delays, bound 80 s) | `apps/worker/test/simulate.test.ts`, `worker-run.test.ts` | contract, package |
+| platform/participant-simulation | Decline | `contract/request-flows.test.ts` "Scenario: Decline" (sim-dm-7b80: `declined`, hold released, nothing cleared) | `apps/worker/test/simulate.test.ts` "Scenario: Decline" (the reason code, which check_requests does not show) | contract, package |
+| platform/participant-simulation | Can't tell | `contract/request-flows.test.ts` "Scenario: Can't tell" (sim-ag-3b62, verification, verdict `cant_tell`) | `apps/worker/test/simulate.test.ts` "Scenario: Can't tell" | contract, package |
+| platform/participant-simulation | Silent until expiry | `contract/request-flows.test.ts` "Scenario: Silent until expiry (with Scenario: Expiry by the platform, live)" (sim-hb-1f7d, expiry = latency promise + 60 s; skipped, with the reason, while the seed gives it a promise over 15 min: the review fix of #26 shortens it) | `apps/worker/test/simulate.test.ts` "Scenario: Silent until expiry"; `expire.test.ts` | contract, package |
+| platform/participant-simulation | Verifies like a real answer | `contract/request-flows.test.ts` "Scenario: Verifies like a real answer (observable part)" (only verified answers are shown; the public key is not exposed) | `apps/worker/test/simulate.test.ts` "Scenario: Verifies like a real answer" | contract, package |
+| platform/participant-simulation | Redeploy | `contract/discovery.test.ts` "Scenario: Redeploy" (each handle once; the preview redeploys on every push) | `packages/db/test/seed.test.ts` "Scenario: Redeploy"; `ci/db-migrate.test.sh` section 3 | contract, package, CI scripts |
+| platform/participant-simulation | No outbound traffic | none: not observable from outside | `apps/worker/test/worker-run.test.ts` "…with Scenario: No outbound traffic", "Scenario: No outbound traffic (source)" | package |
+| protocol/answer-attestation | Unsigned answer | `adversarial/answers.live.test.ts` (no answer shown without a signature) | `adversarial/answers.local.test.ts` "case 10" (14 forgeries); `apps/worker/test/answer-intake.test.ts` "Scenario: Unsigned answer" | adversarial, adversarial (in-process), package |
+| protocol/answer-attestation | Attestation missing or false | `adversarial/answers.live.test.ts` | `adversarial/answers.local.test.ts` "case 11" (removed, false, "true", 1, null; also validly signed); `apps/worker/test/answer-intake.test.ts` | adversarial, adversarial (in-process), package |
+| protocol/answer-attestation | Confidence out of range | `adversarial/answers.live.test.ts` (shown answers: 1 to 5) | `apps/worker/test/answer-intake.test.ts` "Scenario: Confidence out of range"; `packages/db/test/constraints.test.ts` | adversarial, package |
+| protocol/answer-attestation | Body does not match the intent | `contract/request-flows.test.ts` "Scenario: Prompt answer", "Scenario: Can't tell" (bodies parsed for their intent) | `apps/worker/test/answer-intake.test.ts` "Scenario: Body does not match the intent" | contract, package |
+| protocol/answer-attestation | Tampered body | none: no answer intake is reachable from outside in M1 | `apps/worker/test/answer-intake.test.ts` "Scenario: Tampered body"; `adversarial/answers.local.test.ts` "body changed after signing"; `packages/protocol/test/signing.test.ts` | adversarial (in-process), package |
+| protocol/answer-attestation | Old key still verifies | none: rotation is not provoked on a stage from outside | `apps/worker/test/answer-intake.test.ts` "Scenario: Old key still verifies"; `apps/mcp/test/check-requests.test.ts` | package |
+| protocol/answer-attestation | Revoked key | none | `apps/worker/test/answer-intake.test.ts` "Scenario: Revoked key"; `adversarial/answers.local.test.ts` "case 10: an answer signed with a revoked key"; `apps/mcp/test/check-requests.test.ts` | adversarial (in-process), package |
+| protocol/answer-attestation | Display of the reference answer | `contract/request-flows.test.ts` "Scenario: Display of the reference answer" (`a2h:sig:…` + last four, `reviewed by J.W., <date>`, no notice for a verified participant); "slow persona … not-yet-verified notice" (sim-cf-4c5e) | `apps/mcp/test/check-requests.test.ts` "Scenario: Display of the reference answer"; `packages/protocol/test/display.test.ts` | contract, package |
+| protocol/answer-attestation | Stored answer that no longer verifies | none: a key cannot be revoked from outside | `apps/mcp/test/check-requests.test.ts` "Scenario: Stored answer that no longer verifies…" (by id: `answer_unverified`; left out of lists) | package |
+| protocol/answer-attestation | Rejection log line | none: CloudWatch is not read by the suites | `apps/worker/test/answer-intake.test.ts` "Scenario: Rejection log line"; `adversarial/answers.local.test.ts` "rejections are logged with the request id and the code only" | adversarial (in-process), package |
+| protocol/discovery | Result shape | `contract/discovery.test.ts` "Scenario: Result shape" | `apps/mcp/test/find-humans.test.ts`; `packages/protocol/test/schemas.test.ts` | contract, package |
+| protocol/discovery | Display string matches the fields | `contract/discovery.test.ts` "Scenario: Display string matches the fields" | `apps/mcp/test/find-humans.test.ts`; `packages/protocol/test/display.test.ts` | contract, package |
+| protocol/discovery | Maximum price excludes a profile | `contract/discovery.test.ts` "Scenario: Maximum price excludes a profile" | `apps/mcp/test/find-humans.test.ts` | contract, package |
+| protocol/discovery | Attested only | `contract/discovery.test.ts` "Scenario: Attested only" | `apps/mcp/test/find-humans.test.ts` | contract, package |
+| protocol/discovery | Empty result | `contract/discovery.test.ts` "Scenario: Empty result" | `apps/mcp/test/find-humans.test.ts` | contract, package |
+| protocol/discovery | Nothing recorded for participants | `contract/discovery.test.ts` "Scenario: Nothing recorded for participants (observable part…)" (no request for the handles found) | `apps/mcp/test/find-humans.test.ts` (no request, event, blocked or answer row, no job) | contract, package |
+| protocol/discovery | Gross reserve with fee metadata | `contract/discovery.test.ts` "Scenario: Gross reserve with fee metadata" | `apps/mcp/test/find-humans.test.ts`; `packages/protocol/test/money.test.ts` | contract, package |
+| protocol/request-approval | Bid below reserve | `contract/request-approval.test.ts` "Scenario: Bid below reserve"; `adversarial/manifest.live.test.ts` "case 6" (seven variants, a lowered bid on the retry) | `apps/mcp/test/request-human.test.ts`; `packages/protocol/test/validate.test.ts` | contract, adversarial, package |
+| protocol/request-approval | Shape outside this change | `contract/request-approval.test.ts` "Scenario: Shape outside this change" (two audiences, threaded, recurring, attachments: `schema_invalid` naming the field and a milestone, no approval) | `apps/mcp/test/request-human.test.ts` "Scenario: Shape outside this change: …" | contract, package |
+| protocol/request-approval | Push-poll | `contract/request-approval.test.ts` "Scenario: Push-poll"; `adversarial/manifest.live.test.ts` "case 1" | `apps/mcp/test/request-human.test.ts`; `packages/protocol/test/content-rules.test.ts` | contract, adversarial, package |
+| protocol/request-approval | Third-party personal data | `contract/request-approval.test.ts` "Scenario: Third-party personal data"; `adversarial/manifest.live.test.ts` "case 2" | `apps/mcp/test/request-human.test.ts`; `packages/protocol/test/content-rules.test.ts` | contract, adversarial, package |
+| protocol/request-approval | Labour disguised as a question | `contract/request-approval.test.ts` "Scenario: Labour disguised as a question"; `adversarial/manifest.live.test.ts` "case 3" | `apps/mcp/test/request-human.test.ts`; `packages/protocol/test/content-rules.test.ts` | contract, adversarial, package |
+| protocol/request-approval | Quiet hours | `contract/request-approval.test.ts` "Scenario: Quiet hours" and `adversarial/manifest.live.test.ts` "case 4": the branch follows the server's clock (by day: delivery now only; 22:00 to 07:00 London: deferred, and refused with `retryable: true`); local stage with a pinned clock | `apps/mcp/test/request-human.test.ts` "Scenario: Quiet hours" (pinned clock); `packages/protocol/test/validate.test.ts` | contract, adversarial, package |
+| protocol/request-approval | Interruption budget exceeded | `contract/request-approval.test.ts` "Scenario: Interruption budget exceeded"; `adversarial/manifest.live.test.ts` "case 5" (approvals minted before the budget ran out) | `apps/mcp/test/request-human.test.ts` (blocked row `interruption_budget`) | contract, adversarial, package |
+| protocol/request-approval | Accept after editing | `contract/request-flows.test.ts` "Scenario: Accept after editing" (one request created) | `apps/mcp/test/request-human.test.ts` (stored bytes equal the edit; check_requests does not return the question) | contract, package |
+| protocol/request-approval | Options shown with the question | `contract/request-approval.test.ts` "Scenario: Options shown with the question (the approval message…)" (each option label and the scale, verbatim) | `apps/mcp/test/request-human.test.ts` "Scenario: Options shown with the question…" (accept stores exactly those values; check_requests does not return them) | contract, package |
+| protocol/request-approval | Decline | `contract/request-approval.test.ts` "Scenario: Decline" | `apps/mcp/test/request-human.test.ts` | contract, package |
+| protocol/request-approval | Dismissed | `contract/request-approval.test.ts` "Scenario: Dismissed" | `apps/mcp/test/request-human.test.ts` | contract, package |
+| protocol/request-approval | Forged or expired approval state | `contract/request-approval.test.ts` "Scenario: Forged or expired approval state (forged and altered…)" | `apps/mcp/test/request-human.test.ts` (also the genuine state after fifteen minutes) | contract, package |
+| protocol/request-approval | Approval state replayed with changed arguments | `contract/request-approval.test.ts` "Scenario: Approval state replayed with changed arguments"; `adversarial/manifest.live.test.ts` cases 1 to 3 and 6 (swaps on the retry) | `apps/mcp/test/request-human.test.ts` | contract, adversarial, package |
+| protocol/request-approval | Accepted approval replayed | `contract/request-flows.test.ts` "Scenario: Accepted approval replayed" (`conflict`, one request, first request unchanged) | `apps/mcp/test/request-human.test.ts` "Scenario: Accepted approval replayed", "…in parallel"; `packages/db/test/constraints.test.ts` (unique `requests.approval_nonce`) | contract, package |
+| protocol/request-approval | Client on an older revision | `contract/request-approval.test.ts` "Scenario: Client on an older revision" | `apps/mcp/test/request-human.test.ts` | contract, package |
+| protocol/request-approval | Client without forms | `contract/request-approval.test.ts` "Scenario: Client without forms" | `apps/mcp/test/request-human.test.ts` "A 2026-07-28 client that cannot show a form is told so…" | contract, package |
+| protocol/request-approval | Edit turns the question into a push-poll | `contract/request-approval.test.ts` "Scenario: Edit turns the question into a push-poll"; `adversarial/manifest.live.test.ts` cases 1 to 3 (every forbidden question through the form) | `apps/mcp/test/request-human.test.ts` | contract, adversarial, package |
+| protocol/request-approval | Return under a second | `contract/request-flows.test.ts` "Scenario: Return under a second" (accepting call timed from the client, network included) | `apps/mcp/test/request-human.test.ts` | contract, package |
+| protocol/request-approval | Principal recorded | `contract/request-flows.test.ts` "Scenario: Principal recorded (observable part)"; a stage has one principal (D7) | `apps/mcp/test/request-human.test.ts` "Scenario: Principal recorded" (another principal gets `not_found`) | contract, package |
+| protocol/request-approval | Blocked row | none: rows are not visible from outside | `apps/mcp/test/request-human.test.ts` "Scenario: Blocked row"; `packages/db/test/schema.test.ts`, `constraints.test.ts` | package |
+| protocol/request-lifecycle | Legal transitions | `contract/request-flows.test.ts` "Scenario: Legal transitions (observed…)" (sent → accepted → answered; sent → declined in "Scenario: Decline") | `packages/protocol/test/lifecycle.test.ts`; `packages/db/test/constraints.test.ts`; `apps/worker/test/simulate.test.ts`, `expire.test.ts` | contract, package |
+| protocol/request-lifecycle | Illegal transition | none: no tool causes a transition from outside in M1 | `packages/protocol/test/lifecycle.test.ts`; `packages/db/test/constraints.test.ts` | package |
+| protocol/request-lifecycle | Idempotent replay | none | `apps/worker/test/expire.test.ts`, `answer-intake.test.ts` "Scenario: Idempotent replay"; `packages/db/test/constraints.test.ts` | package |
+| protocol/request-lifecycle | Expiry by the platform | `contract/request-flows.test.ts` "Scenario: Silent until expiry (with Scenario: Expiry by the platform, live)" (`expired` within 90 s of the expiry, hold released; runs once sim-hb-1f7d's promise is short) | `apps/worker/test/expire.test.ts` "Scenario: Expiry by the platform"; `apps/mcp/test/check-requests.test.ts` (display) | contract, package |
+| protocol/request-lifecycle | Rules changed after approval | none: rules cannot be changed from outside | `apps/worker/test/deliver.test.ts` "Scenario: Rules changed after approval" | package |
+| protocol/request-lifecycle | Before acceptance | `contract/request-flows.test.ts` "Scenario: Before acceptance" | `apps/mcp/test/check-requests.test.ts` | contract, package |
+| protocol/request-lifecycle | After acceptance | `contract/request-flows.test.ts` "Scenario: After acceptance" (slow persona sim-cf-4c5e, seen `accepted`) | `apps/mcp/test/check-requests.test.ts` | contract, package |
+| protocol/request-lifecycle | Answered request | `contract/request-flows.test.ts` "Scenario: Answered request" | `apps/mcp/test/check-requests.test.ts` | contract, package |
+| protocol/request-lifecycle | Filter by status | `contract/request-flows.test.ts` "Scenario: Filter by status" | `apps/mcp/test/check-requests.test.ts` | contract, package |
+| protocol/request-lifecycle | Unknown id | `contract/request-flows.test.ts` "Scenario: Unknown id" | `apps/mcp/test/check-requests.test.ts` | contract, package |
+| protocol/request-lifecycle | Atomic transition | none | `apps/worker/test/answer-intake.test.ts` "Scenario: Atomic transition" | package |
+| protocol/schemas | Tool schemas come from the export | `contract/mcp-transport.test.ts` "Scenario: Tool schemas come from the export (deployed stage)" | `apps/mcp/test/mcp-transport.test.ts`; `packages/protocol/test/json-schema.test.ts` | contract, package |
+| protocol/schemas | Fixture pair per schema | none | `packages/protocol/test/schemas.test.ts` | package |
+| protocol/schemas | Fractional amount rejected | `adversarial/manifest.live.test.ts` "case 6" (a fractional bid is `schema_invalid`) | `packages/protocol/test/schemas.test.ts` | adversarial, package |
+| protocol/schemas | Gross from net rounds once, half up | `contract/discovery.test.ts` "Scenario: Gross reserve with fee metadata" (2500 → 3125) | `packages/protocol/test/money.test.ts` | contract, package |
+| protocol/schemas | Bounds hold for any share | `contract/request-flows.test.ts` "Scenario: Answered request" (reserve ≤ cleared ≤ bid) | `packages/protocol/test/money.test.ts` | contract, package |
+| protocol/schemas | Canonical form of the reference answer | none | `packages/protocol/test/canonical.test.ts` | package |
+| protocol/schemas | Request id from given randomness | none | `packages/protocol/test/ids.test.ts` | package |
+| protocol/schemas | Malformed id rejected | none | `packages/protocol/test/ids.test.ts` | package |
+| protocol/schemas | Request not sent | `contract/request-approval.test.ts` "Scenario: Decline", "Scenario: Dismissed" (the result parses with `status: "not_sent"`, a reason, no id) | `packages/protocol/test/schemas.test.ts` "Scenario: Request not sent…" | contract, package |
+| protocol/schemas | Free lane with a bid | none | `packages/protocol/test/schemas.test.ts` "Scenario: Free lane with a bid: schema validation fails on bid_minor" | package |
+| protocol/schemas | Works without any environment | none | `packages/protocol/test/purity.test.ts` | package |
+
+### Live suites and the stage they run on
+
+- A stage has one principal (`dev-principal-<stage>`, design D7) with a monthly budget of €500, a per-request cap of €60 and 50 requests a day. The live suites share it with the owner. `contract/request-flows.test.ts` creates four requests a run: the prompt (€7.75 cleared), decline (released), slow (€8.88 cleared) and can't-tell (€37.50 cleared) flows. `contract/request-approval.test.ts` and `adversarial/manifest.live.test.ts` create at most two a UTC day (sim-bk-2e6f's interruption budget; held a day, then released at expiry). Everything else is refused or declined before anything is created.
+- Budget guard (`contract/a2h.ts`): a flow is skipped, with the reason in the report, when it would leave the owner less than €150 or 15 requests on the stage that month or day. A skipped flow is a skip, not a pass.
+- "Nothing is created" is checked through `check_requests` (no new request to the handle used since the test started). The handles the refusal tests use are never sent to by the flows.
+- Quiet hours (`sim-ep-5c07`, 22:00 to 07:00 London): a deployed stage's clock cannot be set, so by day the deferred and refused branches are not observable live; they run at night, on the local stage with `A2H_LOCAL_NOW` and `A2H_SERVER_NOW`, and in the package tests.
+- Silent persona and expiry: a participant's latency promise is the shortest expiry its rules accept. sim-hb-1f7d gets the shortest promise the validation allows (review fix of #26), and the flows test then watches "Silent until expiry" live with an expiry of the promise plus 60 s; until then that test is skipped with the reason.
+
+## Adversarial suite (task 7.2)
+
+Cases from the protocol skill §12. Each was first shown red against a deliberately weakened validation, on the local stage (`local/stage.ts`, MCP clock pinned at 2026-10-29T23:00Z) or in-process, with a one-line `sed` patch applied to the source, run, then reverted with `git checkout` (never committed). Then green unpatched, locally and against the preview.
+
+| Case | Test | Weakening used for the red run | Red result |
+|---|---|---|---|
+| 1 push-poll | `manifest.live.test.ts` "case 1" (7 phrasings; first leg, a second participant, the approval form, a swap on the retry) | W1: content stage off in `packages/protocol/src/validate.ts` (`classifyForbiddenContent` not called) | approval shown for a push-poll |
+| 2 third-party personal data | "case 2" (6 phrasings, same paths) | W1 | approval shown |
+| 3 labour disguised | "case 3" (5 phrasings, same paths) | W1 | approval shown |
+| 4 quiet hours | "case 4" (deferred never now; expiries 12 h and 23 h refused, retryable, nothing revealed) | W4: quiet hours ignored | "Delivery: now" inside quiet hours |
+| 5 over-interruption | "case 5" (three approvals minted, then redeemed; a fourth first leg) | W5: interruption budget not checked | 3 requests created past a budget of 2 |
+| 6 bid below reserve | "case 6" (reserve − 1, the net reserve, 0, an undeclared free lane, negative, fractional, string; a lowered bid on the retry) | W6: reserve and free-lane checks off | approval shown at reserve − 1 |
+| 10 unsigned answer | `answers.local.test.ts` "case 10" (14 forgeries) and "revoked key"; `answers.live.test.ts` | W10: signature not verified in `apps/worker/src/intake.ts` | a zero signature accepted |
+| 11 answer without attestation | `answers.local.test.ts` "case 11" (10 forgeries, some validly signed); `answers.live.test.ts` | W11: intake coerces `answered_personally: true` before parsing | attestation removed after signing, accepted |
+
+`manifest.live.test.ts` also carries six `todo` tests: evasions the deterministic content rules (design D6; the method is OPEN until M3) let through today (zero-width space, a Cyrillic letter, indirect wording, a polite question without an imperative, a named person with a specific disease, a deliverable missing from the word list). They report without failing the run.

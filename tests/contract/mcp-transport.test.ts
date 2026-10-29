@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult } from "@modelcontextprotocol/client";
+import { toolJsonSchemas } from "@a2h/protocol";
 import { expectedStage, healthUrl, mcpUrl } from "../src/live-env.ts";
 import { PROTOCOL_VERSION, connectFresh, recordingFetch, type Exchange } from "./mcp-client.ts";
 
@@ -79,6 +80,25 @@ test("Scenario: Tools are listed", async () => {
     assert.equal(hold.minimum, 0);
     assert.equal(hold.maximum, 3900);
     assert.ok(!(ping.inputSchema.required ?? []).includes("holdSeconds"), "holdSeconds must be optional");
+  } finally {
+    await close();
+  }
+});
+
+// protocol/schemas "Tool schemas come from the export", checked on the
+// deployed stage too: what tools/list serves is the protocol package's JSON
+// Schema export, unchanged (in-process: apps/mcp/test/mcp-transport.test.ts).
+test("Scenario: Tool schemas come from the export (deployed stage)", async () => {
+  const { client, close } = await connectFresh();
+  try {
+    const { tools } = await client.listTools();
+    const exported = toolJsonSchemas();
+    for (const name of A2H_TOOLS) {
+      const tool = tools.find((t) => t.name === name);
+      assert.ok(tool, `no tool named ${name}`);
+      assert.deepEqual(tool.inputSchema, exported[name].input, `${name} input schema`);
+      assert.deepEqual(tool.outputSchema, exported[name].output, `${name} output schema`);
+    }
   } finally {
     await close();
   }
