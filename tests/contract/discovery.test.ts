@@ -1,5 +1,5 @@
 // Contract tests against a live stage for
-// openspec/changes/m1-protocol-connector/specs/protocol/discovery/spec.md and the
+// openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/protocol/discovery/spec.md and the
 // discovery side of specs/platform/participant-simulation/spec.md.
 // One test per scenario, named after it. find_humans writes nothing, so this
 // file costs the stage nothing.

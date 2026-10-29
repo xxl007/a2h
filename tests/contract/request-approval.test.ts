@@ -1,5 +1,5 @@
 // Contract tests against a live stage for
-// openspec/changes/m1-protocol-connector/specs/protocol/request-approval/spec.md:
+// openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/protocol/request-approval/spec.md:
 // the refusals and the approval round trip that create nothing, driven with
 // the official v2 client on the 2026-07-28 revision. The scenarios that need
 // a created request (Accept after editing, Return under a second, Accepted

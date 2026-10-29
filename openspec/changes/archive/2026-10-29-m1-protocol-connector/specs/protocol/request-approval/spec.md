@@ -38,7 +38,7 @@ Nothing leaves a principal that the principal did not approve: `request_human` v
 - **THEN** the call fails with `outside_participant_rules` and the block is counted for the participant
 
 ### Requirement: Approval shows the exact wording
-After validation passes, `request_human` SHALL ask the principal for approval with exactly one pre-filled text field holding the question and a message stating the gross bid, the format, the expiry, the data terms and, verbatim, every other field the participant will receive (poll options, scale); the last line of the message SHALL carry the wording "Send · hold €N" for accept (MCP form elicitation cannot label its buttons, so the wording is text in the message); it SHALL create a request only on accept.
+After validation passes, `request_human` SHALL ask the principal for approval with exactly one pre-filled text field holding the question and a message that states the gross bid, the format, the expiry, the data terms and, verbatim, every other field the participant will receive; it SHALL create a request only on accept.
 
 #### Scenario: Accept after editing
 - **WHEN** the principal edits the pre-filled question and accepts
@@ -46,7 +46,7 @@ After validation passes, `request_human` SHALL ask the principal for approval wi
 
 #### Scenario: Options shown with the question
 - **WHEN** the manifest carries poll options or a scale
-- **THEN** the approval message lists each option label and the scale verbatim, and the request created on accept holds exactly those values
+- **THEN** the approval message lists each option label and the scale verbatim, its last line carries the wording "Send · hold €N" for accept (MCP form elicitation cannot label its buttons, so the wording is text in the message), and the request created on accept holds exactly those values
 
 #### Scenario: Decline
 - **WHEN** the principal declines
