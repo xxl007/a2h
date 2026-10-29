@@ -4,7 +4,7 @@
 // the JSON is parsed. Field names are found by value, not by Sid, so editing
 // statement ids or ordering does not break the checks.
 // Contract: openspec/changes/m0-foundation/tasks.md, contract amendment 1;
-// §14 of the runbook: openspec/changes/m1-protocol-connector/tasks.md 6.3.
+// §14 of the runbook: openspec/changes/archive/2026-10-29-m1-protocol-connector/tasks.md 6.3.
 // Run: node --test tests/ci/bootstrap.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";

@@ -2,7 +2,7 @@
 # Spec: openspec/.../preview-environments/spec.md
 #   "PR opened", "PR updated", "Two PRs open", "Typecheck fails", "Secrets inventory",
 #   "Preview verified", "Verification outcome on the PR", "Transient failure".
-# Migrations and seed before the deploy: openspec/changes/m1-protocol-connector/
+# Migrations and seed before the deploy: openspec/changes/archive/2026-10-29-m1-protocol-connector/
 #   design.md D2 and Migration Plan (task 6.2).
 # Deploys only when the repository variable A2H_DEPLOY_ENABLED is 'true'
 # (set by the owner after docs/runbooks/aws-bootstrap.md), only for

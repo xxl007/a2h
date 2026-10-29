@@ -2,7 +2,7 @@
 # performs the very first dev deployment after docs/runbooks/aws-bootstrap.md.
 # Spec: openspec/.../preview-environments/spec.md, "Merge to main", "Secrets inventory",
 # "Merge to main verified", "Transient failure".
-# Migrations before the deploy: openspec/changes/m1-protocol-connector/design.md
+# Migrations before the deploy: openspec/changes/archive/2026-10-29-m1-protocol-connector/design.md
 # D2 and Migration Plan (task 6.2).
 #
 # Role: vars.AWS_DEV_ROLE_ARN (gha-a2h-dev), trusted only for

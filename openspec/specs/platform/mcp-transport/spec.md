@@ -14,7 +14,7 @@ The MCP server SHALL expose a single Streamable HTTP endpoint that accepts MCP J
 
 #### Scenario: Tools are listed
 - **WHEN** an initialized client sends `tools/list`
-- **THEN** the response includes a tool named `ping` with a description and an input schema
+- **THEN** the response includes the tools `find_humans`, `request_human`, `check_requests` and `ping`, each with a description and an input schema, and the three A2H tool descriptions state that a human is a last resort, that search and existing tools come first, that the question is shown to the principal before sending, and that the principal pays what clears and never more than the hold
 
 ### Requirement: ping tool round-trips
 The MCP server SHALL provide a `ping` tool that returns a text result containing `pong` and the server's stage name.

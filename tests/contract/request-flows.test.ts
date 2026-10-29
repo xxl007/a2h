@@ -1,7 +1,7 @@
 // Contract tests against a live stage that need created requests and the
 // simulated personas, driving the real approval round trip with the official
 // v2 client and polling check_requests with a bound. Scenarios from
-// openspec/changes/m1-protocol-connector/specs/:
+// openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/:
 //   protocol/request-approval   Accept after editing, Return under a second,
 //                               Accepted approval replayed, Principal recorded
 //   protocol/request-lifecycle  Legal transitions (observed), Before acceptance,

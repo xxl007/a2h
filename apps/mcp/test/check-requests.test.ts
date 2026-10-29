@@ -1,5 +1,5 @@
 // Task 4.4: check_requests, one test per display scenario of
-// openspec/changes/m1-protocol-connector/specs/protocol/request-lifecycle and
+// openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/protocol/request-lifecycle and
 // .../protocol/answer-attestation. The worker's transitions are simulated by
 // writing the rows it writes (events, answer, cleared amount); the answer is
 // a real Ed25519 envelope signed with the protocol package.

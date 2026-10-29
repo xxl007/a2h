@@ -1,5 +1,5 @@
 // Task 4.3: request_human, one test per scenario of
-// openspec/changes/m1-protocol-connector/specs/protocol/request-approval/spec.md
+// openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/protocol/request-approval/spec.md
 // (design D1, D7; owner decision 5, option 1), against the real tools, the
 // real 2026-07-28 round trip with the official client, and Postgres 17.
 import { after, before, describe, test } from "node:test";

@@ -112,7 +112,7 @@ Spec: `openspec/changes/ci-preview-verify/specs/platform/preview-environments/sp
 
 ## Scenario to test map: m1-protocol-connector (package tests, group 2)
 
-Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This table lists what the `@a2h/protocol` package tests cover (Protocol-dev, task group 2). Paths are relative to `packages/protocol/test/`; all run in CI through `pnpm test` (`node --test`). "Function level" means the pure part of the scenario is tested in the package and the tool, database or worker part is still to be tested by the task named in the last column (groups 3 to 7; QA owns the live contract and adversarial tests in 7.1 and 7.2).
+Specs: `openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/protocol/*/spec.md`. This table lists what the `@a2h/protocol` package tests cover (Protocol-dev, task group 2). Paths are relative to `packages/protocol/test/`; all run in CI through `pnpm test` (`node --test`). "Function level" means the pure part of the scenario is tested in the package and the tool, database or worker part is still to be tested by the task named in the last column (groups 3 to 7; QA owns the live contract and adversarial tests in 7.1 and 7.2).
 
 ### protocol/schemas
 
@@ -358,7 +358,7 @@ Not covered here, by design: what `check_requests` shows (handle or label, `simu
 
 ## Scenario to test map: m1-protocol-connector (complete, task 7.1)
 
-The one table for the whole change: every scenario of `openspec/changes/m1-protocol-connector/specs/**`, the test that proves it and the suite it runs in. The per-group tables above give the detail of each package test; this table is the map a reviewer checks against. Scenarios that cannot be observed from outside a deployed stage (rows, logs, another principal, the server's clock, production) are proven by the package or in-process tests named here; their live test, where one exists, checks the observable part only and says so in its name.
+The one table for the whole change: every scenario of `openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/**`, the test that proves it and the suite it runs in. The per-group tables above give the detail of each package test; this table is the map a reviewer checks against. Scenarios that cannot be observed from outside a deployed stage (rows, logs, another principal, the server's clock, production) are proven by the package or in-process tests named here; their live test, where one exists, checks the observable part only and says so in its name.
 
 Suites: **contract** = `tests/contract`, live, `verify` jobs of `preview.yml` and `deploy.yml`; **adversarial** = `tests/adversarial/*.live.test.ts`, live, same jobs; **adversarial (in-process)** = `tests/adversarial/*.local.test.ts`, `ci.yml` `pnpm test`; **package** = the package's `node --test` suite, `ci.yml` `pnpm test` (database tests on Postgres 17 in Docker, `A2H_DB_PG_REQUIRED=1`); **CI scripts** = `tests/ci`, `ci.yml`.
 

@@ -235,7 +235,7 @@ Tell the PM: the two role ARNs, that the key was rotated, that the variables are
 
 ## 14. Signing and approval keys per stage (M1; nothing to do to bring a stage up)
 
-Every stage has two secrets of its own, created by the deploy itself (`sst deploy`, `infra/stage-secrets-resources.ts`; design D4 amendment of `openspec/changes/m1-protocol-connector`):
+Every stage has two secrets of its own, created by the deploy itself (`sst deploy`, `infra/stage-secrets-resources.ts`; design D4 amendment of `openspec/changes/archive/2026-10-29-m1-protocol-connector`):
 
 | Secret | Holds | Read by |
 |---|---|---|

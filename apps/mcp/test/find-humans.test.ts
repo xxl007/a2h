@@ -1,5 +1,5 @@
 // Task 4.2: find_humans, one test per scenario of
-// openspec/changes/m1-protocol-connector/specs/protocol/discovery/spec.md,
+// openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/protocol/discovery/spec.md,
 // against the real tools and the real seeded simulated set on Postgres 17.
 import { existsSync, readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
