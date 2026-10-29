@@ -27,6 +27,17 @@ import { BASE, EDITED, LABOUR, ORIGINAL, PUSH_POLL, THIRD_PARTY } from "./lib/fi
 
 type Args = Record<string, unknown>;
 
+const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/** Flip the high bit of the 6-bit value at the middle of a base64url string: a data bit, never padding. */
+function flipMiddle(segment: string): string {
+  const i = Math.floor(segment.length / 2);
+  const v = BASE64URL.indexOf(segment[i]!);
+  assert.ok(v >= 0, "base64url segment");
+  return segment.slice(0, i) + BASE64URL[v ^ 0b100000] + segment.slice(i + 1);
+}
+
+
 describe("request_human", { skip: skipWithoutDocker() }, () => {
   let pgc: PgContainer;
   const running: RunningA2h[] = [];
@@ -336,9 +347,23 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
     const foreign = await firstRound(other.server.url);
     try {
       const state = round.requestState!;
-      const tampered = state.slice(0, -1) + (state.at(-1) === "A" ? "B" : "A");
+      // Deterministic tampering: flip the high bit of a character in the middle
+      // of the MAC and of the payload. (Changing the last character can touch
+      // only padding bits, so the token may decode to the genuine one: QA saw
+      // this flake, run 40885457018.)
+      const [version, payload, mac] = state.split(".");
+      assert.equal(version, "v1");
+      const tamperedMac = [version, payload, flipMiddle(mac!)].join(".");
+      const tamperedPayload = [version, flipMiddle(payload!), mac].join(".");
+      for (const t of [tamperedMac, tamperedPayload]) {
+        assert.notEqual(t, state);
+        const [, p2, m2] = t.split(".");
+        const sameBytes = Buffer.from(p2!, "base64url").equals(Buffer.from(payload!, "base64url")) && Buffer.from(m2!, "base64url").equals(Buffer.from(mac!, "base64url"));
+        assert.ok(!sameBytes, "the tampered token decodes to different bytes");
+      }
       const accept = { approval: { action: "accept", content: { question: ORIGINAL } } };
-      for (const bad of [tampered, foreign.round.requestState!, "v1.e30.AAAA", "not-a-state"]) {
+      // A token signed with another stage's key, and malformed ones.
+      for (const bad of [tamperedMac, tamperedPayload, foreign.round.requestState!, "v1.e30.AAAA", "not-a-state"]) {
         await assert.rejects(retry(client, "request_human", BASE, bad, accept), (error: unknown) => {
           assert.ok(error instanceof ProtocolError, `not a ProtocolError: ${String(error)}`);
           assert.equal(error.code, -32602);
