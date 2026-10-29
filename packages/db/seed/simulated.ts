@@ -33,6 +33,7 @@ export const SEED_PERSONAS: readonly SeedPersona[] = [
 ];
 
 const HOUR = 3600;
+const MINUTE = 60;
 
 function eur(intent: TypeRule["intent"], reserve_net_minor: number, accepted = true): TypeRule {
   return { intent, accepted, reserve_net_minor, currency: "EUR" };
@@ -115,8 +116,12 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
   participant(
     "sim-hb-1f7d", "Harriet Bloom", "silent",
     [{ topic: "hospital pharmacy dispensing", evidence: "licence" }],
-    [4.7, 40, 7 * HOUR],
-    rules([eur("verification", 4000), eur("judgment", 3500)], { who_may_ask: "organisations_only" }),
+    // Silent persona with a 5-minute latency promise: the validation refuses a
+    // request whose delivery plus the promise passes its expiry (latency_mismatch;
+    // the schema floor is 0 s), so a 10-minute expiry passes and "Silent until
+    // expiry" can be observed live on a preview (QA finding).
+    [4.7, 40, 5 * MINUTE],
+    rules([eur("verification", 4000), eur("judgment", 3500)], { who_may_ask: "organisations_only", latency_promise_seconds: 5 * MINUTE }),
   ),
   participant(
     "sim-ol-6a23", "Oliver Lang", "prompt",

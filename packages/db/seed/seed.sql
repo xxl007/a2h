@@ -243,14 +243,14 @@ ON CONFLICT (handle) DO UPDATE SET display_label = EXCLUDED.display_label, simul
   persona = EXCLUDED.persona, identity_verified = EXCLUDED.identity_verified
 --> statement-breakpoint
 INSERT INTO profiles (participant_id, topics, rating, answers_count, disputes_lost, typical_latency_seconds)
-SELECT id, '[{"topic":"hospital pharmacy dispensing","evidence":"licence"}]'::jsonb, 4.7, 40, 0, 25200
+SELECT id, '[{"topic":"hospital pharmacy dispensing","evidence":"licence"}]'::jsonb, 4.7, 40, 0, 300
 FROM participants WHERE handle = 'sim-hb-1f7d'
 ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EXCLUDED.rating,
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 300
 FROM participants WHERE handle = 'sim-hb-1f7d'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,

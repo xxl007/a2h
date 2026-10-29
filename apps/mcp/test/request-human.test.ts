@@ -178,6 +178,14 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
     }
   });
 
+  test("The silent persona (sim-hb-1f7d) can be sent a request with a 10-minute expiry, so Silent until expiry is observable live", async () => {
+    const { server } = await fresh();
+    const expires = new Date(NOW.getTime() + 10 * 60 * 1000).toISOString();
+    const result = await sendAccepted(server.url, { ...BASE, to: "sim-hb-1f7d", bid_minor: 4400, expires_at: expires });
+    assert.ok(!result.isError, texts(result).join(" | "));
+    assert.equal(RequestHumanOutputSchema.parse(result.structuredContent).status, "sent");
+  });
+
   // ---- Review B1: every field the participant will receive is approved -------
 
   const POLL = {
