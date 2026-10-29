@@ -67,6 +67,8 @@ Every log line carries `request_id`, `principal_id`, `participant_id`, state and
 - [Edited question drifts from the validated one] → full re-validation on retry (D1), with the approved text; the manifest hash binds every other field.
 - [Data API `SET ROLE` semantics] → verified by the CI script test against Postgres 17 in Docker before the workflow changes; if `SET ROLE` is not honoured across statements in a Data API transaction, fall back to `ALTER … OWNER TO pr_<n>` after each migration.
 - [Twelve simulated profiles read as a real marketplace] → `sim-` handles, "(simulated)" labels and `simulated: true` everywhere; the simulator is absent on `prod`.
+- [Read-then-insert races on a participant's limits] → at approval the interruption count and budget are read and the request inserted without a lock; at delivery the request row is locked but the participant is not. One worker task and one job at a time keep this safe in this change; a per-participant lock is required before real delivery (M3). Found in the cold review (task 8.1).
+- [A declined approval state stays usable until it expires] → the nonce is consumed only on accept, so the host (never the model) could retry a declined state with accept within 15 minutes; nothing is created without that explicit accept. Consuming the nonce on decline needs a store of declined nonces; deferred to M3 with the per-participant lock. Found in the cold review (task 8.1).
 - [Protocol build step breaks the Docker builds] → the build is run in CI's `check` job and the preview deploy exercises both images on the PR itself.
 
 ## Migration Plan

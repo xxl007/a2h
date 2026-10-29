@@ -61,6 +61,21 @@ Owners: **PD** protocol-dev, **QA** qa, **PM** pm. One PR for the change (`feat(
 - [ ] 8.1 Cold review by the reviewer agent on the PR (blocks on missing tests, spec drift, the one rule); verify findings are resolved or recorded in this file
 - [ ] 8.2 Gate 2 post: what shipped, preview URLs, the `claude mcp add` command, issues closed, deliberately not done; verify the owner's validation is recorded before archive
 
+## Review findings (task 8.1, cold review of PR #26 at de252b5, 2026-10-29)
+
+Verdict BLOCK on B1; fixed in a follow-up PR before Gate 2. Summary comment: PR #26, comment 6496989728.
+
+- B1 (blocking, one rule, principal side): poll options and scale were stored and delivered but never shown at approval; attachments accepted. Fix: options and scale shown verbatim in the approval message; attachments, audiences other than a named individual and threaded or recurring time shapes refused with `schema_invalid` in this change. Spec scenarios "Options shown with the question" and "Shape outside this change" added.
+- N1 out-of-scope shapes accepted: fixed with B1.
+- N2 read-then-insert races on a participant's limits: recorded in design.md Risks, M3.
+- N3 declined approval state usable until expiry: recorded in design.md Risks, M3.
+- N4 behaviour without scenarios (client without forms, unverifiable stored answer hidden, only simulated participants delivered): scenarios added to the spec deltas.
+- N5 "Send · hold €N" is message text: spec requirement reworded.
+- N6 `ping` input schema inline rather than from the export: fixed with B1.
+- N7 worker error logs include `error.message`: fixed with B1 (name and SQLSTATE code only).
+- N8 assertion that cannot fail in `find-humans.test.ts`: fixed with B1.
+- N9 stale docs (`tests/README.md` scenario name; PR #26 body): README fixed with B1; PR body rewritten by the PM at Gate 2.
+
 ## Workflow follow-up
 
 - Archive with `/opsx:archive m1-protocol-connector` after Gate 2; the modified `mcp-transport` scenario merges into the main spec.

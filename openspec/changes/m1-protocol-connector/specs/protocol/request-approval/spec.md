@@ -13,6 +13,10 @@ Nothing leaves a principal that the principal did not approve: `request_human` v
 - **WHEN** the bid is below the participant's gross reserve for that request type
 - **THEN** the call fails with code `outside_participant_rules`, no approval is shown, nothing is created, and the detail does not state the reserve
 
+#### Scenario: Shape outside this change
+- **WHEN** the manifest names an audience other than a named individual, a threaded or recurring time shape, or carries attachments
+- **THEN** the call is refused with `schema_invalid` naming the field and the milestone that introduces it, before anything is created
+
 #### Scenario: Push-poll
 - **WHEN** the question is persuasion disguised as a question
 - **THEN** the call fails with code `forbidden_content`, stage `content`, and no approval is shown
@@ -34,11 +38,15 @@ Nothing leaves a principal that the principal did not approve: `request_human` v
 - **THEN** the call fails with `outside_participant_rules` and the block is counted for the participant
 
 ### Requirement: Approval shows the exact wording
-After validation passes, `request_human` SHALL ask the principal for approval with exactly one pre-filled text field holding the question, a message stating the gross bid, the format, the expiry and the data terms, and a primary action worded "Send · hold €N"; it SHALL create a request only on accept.
+After validation passes, `request_human` SHALL ask the principal for approval with exactly one pre-filled text field holding the question and a message stating the gross bid, the format, the expiry, the data terms and, verbatim, every other field the participant will receive (poll options, scale); the message SHALL end with the wording "Send · hold €N" (MCP form elicitation cannot label its buttons, so the wording is text in the message); it SHALL create a request only on accept.
 
 #### Scenario: Accept after editing
 - **WHEN** the principal edits the pre-filled question and accepts
 - **THEN** one request is created whose question is byte-identical to the edited text
+
+#### Scenario: Options shown with the question
+- **WHEN** the manifest carries poll options or a scale
+- **THEN** the approval message lists each option label and the scale verbatim, and the request created on accept holds exactly those values
 
 #### Scenario: Decline
 - **WHEN** the principal declines
@@ -59,6 +67,10 @@ After validation passes, `request_human` SHALL ask the principal for approval wi
 #### Scenario: Accepted approval replayed
 - **WHEN** a retried call carries approval state that was already used to create a request, with the same arguments and an accept, inside the state's validity window
 - **THEN** the call is refused with code `conflict`, no second request or hold is created, and the first request is unchanged
+
+#### Scenario: Client without forms
+- **WHEN** a client on the 2026-07-28 revision declares no form elicitation
+- **THEN** the call returns an error result that says the approval dialog cannot be shown, and nothing is created or counted
 
 #### Scenario: Client on an older revision
 - **WHEN** `request_human` is called over a connection negotiated on a revision earlier than 2026-07-28
