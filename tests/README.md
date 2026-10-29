@@ -102,7 +102,7 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 
 | Scenario | Package test | Remaining |
 |---|---|---|
-| Tool schemas come from the export | `json-schema.test.ts` (export of every tool input and output, committed snapshots in `packages/protocol/json-schema/`, closed top-level objects) | Equality with the schemas `tools/list` returns: 4.5, 7.1 |
+| Tool schemas come from the export | `json-schema.test.ts` (export of every tool input and output, ping's input included, committed snapshots in `packages/protocol/json-schema/`, closed top-level objects) | Equality with the schemas `tools/list` returns: 4.5, 7.1 |
 | Fixture pair per schema | `schemas.test.ts` "Scenario: Fixture pair per schema" (one pair per exported schema, offending path asserted; a guard fails if a new schema has no pair) | - |
 | Fractional amount rejected | `schemas.test.ts` "Scenario: Fractional amount rejected" | - |
 | Gross from net rounds once, half up | `money.test.ts` "Scenario: Gross from net rounds once, half up" (2500 at 20% → 3125 → 2500, property test over f) | - |
@@ -111,6 +111,8 @@ Specs: `openspec/changes/m1-protocol-connector/specs/protocol/*/spec.md`. This t
 | Request id from given randomness | `ids.test.ts` | - |
 | Malformed id rejected | `ids.test.ts` (`A2H-7F3C`, `A2H-7f3` and others) | - |
 | Works without any environment | `purity.test.ts` (every exported function in a child process where clock, randomness, network and timers throw, `--permission` with read-only fs); ESLint purity rules proven on deliberate violations | - |
+| Request not sent | `schemas.test.ts` "Scenario: Request not sent" (`not_sent` with `declined` or `dismissed`, no `request_id`) | Tool: `apps/mcp/test/request-human.test.ts` "Scenario: Decline", "Scenario: Dismissed" |
+| Free lane with a bid | `schemas.test.ts` "Scenario: Free lane with a bid" (fails on `bid_minor`, and only there) | - |
 
 ### protocol/request-approval
 

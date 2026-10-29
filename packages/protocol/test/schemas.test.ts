@@ -121,11 +121,17 @@ describe("Blocked manifests hold codes only", () => {
 });
 
 describe("Manifest lanes", () => {
-  test("a free-lane manifest has bid 0 and names the free lane; a paid one bids more than 0", () => {
+  test("Scenario: Free lane with a bid: schema validation fails on bid_minor", () => {
+    const r = protocol.ManifestSchema.safeParse({ ...referenceManifest, lane: "free", free_lane: "own_publications", bid_minor: 100 });
+    assert.equal(r.success, false);
+    assert.deepEqual(r.error.issues.map((i) => i.path), [["bid_minor"]], "the failure is on bid_minor, and only there");
+  });
+  test("a free-lane manifest bids 0 and names its free lane; a paid one bids more than 0", () => {
     assert.ok(protocol.ManifestSchema.safeParse({ ...referenceManifest, lane: "free", free_lane: "own_publications", bid_minor: 0 }).success);
-    assert.equal(protocol.ManifestSchema.safeParse({ ...referenceManifest, lane: "free", bid_minor: 0 }).success, false);
-    assert.equal(protocol.ManifestSchema.safeParse({ ...referenceManifest, lane: "free", free_lane: "own_publications", bid_minor: 100 }).success, false);
-    assert.equal(protocol.ManifestSchema.safeParse({ ...referenceManifest, bid_minor: 0 }).success, false);
+    const noLane = protocol.ManifestSchema.safeParse({ ...referenceManifest, lane: "free", bid_minor: 0 });
+    assert.deepEqual(noLane.error?.issues.map((i) => i.path), [["free_lane"]]);
+    const paidZero = protocol.ManifestSchema.safeParse({ ...referenceManifest, bid_minor: 0 });
+    assert.deepEqual(paidZero.error?.issues.map((i) => i.path), [["bid_minor"]]);
   });
   test("an empty or whitespace-only question is rejected", () => {
     assert.equal(protocol.ManifestSchema.safeParse({ ...referenceManifest, question: "   " }).success, false);
@@ -162,9 +168,11 @@ describe("check_requests result: identity on acceptance only, answer only when a
 
 describe("request_human result: sent carries the request, not_sent carries nothing", () => {
   const sent = { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 3500, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false } as const;
-  test("a sent result needs every field; a not-sent result has a reason and no id", () => {
+  test("a sent result needs every field", () => {
     assert.ok(protocol.RequestHumanOutputSchema.safeParse(sent).success);
     assert.equal(protocol.RequestHumanOutputSchema.safeParse(omit(sent, "request_id")).success, false);
+  });
+  test("Scenario: Request not sent: status not_sent, a reason (declined or dismissed) and no request_id", () => {
     assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "declined" }).success);
     assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "dismissed" }).success);
     assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "declined", request_id: "A2H-7f3c" }).success, false);
