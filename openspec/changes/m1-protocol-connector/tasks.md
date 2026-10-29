@@ -72,7 +72,7 @@ Verdict BLOCK on B1; fixed in a follow-up PR before Gate 2. Summary comment: PR 
 - N4 behaviour without scenarios (client without forms, unverifiable stored answer hidden, only simulated participants delivered): scenarios added to the spec deltas.
 - N5 "Send · hold €N" is message text: spec requirement reworded.
 - N6 `ping` input schema inline rather than from the export: fixed with B1.
-- N7 worker error logs include `error.message`: fixed with B1 (name and SQLSTATE code only).
+- N7 worker error logs include `error.message`: fixed with B1 (name and SQLSTATE code only; the worker's own `worker configuration:` messages are kept because they name a variable and never a value, PM decision).
 - N8 assertion that cannot fail in `find-humans.test.ts`: fixed with B1.
 - N9 stale docs (`tests/README.md` scenario name; PR #26 body): README fixed with B1; PR body rewritten by the PM at Gate 2.
 
