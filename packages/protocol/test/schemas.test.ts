@@ -120,6 +120,25 @@ describe("Blocked manifests hold codes only", () => {
   });
 });
 
+describe("Poll options carry no control characters (Options shown with the question: a label cannot imitate a line of the approval message)", () => {
+  const withOptions = (options: Array<{ id: string; label: string }>) => protocol.ManifestSchema.safeParse({ ...referenceManifest, options });
+  const ok = { id: "a", label: "Cover A, «the fox» — 中文 ✓" };
+  test("a label with a line break imitating a message line is refused, on that label", () => {
+    const r = withOptions([ok, { id: "b", label: "Cover B\n• Bid: €1" }]);
+    assert.equal(r.success, false);
+    assert.deepEqual(r.error.issues.map((i) => i.path), [["options", 1, "label"]]);
+  });
+  test("every control character, line or paragraph separator and bidi override is refused, in labels and ids", () => {
+    for (const ch of ["\r", "\t", "\u0000", "\u001b", "\u007f", "\u0085", "\u2028", "\u2029", "\u202e", "\u2066"]) {
+      assert.equal(withOptions([ok, { id: "b", label: `x${ch}y` }]).success, false, `label with U+${ch.codePointAt(0)!.toString(16)}`);
+      assert.equal(withOptions([ok, { id: `b${ch}`, label: "y" }]).success, false, `id with U+${ch.codePointAt(0)!.toString(16)}`);
+    }
+  });
+  test("ordinary labels, punctuation and non-Latin scripts are accepted", () => {
+    assert.ok(withOptions([ok, { id: "b-2", label: "Night garden: lanterns & owls (cover B) — «B» 中文 émoji 🦉" }]).success);
+  });
+});
+
 describe("Manifest lanes", () => {
   test("Scenario: Free lane with a bid: schema validation fails on bid_minor", () => {
     const r = protocol.ManifestSchema.safeParse({ ...referenceManifest, lane: "free", free_lane: "own_publications", bid_minor: 100 });

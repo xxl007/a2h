@@ -35,7 +35,17 @@ export const PrincipalSchema = z.strictObject({
 });
 export type Principal = z.infer<typeof PrincipalSchema>;
 
-const PollOptionSchema = z.strictObject({ id: z.string().min(1).max(32), label: z.string().min(1).max(200) });
+/**
+ * No C0/C1 control character (line breaks and tabs included), no line or
+ * paragraph separator and no bidi embedding, override or isolate: an option
+ * id or label is one visible line, so it cannot imitate a line of the
+ * approval message (spec request-approval "Options shown with the question").
+ */
+// eslint-disable-next-line no-control-regex -- matching control characters is this pattern's purpose
+export const SINGLE_LINE_PATTERN = /^[^\u0000-\u001F\u007F-\u009F\u2028\u2029\u202A-\u202E\u2066-\u2069]*$/;
+const SingleLine = (max: number) => z.string().min(1).max(max).regex(SINGLE_LINE_PATTERN, "one line of visible text: no control characters or line breaks");
+
+export const PollOptionSchema = z.strictObject({ id: SingleLine(32), label: SingleLine(200) });
 
 const requestFields = {
   to: HandleSchema.describe("Handle of the participant, from find_humans (e.g. mv-7f3c)."),
