@@ -36,6 +36,7 @@ import {
   checkOne,
   errorOf,
   grossReserve,
+  iso,
   listSince,
   manifest,
   personaDelay,
@@ -67,6 +68,12 @@ const DM = "sim-dm-7b80";
 const CF = "sim-cf-4c5e";
 // Can't-tell persona: verification (a verdict-bearing intent), net 3000 → gross 3750.
 const AG = "sim-ag-3b62";
+// Silent persona with the shortest latency promise the validation allows
+// (review fix of #26): a short expiry passes, so the expiry is watched live.
+// Verification net 4000 → gross 5000, released at expiry.
+const HB = "sim-hb-1f7d";
+const HB_LATENCY = seeded(HB).rules.latency_promise_seconds;
+const silentSkip = HB_LATENCY <= 15 * 60 ? false : `the seed gives ${HB} a ${HB_LATENCY} s latency promise: a short expiry is refused, so the silent flow cannot be watched in a bounded run`;
 
 const SECOND = 1000;
 /** Persona delay + dispatcher (5 s) + polling + an Aurora resume, with room to spare. */
@@ -86,13 +93,15 @@ describe("request flows with the simulated personas (live)", async () => {
   // Decided before any test runs, so a skipped flow is reported as skipped.
   const guardClient = await principalClient();
   const baseGuard = await budgetGuard(guardClient, 800 + 2250, 3);
-  const extraGuard = baseGuard || (await budgetGuard(guardClient, 800 + 2250 + 900 + 3750, 5));
+  const extraGuard = baseGuard || (await budgetGuard(guardClient, 800 + 2250 + 900 + 3750 + 5000, 6));
   await guardClient.close();
 
   let prompt: Sent | undefined;
   let declineId: string | undefined;
   let slowId: string | undefined;
   let cantTellId: string | undefined;
+  let silentId: string | undefined;
+  let silentExpiresAt: string | undefined;
 
   before(async () => {
     c = await principalClient();
@@ -197,6 +206,12 @@ describe("request flows with the simulated personas (live)", async () => {
     const ctQ = "Does this invoice layout meet the UK VAT invoice requirements?";
     const ct = await send(manifest(AG, "verification", 3750, ctQ), ctQ);
     cantTellId = ct.out.request_id;
+    if (!silentSkip) {
+      const sq = "Does this dispensing checklist match current hospital pharmacy practice?";
+      silentExpiresAt = iso(new Date(serverNow().getTime() + (HB_LATENCY + 60) * SECOND));
+      const silent = await send(manifest(HB, "verification", 5000, sq, { expires_at: silentExpiresAt }), sq);
+      silentId = silent.out.request_id;
+    }
   });
 
   // ---- participant-simulation and lifecycle: the personas act ----------------
@@ -314,6 +329,19 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.ok(r.answer_display?.verification_notice, "the principal is told the participant is not yet identity-verified");
     const reserve = grossReserve(CF, "opinion", FEE_PERCENT);
     assert.ok(r.cleared_minor !== undefined && reserve <= r.cleared_minor && r.cleared_minor <= 900);
+  });
+
+  test("Scenario: Silent until expiry (with Scenario: Expiry by the platform, live)", { skip: baseGuard || extraGuard || silentSkip }, async () => {
+    const id = need(silentId, "silent");
+    // The platform expires within about a minute of the expiry time (expire runs every minute).
+    const boundMs = Date.parse(silentExpiresAt!) - Date.now() + 150 * SECOND;
+    const r = await untilStatusNot(c, id, ["sent"], boundMs);
+    assert.equal(r.status, "expired", "the silent persona never responds: the request expires");
+    assert.equal(r.transitions.accepted_at, undefined);
+    const lateS = (Date.parse(r.transitions.expired_at!) - Date.parse(silentExpiresAt!)) / SECOND;
+    assert.ok(lateS >= 0 && lateS <= 90, `expired ${lateS} s after its expiry time`);
+    assert.equal(r.hold_status, "released", "the held amount is reported as released");
+    assert.equal(r.cleared_minor, undefined);
   });
 
   test("Scenario: Unknown id", async () => {
