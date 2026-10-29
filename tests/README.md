@@ -453,6 +453,6 @@ Cases from the protocol skill §12. Each was first shown red against a deliberat
 | 5 over-interruption | "case 5" (three approvals minted, then redeemed; a fourth first leg) | W5: interruption budget not checked | 3 requests created past a budget of 2 |
 | 6 bid below reserve | "case 6" (reserve − 1, the net reserve, 0, an undeclared free lane, negative, fractional, string; a lowered bid on the retry) | W6: reserve and free-lane checks off | approval shown at reserve − 1 |
 | 10 unsigned answer | `answers.local.test.ts` "case 10" (14 forgeries) and "revoked key"; `answers.live.test.ts` | W10: signature not verified in `apps/worker/src/intake.ts` | a zero signature accepted |
-| 11 answer without attestation | `answers.local.test.ts` "case 11" (9 forgeries, some validly signed); `answers.live.test.ts` | W11: intake coerces `answered_personally: true` before parsing | attestation removed after signing, accepted |
+| 11 answer without attestation | `answers.local.test.ts` "case 11" (10 forgeries, some validly signed); `answers.live.test.ts` | W11: intake coerces `answered_personally: true` before parsing | attestation removed after signing, accepted |
 
 `manifest.live.test.ts` also carries six `todo` tests: evasions the deterministic content rules (design D6; the method is OPEN until M3) let through today (zero-width space, a Cyrillic letter, indirect wording, a polite question without an imperative, a named person with a specific disease, a deliverable missing from the word list). They report without failing the run.
