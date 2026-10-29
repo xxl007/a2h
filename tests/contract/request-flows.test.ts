@@ -13,7 +13,7 @@
 //                               like a real answer (observable part)
 //
 // Cost on the stage per run (development principal, infra/config.ts D7):
-// four requests (five while "Accepted approval replayed" is red), about
+// four requests, about
 // €54 of monthly budget committed for a minute (holds), of which about €54
 // stays committed as cleared amounts: prompt €7.75, slow €8.88, can't tell
 // €37.50; the decline releases its hold. The slow and can't-tell flows are
@@ -158,7 +158,7 @@ describe("request flows with the simulated personas (live)", async () => {
   });
 
   test("Scenario: Accepted approval replayed", { skip: baseGuard }, async () => {
-    // RED until the single-use approval fix (requests.approval_nonce) is on the stage.
+    // Single-use approval (requests.approval_nonce, PR #32): a replay creates nothing.
     const p = promptSent();
     const before = await checkOne(c, p.out.request_id!);
     const replay = await retryLeg(c, p.args, p.round.requestState, accept(JW_EDITED));
