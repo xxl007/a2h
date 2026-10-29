@@ -28,6 +28,12 @@ describe("adversarial: every answer shown to the principal is signed and atteste
   test("cases 10 and 11: no answered request carries an unsigned or unattested envelope", async (t) => {
     const answered = await listSince(c, new Date(Date.UTC(2026, 0, 1)), "answered");
     t.diagnostic(`${answered.length} answered request(s) visible on the stage`);
+    // Never pass vacuously: with nothing answered there is nothing to check.
+    if (answered.length === 0) {
+      t.skip("no answered request on this stage yet: send one to a prompt persona and wait for its answer, then rerun");
+      return;
+    }
+    assert.ok(answered.length >= 1);
     for (const r of answered) {
       const a = r.answer;
       assert.ok(a, `${r.request_id}: answered without an envelope`);
