@@ -6,6 +6,8 @@
 // to the approved text, after a full re-validation. The pending approval is
 // not stored anywhere: it travels as HMAC-signed state bound to the principal.
 import {
+  ApprovalAlreadyUsed,
+  approvalNonceUsed,
   countDeliveries,
   createRequest,
   findPublishedParticipant,
@@ -97,8 +99,11 @@ function refused(error: ProtocolError, participantId?: string): RequestHumanOutc
   return { result: errorResult(error), log: { outcome: "error", code: error.code, error_stage: error.stage, participant_id: participantId } };
 }
 
-function conflict(participantId?: string): RequestHumanOutcome {
-  return refused({ code: "conflict", stage: "principal", retryable: false, detail: "The approval does not match these arguments." }, participantId);
+const MISMATCH = "The approval does not match these arguments.";
+const ALREADY_USED = "This approval was already used to send a request; nothing new was created. Ask again to send another.";
+
+function conflict(participantId?: string, detail = MISMATCH): RequestHumanOutcome {
+  return refused({ code: "conflict", stage: "principal", retryable: false, detail }, participantId);
 }
 
 const DATA_TERMS = {
@@ -166,12 +171,12 @@ async function validate(deps: ToolDeps, manifest: Manifest | Record<string, unkn
   return v;
 }
 
-async function create(deps: ToolDeps, manifest: Manifest, participantId: string, deliverAt: string, now: Date): Promise<string> {
+async function create(deps: ToolDeps, manifest: Manifest, participantId: string, deliverAt: string, now: Date, nonce: string): Promise<string> {
   // Four hex characters (spec "Identifier formats"): draw again on a collision.
   for (let attempt = 0; attempt < 32; attempt++) {
     const id = formatRequestId(deps.randomBytes(2));
     try {
-      await createRequest(deps.db, { id, manifest, participant_id: participantId, deliver_at: new Date(deliverAt), now });
+      await createRequest(deps.db, { id, approval_nonce: nonce, manifest, participant_id: participantId, deliver_at: new Date(deliverAt), now });
       return id;
     } catch (error) {
       if (!(error instanceof RequestIdTaken)) throw error;
@@ -246,6 +251,11 @@ export async function requestHuman(deps: ToolDeps, args: unknown, ctx: ServerCon
   if (state === undefined || state.principal_id !== deps.principal.principal_id) return conflict(pid);
   const presented = await manifestHash(input);
   if (state.manifest_hash !== presented) return conflict(pid);
+  // An accepted approval creates one request only (spec "Accepted approval
+  // replayed"): a state whose nonce already created a request is refused here,
+  // before re-validation, so a replay counts nothing; the unique index on
+  // requests.approval_nonce settles concurrent retries.
+  if (await approvalNonceUsed(deps.db, state.nonce)) return conflict(pid, ALREADY_USED);
 
   const answer = inputResponse(responses, APPROVAL_INPUT);
   if (answer.kind !== "elicit") return conflict(pid);
@@ -261,7 +271,13 @@ export async function requestHuman(deps: ToolDeps, args: unknown, ctx: ServerCon
   const v = await validate(deps, manifest, await loadFacts(deps, participant, now, "recorded", { issued_for: state.manifest_hash, presented }));
   if (!v.ok) return refused(v.error, pid);
 
-  const id = await create(deps, manifest as Manifest, pid, v.deliver_at, now);
+  let id: string;
+  try {
+    id = await create(deps, manifest as Manifest, pid, v.deliver_at, now, state.nonce);
+  } catch (error) {
+    if (error instanceof ApprovalAlreadyUsed) return conflict(pid, ALREADY_USED);
+    throw error;
+  }
   const out: RequestHumanOutput = {
     status: "sent",
     request_id: id,

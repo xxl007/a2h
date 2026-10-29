@@ -125,6 +125,34 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     });
   });
 
+  describe("Accepted approval replayed: an approval nonce creates one request only", () => {
+    const N1 = "0123456789abcdef0123456789abcdef";
+    const ins = (id: string, nonce: string | null): [string, unknown[]] => [
+      `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane,
+          question, bid_minor, currency, expires_at, deliver_at, data_terms, approval_nonce)
+        VALUES ($1, 'dev-principal-pr-7', 'p_sim_mv', 'judgment', 'named_individual', 'one_shot', 'single_field', 'paid',
+          'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{}', $2)`,
+      [id, nonce],
+    ];
+    test("a nonce is used by at most one request", async () => {
+      await db.query("SAVEPOINT n");
+      await accepts(...ins("A2H-0a01", N1));
+      await rejects(...ins("A2H-0a02", N1), /requests_approval_nonce_unique/);
+      await db.query("ROLLBACK TO SAVEPOINT n");
+    });
+    test("requests without a nonce (none recorded) do not collide", async () => {
+      await db.query("SAVEPOINT n");
+      await accepts(...ins("A2H-0b01", null));
+      await accepts(...ins("A2H-0b02", null));
+      await db.query("ROLLBACK TO SAVEPOINT n");
+    });
+    test("the nonce is 32 lower-case hex characters, never text", async () => {
+      for (const bad of ["0123456789ABCDEF0123456789ABCDEF", "0123", "Is this leaflet alarming? yes it", `${N1}0`]) {
+        await rejects(...ins("A2H-0c01", bad));
+      }
+    });
+  });
+
   describe("request lifecycle", () => {
     const ev = `INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('A2H-7f3c', $1, $2, $3)`;
     test("Closed status set: a status outside the set is refused", async () => {

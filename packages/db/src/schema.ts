@@ -87,6 +87,10 @@ const code = (name: string, values: readonly string[]) => varchar(name, { length
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const currency = () => char("currency", { length: 3 }).notNull();
 
+/** An approval nonce: 16 random bytes in lower-case hex (apps/mcp request_human). */
+export const APPROVAL_NONCE_LENGTH = 32;
+const APPROVAL_NONCE_PATTERN = /^[0-9a-f]{32}$/;
+
 /** A short machine code (decline reason): lower-case words joined by `_`, never free text. */
 const REASON_CODE_PATTERN = /^[a-z][a-z0-9_]*$/;
 const REASON_CODE_MAX_LENGTH = 40;
@@ -297,6 +301,13 @@ export const requests = pgTable(
     expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
     created_at: createdAt(),
     updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * The nonce of the approval that created this request (design D1): an
+     * accepted approval creates one request only, so a replayed approval state
+     * is refused (spec request-approval "Accepted approval replayed"). Null
+     * for requests not created through an approval.
+     */
+    approval_nonce: varchar("approval_nonce", { length: APPROVAL_NONCE_LENGTH }),
   },
   (t) => [
     check("requests_id_format", matches(t.id, REQUEST_ID_PATTERN)),
@@ -327,6 +338,8 @@ export const requests = pgTable(
     index("requests_principal_created_idx").on(t.principal_id, t.created_at),
     index("requests_participant_idx").on(t.participant_id),
     index("requests_open_expiry_idx").on(t.expires_at).where(sql`${t.status} IN ('sent', 'accepted')`),
+    check("requests_approval_nonce_format", matches(t.approval_nonce, APPROVAL_NONCE_PATTERN)),
+    uniqueIndex("requests_approval_nonce_unique").on(t.approval_nonce).where(sql`${t.approval_nonce} IS NOT NULL`),
   ],
 );
 

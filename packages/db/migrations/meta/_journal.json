@@ -29,6 +29,13 @@
       "when": 1793221267743,
       "tag": "0003_request_deliveries_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793275407001,
+      "tag": "0004_requests_approval_nonce",
+      "breakpoints": true
     }
   ]
 }
