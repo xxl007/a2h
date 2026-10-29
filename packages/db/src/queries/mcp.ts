@@ -158,8 +158,24 @@ export class RequestIdTaken extends Error {
   }
 }
 
+/** Thrown by `createRequest` when the approval nonce already created a request (a replayed approval). */
+export class ApprovalAlreadyUsed extends Error {
+  constructor() {
+    super("approval already used");
+    this.name = "ApprovalAlreadyUsed";
+  }
+}
+
+/** True when an approval with this nonce already created a request. */
+export async function approvalNonceUsed(db: McpDb, nonce: string): Promise<boolean> {
+  const rows = await db.select({ id: requests.id }).from(requests).where(eq(requests.approval_nonce, nonce)).limit(1);
+  return rows.length > 0;
+}
+
 export interface NewRequest {
   id: string;
+  /** The nonce of the accepted approval: unique, so one approval creates one request. */
+  approval_nonce: string;
   manifest: Manifest;
   participant_id: string;
   deliver_at: Date;
@@ -168,7 +184,9 @@ export interface NewRequest {
 
 /**
  * Create a request in `sent` with its first event (null → sent, by the
- * principal), in one transaction: both rows or neither.
+ * principal), in one transaction: both rows or neither. The approval nonce
+ * is written in the same row: a second request for the same accepted
+ * approval fails on its unique index (`ApprovalAlreadyUsed`).
  */
 export async function createRequest(db: McpDb, r: NewRequest): Promise<void> {
   const m = r.manifest;
@@ -185,6 +203,7 @@ export async function createRequest(db: McpDb, r: NewRequest): Promise<void> {
         lane: m.lane,
         free_lane: m.free_lane ?? null,
         question: m.question,
+        approval_nonce: r.approval_nonce,
         options: m.options ?? null,
         scale: m.scale ?? null,
         attachments: m.attachments ?? null,
@@ -201,6 +220,7 @@ export async function createRequest(db: McpDb, r: NewRequest): Promise<void> {
     });
   } catch (error) {
     if (isUniqueViolation(error, "requests_pkey")) throw new RequestIdTaken();
+    if (isUniqueViolation(error, "requests_approval_nonce_unique")) throw new ApprovalAlreadyUsed();
     throw error;
   }
 }

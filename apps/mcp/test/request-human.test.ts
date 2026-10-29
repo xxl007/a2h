@@ -272,6 +272,47 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
     }
   });
 
+  test("Scenario: Accepted approval replayed: conflict, no second request or hold, the first request unchanged", async () => {
+    const { db, server } = await fresh();
+    const { round, client } = await firstRound(server.url);
+    try {
+      const accept = { approval: { action: "accept", content: { question: EDITED } } };
+      const first = await retry(client, "request_human", BASE, round.requestState, accept);
+      const id = RequestHumanOutputSchema.parse(first.structuredContent).request_id!;
+      const before = await sqlIn(db, "SELECT * FROM requests");
+      for (const replay of [accept, { approval: { action: "accept", content: { question: ORIGINAL } } }]) {
+        const again = await retry(client, "request_human", BASE, round.requestState, replay);
+        assert.equal(errorOf(again).code, "conflict");
+        assert.match(errorOf(again).detail ?? "", /already used/);
+        assert.ok(!JSON.stringify(again).includes(id), "the replay is not told the first request's id");
+      }
+      assert.deepEqual(await sqlIn(db, "SELECT * FROM requests"), before, "the first request is unchanged");
+      assert.deepEqual(await writeCounts(db), { requests: 1, request_events: 1, blocked_manifests: 0, answers: 0 });
+      // A fresh approval of the same manifest is a new decision: it may be sent.
+      const second = await firstRound(server.url);
+      const fresh2 = await retry(second.client, "request_human", BASE, second.round.requestState, accept);
+      assert.equal(RequestHumanOutputSchema.parse(fresh2.structuredContent).status, "sent");
+      await second.client.close();
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("Accepted approval replayed in parallel: exactly one request is sent, the other retry gets conflict", async () => {
+    const { db, server } = await fresh();
+    const { round, client } = await firstRound(server.url);
+    try {
+      const accept = { approval: { action: "accept", content: { question: ORIGINAL } } };
+      const results = await Promise.all(Array.from({ length: 4 }, () => retry(client, "request_human", BASE, round.requestState, accept)));
+      const sent = results.filter((r) => !r.isError);
+      assert.equal(sent.length, 1, results.map((r) => texts(r).join(" ")).join(" | "));
+      for (const r of results.filter((x) => x.isError)) assert.equal(errorOf(r).code, "conflict");
+      assert.deepEqual(await writeCounts(db), { requests: 1, request_events: 1, blocked_manifests: 0, answers: 0 });
+    } finally {
+      await client.close();
+    }
+  });
+
   test("Scenario: Client on an older revision: an error result saying how to enable 2026-07-28, nothing created, never asked", async () => {
     const { db, server } = await fresh();
     let elicited = false;
