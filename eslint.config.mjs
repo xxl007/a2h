@@ -136,6 +136,25 @@ export default defineConfig([
     },
   },
   {
+    // apps/web: only apps/web/infra, the deployment adapters, may import an
+    // AWS SDK (CLAUDE.md, provider-neutral business logic; m1-hosted-connector
+    // design D2). apps/web/test/boundaries.test.ts checks the same.
+    files: ["apps/web/app/**/*.{ts,tsx}", "apps/web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@aws-sdk/*", "aws-sdk", "@smithy/*"],
+              message: "Only apps/web/infra may import an AWS SDK; inject an adapter instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["**/*.{js,mjs,cjs}"],
     extends: [tseslint.configs.disableTypeChecked],
   },
