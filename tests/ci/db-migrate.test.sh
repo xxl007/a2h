@@ -166,7 +166,7 @@ migrate STUB_PSQL="$PSQL_A2H" "$WORK/pr21" pr-21
 expect "pr-21 exits 0" 0 "$RC"
 check "each transaction starts with SET LOCAL ROLE pr_21, then search_path pr_21" \
   bash -c 'grep -qx "SET LOCAL ROLE pr_21" <<<"$1" && grep -qx "SET LOCAL search_path = pr_21" <<<"$1"' _ "$SQL"
-expect "tables in pr_21 (m1-hosted-connector group 3: + principals, principal_policies, rate_limit_windows)" 15 "$(q "SELECT count(*) FROM pg_tables WHERE schemaname = 'pr_21'")"
+expect "tables in pr_21 (m1-hosted-connector group 3: + principals, principal_policies, rate_limit_windows; group 5: + 12 Better Auth tables)" 27 "$(q "SELECT count(*) FROM pg_tables WHERE schemaname = 'pr_21'")"
 expect "every relation and function in pr_21 is owned by pr_21" 0 "$(not_owned_by pr_21 pr_21)"
 expect "nothing added to public" "$before_public" \
   "$(q "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public'")"
