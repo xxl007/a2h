@@ -9,8 +9,8 @@
 //   BETTER_AUTH_SECRET (cookie signing, hashing, key encryption).
 // - STORAGE_PREFIX and UPLOADS_BUCKET: the mail sink `tmp/<prefix>mail/` (D6).
 // - EMAIL_FROM: the SES sender (required on prod).
-// - ALLOWLIST_PARAMETER (SSM SecureString, D7) and PRINCIPAL_ALLOWLIST
-//   (fallback list until the parameter exists).
+// - ALLOWLIST_PARAMETER (SSM SecureString, D7); PRINCIPAL_ALLOWLIST is the
+//   list of a local server (infra never sets it on a deployed stage).
 // - PRINCIPAL_CURRENCY … PRINCIPAL_THROTTLED_DAILY_LIMIT: the stage's default
 //   policy given to a principal at first consent (D4), the names the mcp
 //   service uses (infra/service-env.ts).

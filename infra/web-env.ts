@@ -5,7 +5,7 @@
 import { prDbSecretName } from "./access.ts";
 import { developmentPolicy, hostnames, REGION, type StageInfo } from "./config.ts";
 
-/** SSM SecureString holding the allow-list (D7); created by the stage deploy in task 8.2. */
+/** SSM SecureString holding the allow-list (D7); created by the dev deploy (PR #57); dev and previews read it. */
 export const ALLOWLIST_PARAMETERS = {
   shared: "/a2h/shared/principal-allowlist",
   prod: "/a2h/prod/principal-allowlist",
@@ -27,8 +27,6 @@ export interface WebEnvInputs {
   domain?: string | undefined;
   /** The `email-sender` shared value: a domain, an address, or "none". */
   emailSender?: string | undefined;
-  /** Comma-separated addresses read until the SSM parameter exists (D7). */
-  allowlistFallback?: string | undefined;
 }
 
 function fromAddress(sender: string | undefined): string | undefined {
@@ -54,7 +52,6 @@ export function webPlainEnvironment(stage: StageInfo, inputs: WebEnvInputs): Rec
   if (issuer) env["AUTH_ISSUER"] = issuer;
   const from = fromAddress(inputs.emailSender);
   if (from) env["EMAIL_FROM"] = from;
-  if (inputs.allowlistFallback) env["PRINCIPAL_ALLOWLIST"] = inputs.allowlistFallback;
   return env;
 }
 

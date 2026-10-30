@@ -27,7 +27,7 @@ describe("allowlistLoader", () => {
     expect(calls).toEqual([{ Name: "/a2h/shared/principal-allowlist", WithDecryption: true }]);
   });
 
-  test("parameter not created yet (task 8.2): the fallback; any other error is thrown", async () => {
+  test("parameter not created: the fallback (empty on a deployed stage, which never sets PRINCIPAL_ALLOWLIST); any other error is thrown", async () => {
     const missing = { send: () => Promise.reject(new ParameterNotFound({ message: "x", $metadata: {} })) };
     expect(await allowlistLoader({ parameter: "/a2h/shared/principal-allowlist", fallback: "a@example.com" }, missing as never)()).toBe("a@example.com");
     const denied = { send: () => Promise.reject(Object.assign(new Error("denied"), { name: "AccessDeniedException" })) };

@@ -1,8 +1,9 @@
 // Deployment adapter for the allow-list (design D7): the SecureString SSM
 // parameter named by ALLOWLIST_PARAMETER (`/a2h/shared/principal-allowlist`
 // for dev and previews, `/a2h/prod/principal-allowlist` for prod; created by
-// the stage deploy, task 8.2). Until the parameter exists, PRINCIPAL_ALLOWLIST
-// (a comma-separated list in the environment) is read instead. The value is
+// the dev deploy, PR #57). PRINCIPAL_ALLOWLIST (a comma-separated list) is
+// for a local server only, where no parameter is configured; infra never sets
+// it on a deployed stage. The value is
 // never logged; the Allowlist class (src/auth/allowlist.ts) refreshes it
 // every five minutes.
 import { GetParameterCommand, ParameterNotFound, SSMClient } from "@aws-sdk/client-ssm";

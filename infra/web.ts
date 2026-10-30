@@ -57,7 +57,7 @@ export function createWeb(
         .apply(([clusterArn, arn, account]) => webDatabasePermissions(stage, { clusterArn, secretArn: arn, accountId: account }))
     : undefined;
   const plain = $util.output(deps.emailSender).apply((emailSender) =>
-    webPlainEnvironment(stage, { domain, emailSender, allowlistFallback: process.env["A2H_PRINCIPAL_ALLOWLIST"] }),
+    webPlainEnvironment(stage, { domain, emailSender }),
   );
   return new sst.aws.Nextjs("Web", {
     path: "apps/web",

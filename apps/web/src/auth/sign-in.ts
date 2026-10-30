@@ -71,6 +71,8 @@ export interface SignInDeps {
   auth: Auth;
   isAllowed: (email: string) => Promise<boolean>;
   logger: Logger;
+  /** Constant-time answer (spec "Unknown address"); one per server instance, see `ResponsePacer`. */
+  pacer?: ResponsePacer;
 }
 
 export interface MagicLinkRequest {
@@ -81,24 +83,78 @@ export interface MagicLinkRequest {
   requestId?: string;
 }
 
+/** Minimum time the sign-in action takes, whatever the address. */
+export const SIGN_IN_FLOOR_MS = 800;
+
+/**
+ * Makes the sign-in answer take the same time for an allow-listed and an
+ * unknown address (spec "Unknown address": nothing tells them apart). Every
+ * request ends at `start + max(floor, estimate)`, where `estimate` follows the
+ * recent durations of the real work (allow-list check, link row, mail) of
+ * allow-listed requests (moving average; the floor covers the usual case,
+ * about 100 to 400 ms on the Data API and S3). An unknown address does no work and waits
+ * for the same target; an allowed one waits out what is left of it. Only work
+ * slower than both the floor and the estimate shows through, and it then
+ * raises the estimate for every later request, known or not.
+ */
+export class ResponsePacer {
+  #estimate: number;
+  constructor(
+    readonly floorMs: number = SIGN_IN_FLOOR_MS,
+    private readonly now: () => number = () => performance.now(),
+    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  ) {
+    this.#estimate = floorMs;
+  }
+
+  /** Records how long the real work took (allow-listed requests only). */
+  observe(workMs: number): void {
+    this.#estimate = Math.max(this.floorMs, 0.8 * this.#estimate + 0.2 * workMs);
+  }
+
+  /** Waits until `start + target`. */
+  async settle(start: number): Promise<void> {
+    const left = Math.max(this.floorMs, this.#estimate) - (this.now() - start);
+    if (left > 0) await this.sleep(left);
+  }
+
+  get target(): number {
+    return Math.max(this.floorMs, this.#estimate);
+  }
+
+  clock(): number {
+    return this.now();
+  }
+}
+
+const defaultPacer = new ResponsePacer();
+
 /**
  * Sends a link to an allow-listed address; does nothing for any other. The
- * caller shows the same page either way. Throws only on a delivery failure
- * for an allowed address (the "error" state).
+ * caller shows the same page either way, after the same time (`ResponsePacer`).
+ * Throws only on a delivery failure for an allowed address (the "error"
+ * state), and only once the same time has passed.
  */
 export async function requestMagicLink(deps: SignInDeps, req: MagicLinkRequest): Promise<void> {
-  const allowed = await deps.isAllowed(req.email);
+  const pacer = deps.pacer ?? defaultPacer;
+  const start = pacer.clock();
   const fields = req.requestId ? { request_id: req.requestId } : {};
-  if (!allowed) {
-    // Same outcome, no row, no email, and no line that could tell the two apart.
-    deps.logger.info("magic link requested", { ...fields, code: "magic_link_requested" });
-    return;
+  let failure: unknown;
+  try {
+    if (await deps.isAllowed(req.email)) {
+      const callbackURL = req.next ?? ROUTES.clients;
+      const errorCallbackURL = req.next ? `${ROUTES.expired}?next=${encodeURIComponent(req.next)}` : ROUTES.expired;
+      await deps.auth.api.signInMagicLink({
+        body: { email: req.email, callbackURL, errorCallbackURL },
+        headers: req.headers,
+      });
+      pacer.observe(pacer.clock() - start);
+    }
+  } catch (e) {
+    failure = e;
   }
-  const callbackURL = req.next ?? ROUTES.clients;
-  const errorCallbackURL = req.next ? `${ROUTES.expired}?next=${encodeURIComponent(req.next)}` : ROUTES.expired;
-  await deps.auth.api.signInMagicLink({
-    body: { email: req.email, callbackURL, errorCallbackURL },
-    headers: req.headers,
-  });
+  // Same line, same moment, whatever the address.
+  await pacer.settle(start);
+  if (failure !== undefined) throw failure instanceof Error ? failure : new Error("magic link not sent");
   deps.logger.info("magic link requested", { ...fields, code: "magic_link_requested" });
 }

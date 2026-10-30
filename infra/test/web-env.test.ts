@@ -37,7 +37,7 @@ test("allow-list parameter: shared by dev and previews, prod its own (D7)", () =
 test("plain environment: the stage default policy in the mcp service's variable names, the database name and schema", () => {
   for (const s of ["dev", "prod", "pr-12"]) {
     const stage = stageInfo(s);
-    const env = webPlainEnvironment(stage, { domain: "a2h-protocol.org", emailSender: "a2h-protocol.org", allowlistFallback: "a@example.com" });
+    const env = webPlainEnvironment(stage, { domain: "a2h-protocol.org", emailSender: "a2h-protocol.org" });
     const p = developmentPolicy(stage);
     assert.equal(env["PRINCIPAL_CURRENCY"], p.currency);
     assert.equal(env["PRINCIPAL_MONTHLY_BUDGET_MINOR"], String(p.monthly_budget_minor));
@@ -48,7 +48,8 @@ test("plain environment: the stage default policy in the mcp service's variable 
     assert.equal(env["DB_NAME"], "a2h");
     assert.equal(env["DB_SCHEMA"], stage.dbSchema);
     assert.equal(env["EMAIL_FROM"], "A2H <sign-in@a2h-protocol.org>");
-    assert.equal(env["PRINCIPAL_ALLOWLIST"], "a@example.com");
+    // Deployed stages read the SSM parameter only (PR #57 creates it); the fallback is for local runs.
+    assert.equal(env["PRINCIPAL_ALLOWLIST"], undefined);
     assert.ok(env["AUTH_ISSUER"]?.endsWith("/api/auth"));
     // No principal of the stage and no fee: those are the mcp service's.
     for (const name of ["PRINCIPAL_ID", "PRINCIPAL_VERIFIED", "FEE_RATE"]) assert.equal(env[name], undefined, `${s} ${name}`);

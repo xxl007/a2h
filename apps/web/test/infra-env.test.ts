@@ -16,7 +16,7 @@ describe("infra -> apps/web environment", () => {
     test(`${name}: parsed by webConfigFromEnv and dataApiConfigFromEnv`, () => {
       const stage = stageInfo(name);
       const env = {
-        ...webPlainEnvironment(stage, { domain: "a2h-protocol.org", emailSender: "a2h-protocol.org", allowlistFallback: "a@example.com" }),
+        ...webPlainEnvironment(stage, { domain: "a2h-protocol.org", emailSender: "a2h-protocol.org" }),
         ...ARNS,
         STAGE: stage.name,
         STORAGE_PREFIX: stage.storagePrefix,
