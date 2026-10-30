@@ -43,6 +43,14 @@ describe("JSON Schema export, snapshot per tool input and output", () => {
     assert.ok(existsSync(file), `snapshot missing: run UPDATE_SNAPSHOTS=1 pnpm --filter @a2h/protocol test`);
     assert.equal(text, readFileSync(file, "utf8"));
   });
+  test("ProtocolError matches json-schema/protocol_error.json (the structured content of every refusal)", async () => {
+    const { ProtocolErrorSchema, toJsonSchema } = await import("../src/index.ts");
+    const file = new URL("protocol_error.json", dir);
+    const text = JSON.stringify(toJsonSchema(ProtocolErrorSchema), null, 2) + "\n";
+    if (update) writeFileSync(file, text);
+    assert.ok(existsSync(file), `snapshot missing: run UPDATE_SNAPSHOTS=1 pnpm --filter @a2h/protocol test`);
+    assert.equal(text, readFileSync(file, "utf8"));
+  });
   test("ping input: optional integer holdSeconds 0..3900, nothing else", () => {
     const input = pingJsonSchemas().input as { type: string; properties: Record<string, Record<string, unknown>>; required?: string[] };
     assert.equal(input.type, "object");

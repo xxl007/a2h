@@ -1,11 +1,12 @@
 // Entry point imported by the root sst.config.ts inside run(), after the
 // permissions-boundary $transform is registered.
 import { storageAccess } from "./access.ts";
-import { EMAIL_SENDER_NONE, stageInfo, type StageInfo } from "./config.ts";
+import { domain, EMAIL_SENDER_NONE, stageInfo, type StageInfo } from "./config.ts";
 import { albBaseUrl, createAlb, createCluster, getAlb, getCluster } from "./cluster.ts";
 import { createDatabase, masterAccess, previewAccess, type DbAccess } from "./database.ts";
 import { createEmail, getEmail } from "./email.ts";
 import { createMcp } from "./mcp.ts";
+import { webBaseUrl } from "./service-env.ts";
 import { publishShared, readShared } from "./shared.ts";
 import { createStageSecrets } from "./stage-secrets-resources.ts";
 import { createUploads, type StorageGrant } from "./storage.ts";
@@ -81,12 +82,17 @@ export async function deploy(stageName: string, command: string) {
   // a2h/<stage>/signing and a2h/<stage>/approval: every stage creates its own.
   const secrets = createStageSecrets(stage);
   const deps = { stage, cluster, db, storage, email, secrets };
-  createMcp(deps, alb);
-  createWorker(deps);
 
   const albUrl = albBaseUrl(stage, alb);
   const mcpUrl = $interpolate`${albUrl}${stage.mcpBasePath}`;
+  // The web app hosts the stage's authorization server (m1-hosted-connector
+  // D1), so it is created first: the mcp service trusts its issuer.
   const web = createWeb(stage, { storage, mcpUrl });
+  // Without apps/web there is no authorization server: the issuer then names
+  // an address that serves no keys, and the gate answers 401 (fails closed).
+  const webUrl = web ? web.url.apply((u) => webBaseUrl(stage, domain, u)) : $output(webBaseUrl(stage, domain, "https://web-not-deployed.invalid"));
+  createMcp(deps, alb, { albBaseUrl: albUrl, webBaseUrl: webUrl });
+  createWorker(deps);
 
   // Only dev publishes: prod's resources are its own and never shared.
   if (stage.kind === "dev" && shared) publishShared(shared);

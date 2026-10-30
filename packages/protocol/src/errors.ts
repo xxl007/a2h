@@ -17,6 +17,12 @@ export const PROTOCOL_ERROR_CODES = [
   "conflict",
   /** A stored answer failed signature verification at read time; it is not shown (spec answer-attestation "Stored answer that no longer verifies"). */
   "answer_unverified",
+  /**
+   * The connection's account cannot act as a principal (m1-hosted-connector:
+   * no principal row for the token's subject yet, or no token at all where a
+   * tool needs one). Sign in again; nothing was done.
+   */
+  "unauthorized",
 ] as const;
 export const ProtocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);
 export type ProtocolErrorCode = z.infer<typeof ProtocolErrorCodeSchema>;
@@ -24,6 +30,12 @@ export type ProtocolErrorCode = z.infer<typeof ProtocolErrorCodeSchema>;
 export const VALIDATION_STAGES = ["schema", "principal", "content", "rules", "budget", "throttle"] as const;
 export const ProtocolStageSchema = z.enum([...VALIDATION_STAGES, "lifecycle"]);
 export type ProtocolStage = z.infer<typeof ProtocolStageSchema>;
+
+/** Machine-readable details of a `rate_limited` refusal (m1-hosted-connector design D5): when to retry. */
+export const RateLimitDetailsSchema = z.strictObject({
+  retry_after_seconds: z.int().min(1).max(86_400),
+});
+export type RateLimitDetails = z.infer<typeof RateLimitDetailsSchema>;
 
 /**
  * What a tool returns on failure. `detail` is category text for the principal:
@@ -36,6 +48,8 @@ export const ProtocolErrorSchema = z.strictObject({
   retryable: z.boolean(),
   request_id: RequestIdSchema.optional(),
   detail: z.string().max(200).optional(),
+  /** `rate_limited` only: when to retry. */
+  details: RateLimitDetailsSchema.optional(),
 });
 export type ProtocolError = z.infer<typeof ProtocolErrorSchema>;
 
