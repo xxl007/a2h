@@ -8,9 +8,9 @@
 
 | Stage | Creates | Borrows from dev | removal / protect |
 |---|---|---|---|
-| `dev` | VPC (2 AZ, no NAT), ECS cluster, ALB, Aurora (pg 17, 0-4 ACU, pauses after 10 min, Data API on), `Uploads` bucket, SES identity if `emailSender` is set, 8 SSM parameters, MCP + worker services, Web | nothing | `retain` / `true` |
+| `dev` | VPC (2 AZ, no NAT), ECS cluster, ALB, Aurora (pg 17, 0-4 ACU, pauses after 10 min, Data API on), `Uploads` bucket, SES domain identity for `a2h-protocol.org` (DKIM and DMARC records in the zone), 8 SSM parameters, MCP + worker services, Web | nothing | `retain` / `true` |
 | `pr-<n>` | MCP + worker services (`McpPr<n>`, `WorkerPr<n>`, Fargate Spot), listener rule, Web | VPC, cluster, ALB, SES identity via `static get`; Aurora endpoint via the `aws.rds.getCluster` data source (not `Aurora.get`, see below); bucket by name only (not linked) | `remove` / `false` |
-| `prod` | everything of its own (Aurora min 0.5 ACU, no pause, no Data API); publishes nothing | nothing | `retain` / `true` |
+| `prod` | everything of its own (Aurora min 0.5 ACU, no pause, Data API on since m1-hosted-connector D2, not yet deployed); publishes nothing | nothing | `retain` / `true` |
 
 Any other stage name is refused by `stageInfo()` so that a personal stage cannot create a second Aurora cluster by accident.
 
@@ -20,9 +20,19 @@ Any other stage name is refused by `stageInfo()` so that a personal stage cannot
 
 ## Routing on the shared ALB
 
-HTTP listener on 80; with a `domain`, HTTPS on 443 and 80 redirects to 443, and rules attach to 443. Idle timeout **4000 s**, the AWS maximum (`ALB_IDLE_TIMEOUT_SECONDS` in `config.ts`, applied in `cluster.ts` `transform.loadBalancer`), required by the mcp-transport scenario "Idle stream survives": 61 minutes idle is 3660 s, so 3600 would cut it. The MCP server keeps idle keep-alive connections for 4010 s (`apps/mcp/src/http-timeouts.ts`) so that the ALB, not Node, closes them first; `infra/test/config.test.ts` asserts both. Rules: dev/prod `/mcp` 49000, `/mcp/*` 49001, `/healthz` 49002; `pr-<n>` `/pr-<n>/*` at 100 + n (n < 48900). Target health check: `/healthz` or `/pr-<n>/healthz`, every 15 s, expects 200. The path has one source: `healthPathFor()` in `apps/mcp/src/health-path.ts` (pure, no SST, no imports), which both the server and `config.ts` `stageInfo()` import; `infra/test/config.test.ts` asserts they agree for `/mcp` and `/pr-12/mcp`.
+Two listeners: HTTPS on 443 with the stage's ACM certificate (DNS-validated in the zone), where every rule attaches (`serviceListener()` = `443/https`); HTTP on 80, whose default action is a 301 to the same URL on 443 and nothing else (spec `platform/hosted-endpoint`, "HTTP redirected"). Both come from `domain` in `config.ts`; unset it and the ALB falls back to 80 only with rules on 80 (the rollback, design Migration Plan). Idle timeout **4000 s**, the AWS maximum (`ALB_IDLE_TIMEOUT_SECONDS` in `config.ts`, applied in `cluster.ts` `transform.loadBalancer`), required by the mcp-transport scenario "Idle stream survives": 61 minutes idle is 3660 s, so 3600 would cut it. The MCP server keeps idle keep-alive connections for 4010 s (`apps/mcp/src/http-timeouts.ts`) so that the ALB, not Node, closes them first; `infra/test/config.test.ts` asserts both. Rules: dev/prod `/mcp` 49000, `/mcp/*` 49001, `/healthz` 49002; `pr-<n>` `/pr-<n>/*` at 100 + n (n < 48900). Target health check: `/healthz` or `/pr-<n>/healthz`, every 15 s, expects 200. The path has one source: `healthPathFor()` in `apps/mcp/src/health-path.ts` (pure, no SST, no imports), which both the server and `config.ts` `stageInfo()` import; `infra/test/config.test.ts` asserts they agree for `/mcp` and `/pr-12/mcp`.
 
-With `domain` set: prod web `<domain>`, ALB `mcp.<domain>`; dev web `dev.<domain>`, ALB `mcp.dev.<domain>`; `pr-<n>` web `pr-<n>.dev.<domain>`, MCP on `mcp.dev.<domain>/pr-<n>/mcp`.
+## Hostnames (`domain` = `a2h-protocol.org`)
+
+| Stage | Web | MCP endpoint (`mcp` output) |
+|---|---|---|
+| `prod` | `https://a2h-protocol.org` | `https://mcp.a2h-protocol.org/mcp` |
+| `dev` | `https://dev.a2h-protocol.org` | `https://mcp.dev.a2h-protocol.org/mcp` |
+| `pr-<n>` | `https://pr-<n>.dev.a2h-protocol.org` | `https://mcp.dev.a2h-protocol.org/pr-<n>/mcp` (dev's ALB) |
+
+`hostnames()` and `publicUrls()` in `config.ts` derive them; `infra/test/domain.test.ts` asserts them for prod, dev and `pr-12`, together with the listeners, the redirect, the web domain, the SES identity and the Data API flags, by running the component functions against recording stubs of the SST globals. The deploy creates every record and certificate through `sst.aws.dns()` (Route 53 zone `a2h-protocol.org` in the A2H account): the ALB alias and its eu-west-3 certificate on dev and prod, the CloudFront alias and its us-east-1 certificate per web stage (previews included, removed with the stage), and the SES identity's DKIM CNAMEs and `_dmarc` TXT (`v=DMARC1; p=none;`, SST's default). Nothing is created by hand.
+
+**Prod and the SES identity.** dev creates the SES domain identity for `a2h-protocol.org`. An SES identity exists once per account and region, so prod (same account, same region) cannot create a second one: before the first prod deploy, prod must reuse the identity (`Email.get`) or own it with dev reading it. Prod is not deployed in m1-hosted-connector.
 
 ## What each service receives
 

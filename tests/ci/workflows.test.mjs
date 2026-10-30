@@ -388,7 +388,30 @@ test("preview.yml: a verify job needs deploy and runs only when deploy reports d
   assert.deepEqual(j.permissions, { contents: "read", "pull-requests": "write" });
   const smoke = stepRunning(j, "tests/ci/preview-smoke.sh");
   assert.match(String(smoke.env?.MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, "smoke derives the ALB host from the mcp output");
+  assertSmokeKeepsScheme(smoke);
 });
+
+/**
+ * m1-hosted-connector: the mcp output is https://mcp.dev.<domain>/...; the
+ * smoke step must hand preview-smoke.sh the scheme too, or it probes plain
+ * HTTP and gets the ALB's 301. Runs the step's script up to the smoke call
+ * with a stand-in for the script, for an https and an http output.
+ */
+function assertSmokeKeepsScheme(step) {
+  for (const [mcpUrl, base] of [
+    ["https://mcp.dev.a2h-protocol.org/pr-12/mcp", "https://mcp.dev.a2h-protocol.org"],
+    ["https://mcp.dev.a2h-protocol.org/mcp", "https://mcp.dev.a2h-protocol.org"],
+    ["http://AlbLoadBalancer-x.eu-west-3.elb.amazonaws.com/mcp", "http://AlbLoadBalancer-x.eu-west-3.elb.amazonaws.com"],
+  ]) {
+    const script = step.run.replace(/bash tests\/ci\/preview-smoke\.sh/, 'printf "%s\\n"');
+    const r = spawnSync("bash", ["-euo", "pipefail", "-c", script], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, MCP_URL: mcpUrl, PR_NUMBER: "12" },
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.split("\n")[0], base, `smoke base for ${mcpUrl}`);
+  }
+}
 
 test("preview.yml: verify appends a Verification line, with the run link, to the preview comment, whatever the outcome", () => {
   const j = verifyJob("preview.yml");
@@ -416,6 +439,7 @@ test("deploy.yml: a verify job needs deploy and runs the suites against dev", ()
   assert.equal(j.permissions?.["pull-requests"], undefined, "verify dev has no PR to write to");
   const smoke = stepRunning(j, "tests/ci/preview-smoke.sh");
   assert.match(smoke.run, /preview-smoke\.sh "\$[A-Za-z_{}]+" dev/, "smoke must run in dev mode");
+  assertSmokeKeepsScheme(smoke);
   for (const needle of ["@a2h/tests contract", "@a2h/tests adversarial", "@a2h/tests e2e"]) {
     assert.equal(stepRunning(j, needle).env?.A2H_STAGE ?? j.env?.A2H_STAGE, "dev", `${needle}: A2H_STAGE must be dev`);
   }

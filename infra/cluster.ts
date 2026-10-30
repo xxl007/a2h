@@ -1,6 +1,6 @@
 // ECS cluster and the one ALB per environment (dev, prod). pr-* stages
 // attach listener rules to dev's ALB.
-import { ALB_IDLE_TIMEOUT_SECONDS, domain, hostnames, type StageInfo } from "./config.ts";
+import { ALB_IDLE_TIMEOUT_SECONDS, domain, hostnames, publicUrls, type StageInfo } from "./config.ts";
 
 export function createCluster(vpc: sst.aws.Vpc) {
   return new sst.aws.Cluster("Cluster", { vpc });
@@ -56,6 +56,6 @@ export function serviceListener(): "443/https" | "80/http" {
 /** Base URL (no trailing slash) under which MCP_BASE_PATH is served. */
 export function albBaseUrl(stage: StageInfo, alb: sst.aws.Alb): $util.Output<string> {
   // Alb.get on pr-* only knows the DNS name, so derive the domain URL here.
-  if (domain) return $output(`https://${hostnames(stage, domain).alb}`);
+  if (domain) return $output(publicUrls(stage, domain).albBase);
   return alb.url.apply((u) => u.replace(/\/$/, ""));
 }
