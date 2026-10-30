@@ -297,6 +297,34 @@ States:
 
 The lead states the difference between the browser session (revoked) and the consents held by agents (kept), which spec "Sign-out revokes" separates.
 
+### Email: magic link (`packages/email/src/magic-link.ts`)
+
+Reviewed 2026-10-30 against the template from PR #53 (`pnpm --filter @a2h/email preview`). Approved in structure: it carries the link and its validity and nothing else (no address, no name, no client, no image, no question text), the system font stack, a plain-text version, sentence case, and the reassurance line for unrequested emails. **Four wording changes for the web dev**, so the email and the screens say the same thing (S3 tells the person to open the link in the same browser, which the consent flow needs):
+
+| Where | Now | Change to |
+|---|---|---|
+| Body, first line | "Use this link to sign in. It works for 15 minutes and only once." | "Use this link to sign in. It works once and for 15 minutes. Open it in the browser where you asked for it." |
+| Preview text | "Sign in to A2H. It works for 15 minutes and only once." | "Sign in to A2H. The link works once and for 15 minutes." |
+| New line after the copy-the-address block | (none) | "If it has expired, ask for a new one on the sign-in page." |
+| Stage label (`stageLabel`), notice line and subject prefix | "development" / "preview pr-12"; "This email comes from the preview pr-12 stage of A2H."; "[preview pr-12] Your A2H sign-in link" | "test stage dev" / "test stage pr-12"; "This email comes from A2H test stage pr-12, not the live service."; "[test stage pr-12] Your A2H sign-in link" (same words as the screens' stage line; no "development" anywhere, task 4.1) |
+
+Final copy (prod; the stage line and prefix appear on non-production stages only, which write to the mail sink and send nothing):
+- Subject **Your A2H sign-in link**
+- Preview **Sign in to A2H. The link works once and for 15 minutes.**
+- h1 **Sign in to A2H**
+- **Use this link to sign in. It works once and for 15 minutes. Open it in the browser where you asked for it.**
+- call to action **Sign in to A2H** (the link)
+- **If the link does not open, copy this address into your browser:** followed by the URL as plain text, `word-break: break-all`
+- **If it has expired, ask for a new one on the sign-in page.**
+- **If you did not ask to sign in, ignore this email. Nobody can sign in without this link.**
+- `{validity}` stays computed from `expiresInMinutes` ("1 minute" / "N minutes"); the copy above shows the 15-minute value.
+
+**The call to action today and later.** Today it stays a plain underlined `<a>` in the mail client's default link colour: correct for now. The semantic tokens this change adds resolve to CSS system colours (`LinkText`, `Canvas`), which mail clients do not support and which cannot be inlined, so the email must not take them; the "no colour value in the email HTML" test stays. When `m2-design-foundations` lands the primitive ladder, the link becomes **one primary button** (skill §3.1, §8; pattern 4d's "one primary button"):
+- React Email `Button` (table-based, works in Outlook), label unchanged **Sign in to A2H**, the whole button the link;
+- background the inlined value of `--accent`, text `--on-accent`, no underline, font 16 px weight 600 on the system stack, padding 12 px 24 px, radius `--radius-md` (8 px), height at least 44 px, left-aligned with the body text;
+- values inlined at build from `packages/ui` tokens as solid sRGB, light-only (skill §2.3, §8), never written by hand in `packages/email`; the test changes from "no colour" to "only colours from the inlined token map";
+- the plain URL fallback stays below it, unchanged; no second button, no image, no web font.
+
 ### Accessibility (all screens)
 
 - **Keyboard-complete.** Every action is a React Aria `Button`/`Link` or a native input; Tab order follows the DOM: header (Sign out), main heading content, field, primary action, secondary action, links. Forms submit with Enter. In a connected-apps row, **Disconnect** opens the confirmation and moves focus to it (a labelled group); **Keep connected** or **Escape** closes it and returns focus to **Disconnect**; a failure moves focus to the row's error notice; success moves focus to the "disconnected" notice. No focus trap anywhere; no browser `confirm()`.
