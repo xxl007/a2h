@@ -36,6 +36,13 @@
       "when": 1793275407001,
       "tag": "0004_requests_approval_nonce",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793376063141,
+      "tag": "0005_principals_policies_rate_limits",
+      "breakpoints": true
     }
   ]
 }

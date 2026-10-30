@@ -4,6 +4,8 @@
 // "Closed status set", "Illegal transition", "Idempotent replay";
 // protocol/answer-attestation "Envelope is complete or rejected", "Revoked
 // key"; platform/participant-simulation "Simulation is unmistakable".
+// m1-hosted-connector group 3 (design D4, D5): principals, their policies and
+// the per-principal rate-limit windows.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
@@ -72,8 +74,8 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     assert.deepEqual(rows.map((r: { schema: string }) => r.schema), [SCHEMA]);
     const tables = await db.query(`SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY 1`, [SCHEMA]);
     assert.deepEqual(tables.rows.map((r: { tablename: string }) => r.tablename), [
-      "answers", "blocked_manifests", "participants", "profiles", "request_deliveries", "request_events", "requests", "rule_types",
-      "rules", "schema_migrations", "signing_keys", "simulated_personas",
+      "answers", "blocked_manifests", "participants", "principal_policies", "principals", "profiles", "rate_limit_windows",
+      "request_deliveries", "request_events", "requests", "rule_types", "rules", "schema_migrations", "signing_keys", "simulated_personas",
     ]);
   });
 
@@ -245,6 +247,103 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     test("status and timestamps agree; public key is base64 of 32 bytes", async () => {
       await rejects(`INSERT INTO signing_keys (key_id, public_key, status) VALUES ('k3', $1, 'revoked')`, ["D".repeat(43) + "="]);
       await rejects(`INSERT INTO signing_keys (key_id, public_key, status) VALUES ('k4', 'not-a-key', 'rotated')`);
+    });
+  });
+
+  describe("principals and their policies (m1-hosted-connector design D4)", () => {
+    const P = "u_8Yw2kQ1rT5zX0aBcD3eF6gH";
+    const insPrincipal = `INSERT INTO principals (principal_id, identity_mode, verified) VALUES ($1, $2, $3)`;
+    const insPolicy = `INSERT INTO principal_policies (principal_id, currency, monthly_budget_minor, per_request_cap_minor,
+        ask_first_above_minor, daily_request_limit, throttled_daily_limit) VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+    const policy = (over: Partial<Record<string, unknown>> = {}): unknown[] => {
+      const v = { currency: "EUR", monthly: 50000, cap: 6000, ask: null as number | null, daily: 50, throttled: 5, ...over };
+      return [P, v.currency, v.monthly, v.cap, v.ask, v.daily, v.throttled];
+    };
+    test("a principal defaults to real_name, not verified, with a creation time", async () => {
+      await db.query("SAVEPOINT p");
+      await accepts(`INSERT INTO principals (principal_id) VALUES ($1)`, [P]);
+      const { rows } = await db.query<{ identity_mode: string; verified: boolean; created_at: unknown }>(`SELECT identity_mode, verified, created_at FROM principals WHERE principal_id = $1`, [P]);
+      assert.equal(rows[0]?.identity_mode, "real_name");
+      assert.equal(rows[0]?.verified, false);
+      assert.ok(rows[0]?.created_at instanceof Date);
+      await db.query("ROLLBACK TO SAVEPOINT p");
+    });
+    test("principal id is unique", async () => {
+      await db.query("SAVEPOINT p");
+      await accepts(insPrincipal, [P, "real_name", false]);
+      await rejects(insPrincipal, [P, "verified_organisation", true], /principals_pkey|duplicate key/);
+      await db.query("ROLLBACK TO SAVEPOINT p");
+    });
+    test("principal id is an opaque id (no e-mail address, no spaces, at most 64 characters); identity mode is the protocol's", async () => {
+      await rejects(insPrincipal, ["ana@example.org", "real_name", false]);
+      await rejects(insPrincipal, ["has spaces", "real_name", false]);
+      await rejects(insPrincipal, ["x".repeat(65), "real_name", false]);
+      await rejects(insPrincipal, [P, "anonymous", false]);
+    });
+    describe("policy", () => {
+      before(async () => {
+        await db.query(insPrincipal, [P, "real_name", false]);
+      });
+      test("the stage default is accepted, ask_first_above_minor may be null (every request asks first)", async () => {
+        await db.query("SAVEPOINT q");
+        await accepts(insPolicy, policy());
+        const { rows } = await db.query<{ ask_first_above_minor: number | null; updated_at: unknown }>(`SELECT ask_first_above_minor, updated_at FROM principal_policies WHERE principal_id = $1`, [P]);
+        assert.equal(rows[0]?.ask_first_above_minor, null);
+        assert.ok(rows[0]?.updated_at instanceof Date);
+        await rejects(insPolicy, policy(), /principal_policies_pkey|duplicate key/);
+        await db.query("ROLLBACK TO SAVEPOINT q");
+      });
+      test("one policy per known principal: an unknown principal is refused", async () => {
+        await rejects(insPolicy, ["u_nobody", "EUR", 1, 1, null, 1, 1], /foreign key/);
+      });
+      test("money columns refuse negatives and fractions; limits refuse negatives", async () => {
+        await rejects(insPolicy, policy({ monthly: -1 }));
+        await rejects(insPolicy, policy({ cap: -1 }));
+        await rejects(insPolicy, policy({ ask: -1 }));
+        await rejects(insPolicy, policy({ daily: -1 }));
+        await rejects(insPolicy, policy({ throttled: -1 }));
+        await rejects(insPolicy, policy({ monthly: 500.5 }));
+        await rejects(insPolicy, policy({ cap: "60.00" }));
+      });
+      test("currency is three upper-case letters", async () => {
+        await rejects(insPolicy, policy({ currency: "eur" }));
+        await rejects(insPolicy, policy({ currency: "EU" }));
+      });
+      test("zero is a valid amount and a valid limit", async () => {
+        await db.query("SAVEPOINT q");
+        await accepts(insPolicy, policy({ monthly: 0, cap: 0, ask: 0, daily: 0, throttled: 0 }));
+        await db.query("ROLLBACK TO SAVEPOINT q");
+      });
+    });
+  });
+
+  describe("rate-limit windows (m1-hosted-connector design D5)", () => {
+    const P = "u_rl_1";
+    const ins = `INSERT INTO rate_limit_windows (principal_id, window_kind, window_start, count) VALUES ($1, $2, $3, $4)`;
+    before(async () => {
+      await db.query(`INSERT INTO principals (principal_id) VALUES ($1)`, [P]);
+    });
+    test("one row per (principal, window kind, window start): a duplicate is refused", async () => {
+      await db.query("SAVEPOINT r");
+      await accepts(ins, [P, "minute", "2026-10-27T09:00:00Z", 1]);
+      await accepts(ins, [P, "day", "2026-10-27T00:00:00Z", 1]);
+      await accepts(ins, [P, "minute", "2026-10-27T09:01:00Z", 1]);
+      await rejects(ins, [P, "minute", "2026-10-27T09:00:00Z", 1], /rate_limit_windows_pkey|duplicate key/);
+      await db.query("ROLLBACK TO SAVEPOINT r");
+    });
+    test("window kind is minute or day; count is a non-negative integer", async () => {
+      await rejects(ins, [P, "hour", "2026-10-27T09:00:00Z", 1]);
+      await rejects(ins, [P, "minute", "2026-10-27T09:00:00Z", -1]);
+      await rejects(ins, [P, "minute", "2026-10-27T09:00:00Z", 1.5]);
+    });
+    test("a window starts on its UTC boundary, so every instance computes the same key", async () => {
+      await rejects(ins, [P, "minute", "2026-10-27T09:00:30Z", 1]);
+      await rejects(ins, [P, "minute", "2026-10-27T09:00:00.001Z", 1]);
+      await rejects(ins, [P, "day", "2026-10-27T09:00:00Z", 1]);
+      await rejects(ins, [P, "day", "2026-10-27T00:00:00+02:00", 1]);
+    });
+    test("an unknown principal is refused", async () => {
+      await rejects(ins, ["u_nobody", "minute", "2026-10-27T09:00:00Z", 1], /foreign key/);
     });
   });
 

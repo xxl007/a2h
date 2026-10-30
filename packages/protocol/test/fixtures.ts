@@ -296,6 +296,7 @@ export const fixtures: Record<string, Fixture> = {
     path: ["revoked_at"],
   },
   SimulatedPersonaSchema: { pass: "cant_tell", fail: "chatty", path: [] },
+  RateLimitWindowSchema: { pass: "day", fail: "hour", path: [] },
   CheckRequestsInputSchema: { pass: { request_id: "A2H-7f3c" }, fail: { request_id: "A2H-7f3" }, path: ["request_id"] },
   CheckedRequestSchema: { pass: referenceChecked, fail: { ...referenceChecked, status: "done" }, path: ["status"] },
   CheckRequestsOutputSchema: {
