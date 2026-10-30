@@ -292,12 +292,13 @@ test("the policy and the principal are valid packages/protocol shapes (no duplic
 });
 
 // m1-hosted-connector design D5, D7; tasks 8.1 and 8.2.
-test("stage limits are configuration: test stages 600/20000, prod 60/2000, 4 held pings, edge 600 per 5 minutes", () => {
+test("stage limits are configuration: test stages 600/20000 and edge 3000, prod 60/2000 and edge 600, 4 held pings", () => {
+  // Edge: dev's web ACLs serve dev and every preview, whose verify runs each come from one runner address.
   assert.deepEqual(
     ["dev", "pr-12", "prod"].map((s) => [s, limitsFor(stageInfo(s))]),
     [
-      ["dev", { perMinute: 600, perDay: 20000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 600 }],
-      ["pr-12", { perMinute: 600, perDay: 20000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 600 }],
+      ["dev", { perMinute: 600, perDay: 20000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 3000 }],
+      ["pr-12", { perMinute: 600, perDay: 20000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 3000 }],
       ["prod", { perMinute: 60, perDay: 2000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 600 }],
     ],
   );

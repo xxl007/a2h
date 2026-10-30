@@ -75,7 +75,7 @@ test("rule: rate-based per source address, the stage's limit per 5 minutes, scop
       assert.deepEqual(rule.action, { block: { customResponse: { responseCode: 429 } } });
       const rate = rule.statement.rateBasedStatement;
       assert.equal(rate.limit, limitsFor(stageInfo(s)).edgeRequestsPer5Minutes);
-      assert.equal(rate.limit, 600);
+      assert.equal(rate.limit, s === "prod" ? 600 : 3000);
       assert.equal(rate.aggregateKeyType, "IP");
       assert.equal(rate.evaluationWindowSec, EDGE_WINDOW_SECONDS);
       assert.equal(EDGE_WINDOW_SECONDS, 300);

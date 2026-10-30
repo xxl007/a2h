@@ -215,10 +215,14 @@ export function developmentPolicy(stage: StageInfo): typeof DEVELOPMENT_POLICY {
  * never by the services. Previews share dev's web ACLs, so dev's edge limit is
  * theirs too.
  *
- * prod keeps the owner's defaults (60 a minute, 2,000 a day). The test stages
- * (dev and previews) run ten times the call limits: their verification suites
- * act as one principal, well over 60 calls a minute (group 7, PR #56), as
- * dev's budget is raised for the same reason (DEV_BUDGET_MULTIPLIER).
+ * prod keeps the owner's defaults (60 a minute, 2,000 a day, 600 requests per
+ * 5 minutes per address at the edge). The test stages (dev and previews) run
+ * ten times the call limits: their verification suites act as one principal,
+ * well over 60 calls a minute (group 7, PR #56), as dev's budget is raised for
+ * the same reason (DEV_BUDGET_MULTIPLIER). Their edge limit is 3,000: dev's
+ * and every preview's verification runs come from one runner address each
+ * and all of them count against dev's web ACLs (previews create none, so
+ * their value is dev's, never applied on its own).
  */
 export interface StageLimits {
   perMinute: number;
@@ -231,12 +235,16 @@ const OWNER_LIMITS: StageLimits = { perMinute: 60, perDay: 2000, pingMaxConcurre
 /** Multiplier of the per-principal call limits on the test stages (dev, previews). */
 export const TEST_STAGE_LIMIT_MULTIPLIER = 10;
 
+/** Edge limit of dev's web ACLs, which dev and every preview share. */
+export const TEST_STAGE_EDGE_REQUESTS_PER_5_MINUTES = 3000;
+
 export function limitsFor(stage: StageInfo): StageLimits {
   if (stage.kind === "prod") return { ...OWNER_LIMITS };
   return {
     ...OWNER_LIMITS,
     perMinute: OWNER_LIMITS.perMinute * TEST_STAGE_LIMIT_MULTIPLIER,
     perDay: OWNER_LIMITS.perDay * TEST_STAGE_LIMIT_MULTIPLIER,
+    edgeRequestsPer5Minutes: TEST_STAGE_EDGE_REQUESTS_PER_5_MINUTES,
   };
 }
 
