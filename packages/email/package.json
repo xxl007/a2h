@@ -2,12 +2,56 @@
   "name": "@a2h/email",
   "version": "0.0.0",
   "private": true,
-  "description": "React Email templates, rendered by the worker and sent through SES (behind a provider-neutral interface).",
+  "description": "Mailer interface and React Email templates. Core is provider-neutral; SES (prod) and the stage mail sink are separate entry points.",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./ses": {
+      "types": "./dist/ses.d.ts",
+      "default": "./dist/ses.js"
+    },
+    "./sink": {
+      "types": "./dist/sink.d.ts",
+      "default": "./dist/sink.js"
+    },
+    "./factory": {
+      "types": "./dist/factory.d.ts",
+      "default": "./dist/factory.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.build.json --noEmit",
+    "lint": "eslint .",
+    "test": "node --test 'test/*.test.ts'",
+    "preview": "node scripts/preview.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sesv2": "3.1160.0",
+    "@react-email/body": "0.3.0",
+    "@react-email/container": "0.0.16",
+    "@react-email/head": "0.0.13",
+    "@react-email/heading": "0.0.16",
+    "@react-email/html": "0.0.12",
+    "@react-email/preview": "0.0.14",
+    "@react-email/render": "2.2.0",
+    "@react-email/section": "0.0.17",
+    "@react-email/text": "0.1.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "ulid": "3.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "eslint": "10.13.0",
+    "typescript": "^5.9.3"
   }
 }

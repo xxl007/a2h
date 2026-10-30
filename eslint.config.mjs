@@ -116,6 +116,26 @@ export default defineConfig([
     },
   },
   {
+    // packages/email keeps business logic provider-neutral (CLAUDE.md): only
+    // src/ses.ts, the email counterpart of apps/*/infra, may import an AWS SDK.
+    // The core entry and the sink take injected clients.
+    files: ["packages/email/src/**/*.ts"],
+    ignores: ["packages/email/src/ses.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@aws-sdk/*", "aws-sdk", "@smithy/*"],
+              message: "Only packages/email/src/ses.ts may import an AWS SDK; inject a client interface instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ["**/*.{js,mjs,cjs}"],
     extends: [tseslint.configs.disableTypeChecked],
   },
