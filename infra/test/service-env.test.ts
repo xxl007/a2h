@@ -1,54 +1,86 @@
 // What the mcp and worker containers receive (m1-protocol-connector D2, D3,
-// D7; task 6.1). Pure mapping; the SST wiring is in mcp.ts and worker.ts.
+// D7; task 6.1; m1-hosted-connector tasks 7.1 to 7.3: no development
+// principal, the resource server's settings and the limits). Pure mapping;
+// the SST wiring is in mcp.ts and worker.ts.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PrincipalSchema, ValidationPolicySchema } from "../../packages/protocol/src/index.ts";
-import { CLEARING_SHARE, DEVELOPMENT_POLICY, developmentPolicy, developmentPrincipal, FEE_RATE, stageInfo } from "../config.ts";
-import { databaseEnvironment, plainEnvironment, serviceEnvNames } from "../service-env.ts";
+import { SEED_DEV_BUDGET_MULTIPLIER, SEED_PRINCIPAL, SEED_PRINCIPAL_POLICY } from "../../packages/db/seed/simulated.ts";
+import { CLEARING_SHARE, DEV_BUDGET_MULTIPLIER, developmentPolicy, developmentPrincipal, FEE_RATE, stageInfo } from "../config.ts";
+import { AUTH_REQUIRED_BY_STAGE_KIND, authEnvironment, databaseEnvironment, plainEnvironment, serviceEnvNames, webBaseUrl } from "../service-env.ts";
 
 const STAGES = ["dev", "prod", "pr-12"];
 
-/** The inverse an app adapter will implement: env -> protocol shapes. */
-function policyFromEnv(env: Record<string, string>) {
-  const int = (k: string) => Number(env[k]);
-  const askFirst = env["PRINCIPAL_ASK_FIRST_ABOVE_MINOR"];
-  return {
-    principal: {
-      principal_id: env["PRINCIPAL_ID"],
-      identity_mode: env["PRINCIPAL_IDENTITY_MODE"],
-      verified: env["PRINCIPAL_VERIFIED"] === "true",
-    },
-    policy: {
-      fee_rate: Number(env["FEE_RATE"]),
-      currency: env["PRINCIPAL_CURRENCY"],
-      monthly_budget_minor: int("PRINCIPAL_MONTHLY_BUDGET_MINOR"),
-      per_request_cap_minor: int("PRINCIPAL_PER_REQUEST_CAP_MINOR"),
-      ask_first_above_minor: askFirst === "none" ? null : Number(askFirst),
-      daily_request_limit: int("PRINCIPAL_DAILY_REQUEST_LIMIT"),
-      throttled_daily_limit: int("PRINCIPAL_THROTTLED_DAILY_LIMIT"),
-    },
-  };
-}
+const AUTH_NAMES = ["AUTH_REQUIRED", "AUTH_ISSUER", "AUTH_JWKS_URL", "MCP_RESOURCE_URL", "PING_OPEN", "PING_MAX_CONCURRENT", "RATE_LIMIT_PER_MINUTE", "RATE_LIMIT_PER_DAY"];
 
-test("policy environment round-trips to the protocol's ValidationPolicy and Principal (D7)", () => {
+test("no PRINCIPAL_* on either service any more: principals are rows (m1-hosted-connector task 7.2)", () => {
   for (const s of STAGES) {
     for (const service of ["mcp", "worker"] as const) {
-      const { principal, policy } = policyFromEnv(plainEnvironment(service, stageInfo(s)));
-      assert.deepEqual(ValidationPolicySchema.parse(policy), developmentPolicy(stageInfo(s)), `${s} ${service}`);
-      assert.deepEqual(PrincipalSchema.parse(principal), developmentPrincipal(stageInfo(s)), `${s} ${service}`);
+      assert.deepEqual(Object.keys(plainEnvironment(service, stageInfo(s))).filter((k) => k.startsWith("PRINCIPAL_")), [], `${s} ${service}`);
+      assert.deepEqual(serviceEnvNames(service, stageInfo(s)).filter((k) => k.startsWith("PRINCIPAL_")), []);
     }
   }
 });
 
-test("dev's monthly budget is ten times the others' (QA: verify runs must not exhaust it); prod and previews unchanged", () => {
-  const budget = (s: string, service: "mcp" | "worker") => Number(plainEnvironment(service, stageInfo(s))["PRINCIPAL_MONTHLY_BUDGET_MINOR"]);
-  for (const service of ["mcp", "worker"] as const) {
-    assert.equal(budget("dev", service), 10 * DEVELOPMENT_POLICY.monthly_budget_minor);
-    assert.equal(budget("prod", service), DEVELOPMENT_POLICY.monthly_budget_minor);
-    assert.equal(budget("pr-12", service), DEVELOPMENT_POLICY.monthly_budget_minor);
+test("the seed's fallback principal dev-principal-<stage> has the development principal and policy (AUTH_REQUIRED=false)", () => {
+  for (const s of STAGES) {
+    const policy: Partial<ReturnType<typeof developmentPolicy>> = { ...developmentPolicy(stageInfo(s)) };
+    delete policy.fee_rate;
+    const seeded = { ...SEED_PRINCIPAL_POLICY, monthly_budget_minor: SEED_PRINCIPAL_POLICY.monthly_budget_minor * (s === "dev" ? SEED_DEV_BUDGET_MULTIPLIER : 1) };
+    assert.deepEqual(seeded, policy, s);
+    assert.deepEqual({ principal_id: `dev-principal-${s}`, ...SEED_PRINCIPAL }, developmentPrincipal(stageInfo(s)));
   }
-  // Only the budget differs.
-  assert.deepEqual({ ...developmentPolicy(stageInfo("dev")), monthly_budget_minor: 0 }, { ...DEVELOPMENT_POLICY, monthly_budget_minor: 0 });
+  assert.equal(SEED_DEV_BUDGET_MULTIPLIER, DEV_BUDGET_MULTIPLIER);
+});
+
+test("mcp: resource-server switches and limits per stage (D3, D5); the worker gets none of them", () => {
+  const env = (s: string) => plainEnvironment("mcp", stageInfo(s));
+  // TODO(m1-hosted-connector task 8.3): previews run with the gate off until the verify job signs in through the mail sink.
+  assert.deepEqual(
+    ["dev", "pr-12", "prod"].map((s) => [env(s)["AUTH_REQUIRED"], env(s)["PING_OPEN"]]),
+    [
+      ["true", "true"],
+      ["false", "true"],
+      ["true", "false"],
+    ],
+  );
+  for (const s of STAGES) {
+    assert.equal(env(s)["PING_MAX_CONCURRENT"], "4");
+    assert.equal(env(s)["RATE_LIMIT_PER_MINUTE"], "60");
+    assert.equal(env(s)["RATE_LIMIT_PER_DAY"], "2000");
+    const worker = serviceEnvNames("worker", stageInfo(s));
+    for (const n of AUTH_NAMES) assert.ok(!worker.includes(n), `worker ${s} ${n}`);
+    const mcp = serviceEnvNames("mcp", stageInfo(s));
+    for (const n of AUTH_NAMES) assert.ok(mcp.includes(n), `mcp ${s} ${n}`);
+  }
+  assert.equal(AUTH_REQUIRED_BY_STAGE_KIND.prod, true, "prod never ships without the gate");
+});
+
+test("mcp: issuer, JWKS and resource URL derived from the stage's hostnames (domain set)", () => {
+  const domain = "a2h-protocol.org";
+  const cases = [
+    ["dev", "https://dev.a2h-protocol.org", "https://mcp.dev.a2h-protocol.org", "https://mcp.dev.a2h-protocol.org/mcp"],
+    ["pr-12", "https://pr-12.dev.a2h-protocol.org", "https://mcp.dev.a2h-protocol.org", "https://mcp.dev.a2h-protocol.org/pr-12/mcp"],
+    ["prod", "https://a2h-protocol.org", "https://mcp.a2h-protocol.org", "https://mcp.a2h-protocol.org/mcp"],
+  ] as const;
+  for (const [s, web, alb, resource] of cases) {
+    const stage = stageInfo(s);
+    assert.equal(webBaseUrl(stage, domain, "https://d111.cloudfront.net/"), web, s);
+    assert.deepEqual(authEnvironment(stage, alb, web), {
+      MCP_RESOURCE_URL: resource,
+      AUTH_ISSUER: `${web}/api/auth`,
+      AUTH_JWKS_URL: `${web}/api/auth/jwks`,
+    });
+  }
+});
+
+test("mcp: without a domain the issuer is the web distribution's URL and the resource the load balancer's", () => {
+  const stage = stageInfo("pr-12");
+  assert.equal(webBaseUrl(stage, undefined, "https://d111.cloudfront.net/"), "https://d111.cloudfront.net");
+  assert.deepEqual(authEnvironment(stage, "http://a2h-alb-123.eu-west-3.elb.amazonaws.com", "https://d111.cloudfront.net"), {
+    MCP_RESOURCE_URL: "http://a2h-alb-123.eu-west-3.elb.amazonaws.com/pr-12/mcp",
+    AUTH_ISSUER: "https://d111.cloudfront.net/api/auth",
+    AUTH_JWKS_URL: "https://d111.cloudfront.net/api/auth/jwks",
+  });
 });
 
 test("FEE_RATE, CLEARING_SHARE, STAGE as plain environment on both services", () => {

@@ -3,49 +3,74 @@
 // and read by tests/ci/infra-consistency.test.sh, which checks that every
 // variable the apps read is one infra provides (m1-protocol-connector task 6.1).
 // The SST wiring (Outputs, `ssm`, execution role) is containerConfig() in mcp.ts.
-import {
-  CLEARING_SHARE,
-  developmentPolicy,
-  developmentPrincipal,
-  FEE_RATE,
-  MCP_PORT,
-  type StageInfo,
-} from "./config.ts";
+import { CLEARING_SHARE, FEE_RATE, hostnames, MCP_PORT, type StageInfo } from "./config.ts";
 import { secretsEnvironment, STAGE_SECRET_KINDS, type SecretRef, type Service, type StageSecretKind } from "./stage-secrets.ts";
 
 export type { Service } from "./stage-secrets.ts";
 
 /**
+ * The gate per stage kind (m1-hosted-connector design D3, Migration Plan):
+ * prod never ships without it. Previews run with it off until the verify job
+ * signs in through the mail sink:
+ * TODO(m1-hosted-connector task 8.3): set `pr` to true once the preview
+ * verify job obtains a token (A2H_TOKEN) before the contract run.
+ */
+export const AUTH_REQUIRED_BY_STAGE_KIND: Record<StageInfo["kind"], boolean> = { dev: true, pr: false, prod: true };
+
+/**
+ * Stage limits (proposal decision 5; design D5). Configuration, not code
+ * constants in the services: the same on every stage for now. They belong
+ * next to the development policy in config.ts; kept here while infra PR #52
+ * owns config.ts (move them with task 8.1).
+ */
+export const STAGE_LIMITS = { RATE_LIMIT_PER_MINUTE: 60, RATE_LIMIT_PER_DAY: 2000, PING_MAX_CONCURRENT: 4 } as const;
+
+/**
  * Plain (non-secret) environment of a service. Both services: the stage, the
- * development principal and its contact policy, the fee rate and the clearing
- * share (design D7; ADR 0002: `f` and `s` are configuration). The worker also
- * gets SIMULATOR_ENABLED (task 5.6: false on prod).
- *
- * PRINCIPAL_ASK_FIRST_ABOVE_MINOR is a decimal integer, or `none` for
- * ValidationPolicy's `null` (every request asks first).
+ * fee rate and the clearing share (ADR 0002: `f` and `s` are configuration).
+ * The worker also gets SIMULATOR_ENABLED (task 5.6: false on prod). The mcp
+ * service also gets the resource server's switches and the limits
+ * (m1-hosted-connector D3, D5); its URLs are in authEnvironment(). No
+ * development principal: principals and their policies are database rows
+ * (m1-hosted-connector D4), and both services refuse PRINCIPAL_*.
  */
 export function plainEnvironment(service: Service, stage: StageInfo): Record<string, string> {
-  const principal = developmentPrincipal(stage);
-  const p = developmentPolicy(stage);
   const env: Record<string, string> = {
     PORT: String(MCP_PORT),
     STAGE: stage.name,
     MCP_BASE_PATH: stage.mcpBasePath,
     STORAGE_PREFIX: stage.storagePrefix,
-    PRINCIPAL_ID: principal.principal_id,
-    PRINCIPAL_IDENTITY_MODE: principal.identity_mode,
-    PRINCIPAL_VERIFIED: String(principal.verified),
-    PRINCIPAL_CURRENCY: p.currency,
-    PRINCIPAL_MONTHLY_BUDGET_MINOR: String(p.monthly_budget_minor),
-    PRINCIPAL_PER_REQUEST_CAP_MINOR: String(p.per_request_cap_minor),
-    PRINCIPAL_ASK_FIRST_ABOVE_MINOR: p.ask_first_above_minor === null ? "none" : String(p.ask_first_above_minor),
-    PRINCIPAL_DAILY_REQUEST_LIMIT: String(p.daily_request_limit),
-    PRINCIPAL_THROTTLED_DAILY_LIMIT: String(p.throttled_daily_limit),
     FEE_RATE: String(FEE_RATE),
     CLEARING_SHARE: String(CLEARING_SHARE),
   };
   if (service === "worker") env["SIMULATOR_ENABLED"] = String(stage.simulatorEnabled);
+  if (service === "mcp") {
+    env["AUTH_REQUIRED"] = String(AUTH_REQUIRED_BY_STAGE_KIND[stage.kind]);
+    // dev and previews: QA reaches ping and the handshake without a token.
+    env["PING_OPEN"] = String(stage.kind !== "prod");
+    for (const [k, v] of Object.entries(STAGE_LIMITS)) env[k] = String(v);
+  }
   return env;
+}
+
+/**
+ * The web app's base URL, which hosts the stage's authorization server
+ * (design D1): `https://<web host>` with a domain, else the distribution's
+ * own URL (an SST output), without a trailing slash.
+ */
+export function webBaseUrl(stage: StageInfo, domain: string | undefined, distributionUrl: string): string {
+  if (domain) return `https://${hostnames(stage, domain).web}`;
+  return distributionUrl.replace(/\/$/, "");
+}
+
+/**
+ * The mcp service's trust relationship (design D3): its resource URL
+ * (`<ALB base URL><MCP_BASE_PATH>`, the only audience it accepts) and the
+ * issuer and JWKS of the stage's authorization server.
+ */
+export function authEnvironment(stage: StageInfo, albBaseUrl: string, webUrl: string): Record<"MCP_RESOURCE_URL" | "AUTH_ISSUER" | "AUTH_JWKS_URL", string> {
+  const issuer = `${webUrl}/api/auth`;
+  return { MCP_RESOURCE_URL: `${albBaseUrl}${stage.mcpBasePath}`, AUTH_ISSUER: issuer, AUTH_JWKS_URL: `${issuer}/jwks` };
 }
 
 /**
@@ -74,7 +99,7 @@ export const STORAGE_ENV = ["UPLOADS_BUCKET"] as const;
 
 /**
  * Every environment variable name a service receives from infra, sorted:
- * plain, database, storage and secrets. Placeholder values only; used by the
+ * plain, the mcp service's URLs, database, storage and secrets. Placeholder values only; used by the
  * consistency test, never by the deployment.
  */
 export function serviceEnvNames(service: Service, stage: StageInfo): string[] {
@@ -90,6 +115,7 @@ export function serviceEnvNames(service: Service, stage: StageInfo): string[] {
   ) as Record<StageSecretKind, SecretRef>;
   const names = [
     ...Object.keys(plainEnvironment(service, stage)),
+    ...(service === "mcp" ? Object.keys(authEnvironment(stage, "", "")) : []),
     ...Object.keys(databaseEnvironment({ host: "", port: "", name: "" }, "", stage)),
     ...DB_SECRET_ENV,
     ...STORAGE_ENV,
