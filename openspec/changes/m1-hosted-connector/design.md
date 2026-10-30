@@ -337,7 +337,7 @@ For the web dev (task 5.4):
 
 ### Review on Storybook (2026-10-30)
 
-Storybook build `pnpm --filter @a2h/ui build-storybook` (46 stories: 10 component states, 36 screen states). Playwright pass over every story at 390 px and 1280 px, light and dark (`prefers-color-scheme` and `data-theme`), reduced motion on: screenshots, axe-core 4.14 (WCAG 2.0/2.1/2.2 A and AA plus best practice), a 44 px target check and a horizontal-overflow check. Keyboard pass on Sign in, Consent and Connected apps (Interactive story). Results: see the PR. The preview review of the built pages (task 5.4) follows the same checklist once `apps/web` serves them.
+Storybook build `pnpm --filter @a2h/ui build-storybook` (46 stories: 10 component states, 36 screen states). Playwright pass over every story at 390 px and 1280 px, light and dark (`prefers-color-scheme` and `data-theme`), reduced motion on: screenshots, axe-core 4.14 (WCAG 2.0/2.1/2.2 A and AA plus best practice), a 44 px target check and a horizontal-overflow check. Keyboard pass on Sign in, Check your email, Consent, Link expired, Signed out and Connected apps (Interactive story). Result: 184 runs, no axe violation, no control under 44 px, no horizontal overflow; Tab order as specified, focus visible (2 px) on every stop, disconnect focus moves (open, Escape, failure, success) as specified. Not run: a screen reader, real browsers other than Chromium, the built pages in `apps/web` (task 5.4 preview review). The preview review of the built pages (task 5.4) follows the same checklist once `apps/web` serves them.
 
 ## Risks / Trade-offs
 
