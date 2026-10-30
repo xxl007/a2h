@@ -7,7 +7,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import pg from "pg";
 import * as protocol from "@a2h/protocol";
-import { SEED_PERSONAS, SEED_PARTICIPANTS } from "../seed/simulated.ts";
+import { SEED_DEV_BUDGET_MULTIPLIER, SEED_PERSONAS, SEED_PARTICIPANTS, SEED_PRINCIPAL, SEED_PRINCIPAL_POLICY } from "../seed/simulated.ts";
+import { principalWithPolicy } from "../src/index.ts";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { SEED_SQL_PATH, seedSql } from "../seed/sql.ts";
 import { migrate, skipWithoutDocker, startPostgres, statementsOf, type PgContainer } from "./lib/postgres.ts";
 
@@ -130,5 +132,28 @@ describe("seed on Postgres 17", { skip: skipWithoutDocker() }, () => {
     assert.equal(rows[0]!.display_label, SEED_PARTICIPANTS[0]!.display_label);
     assert.equal(await count("participants"), 12);
     assert.equal(await count("rule_types"), SEED_PARTICIPANTS.reduce((n, p) => n + p.rules.types.length, 0));
+  });
+
+  // m1-hosted-connector (design Migration Plan, rollback AUTH_REQUIRED=false):
+  // with the gate off, the mcp service acts for `dev-principal-<stage>`, so
+  // the seed gives that principal its rows, as consent does for a real one.
+  test("the stage's fallback principal dev-principal-<stage> is seeded with the stage default policy, never overwritten", async () => {
+    await applySeed("pr-9");
+    await db.query(`SET search_path = pr_9`);
+    try {
+      const read = (id: string) => principalWithPolicy(drizzle(db), id);
+      const pr = await read("dev-principal-pr-9");
+      assert.deepEqual(pr, { principal: { principal_id: "dev-principal-pr-9", ...SEED_PRINCIPAL }, policy: SEED_PRINCIPAL_POLICY });
+      await applySeed("dev");
+      const dev = await read("dev-principal-dev");
+      assert.equal(dev?.policy.monthly_budget_minor, SEED_PRINCIPAL_POLICY.monthly_budget_minor * SEED_DEV_BUDGET_MULTIPLIER);
+      // A policy edited since is kept by a re-seed.
+      await db.query(`UPDATE principal_policies SET monthly_budget_minor = 7 WHERE principal_id = 'dev-principal-pr-9'`);
+      await applySeed("pr-9");
+      assert.equal((await read("dev-principal-pr-9"))?.policy.monthly_budget_minor, 7);
+      assert.equal(await count("principals"), 2);
+    } finally {
+      await db.query(`RESET search_path`);
+    }
   });
 });
