@@ -52,6 +52,7 @@ const calls: Record<string, () => unknown> = {
   net: () => protocol.net(3125, 0.2),
   parseHandle: () => protocol.parseHandle("sim-mv-7f3c"),
   parseRequestId: () => protocol.parseRequestId("A2H-7f3c"),
+  rateLimitWindowStart: () => protocol.rateLimitWindowStart("minute", new Date(Date.UTC(2026, 9, 27, 9, 0, 42))).toISOString(),
   rankingDisplay: () => protocol.rankingDisplay({ rating: 4.8, answers: 48, disputes_lost: 0, typical_latency_seconds: 21600 }),
   signAnswer: () => signature,
   signatureDisplay: () => protocol.signatureDisplay(signature),
