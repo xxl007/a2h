@@ -1,6 +1,6 @@
 // A2H MCP server on Fargate behind the environment's ALB.
-// Routing: dev/prod `/mcp`, `/mcp/*`, `/healthz` (priorities 49000-49002);
-// pr-<n> `/pr-<n>/*` (priority 100 + n). See config.ts stageInfo.
+// Routing: dev/prod `/mcp`, `/mcp/*`, `/healthz`, `/.well-known/oauth-protected-resource/mcp` (priorities 49000-49003);
+// pr-<n> `/pr-<n>/*` (100 + n) and `/.well-known/oauth-protected-resource/pr-<n>/mcp` (20000 + n). See config.ts stageInfo.
 import { executionRolePolicy } from "./access.ts";
 import { MCP_PORT, type StageInfo } from "./config.ts";
 import { serviceListener } from "./cluster.ts";

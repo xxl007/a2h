@@ -5,7 +5,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SEED_DEV_BUDGET_MULTIPLIER, SEED_PRINCIPAL, SEED_PRINCIPAL_POLICY } from "../../packages/db/seed/simulated.ts";
-import { CLEARING_SHARE, DEV_BUDGET_MULTIPLIER, developmentPolicy, developmentPrincipal, FEE_RATE, stageInfo } from "../config.ts";
+import { CLEARING_SHARE, DEV_BUDGET_MULTIPLIER, developmentPolicy, developmentPrincipal, FEE_RATE, limitsFor, publicUrls, stageInfo } from "../config.ts";
 import { AUTH_REQUIRED_BY_STAGE_KIND, authEnvironment, databaseEnvironment, plainEnvironment, serviceEnvNames, webBaseUrl } from "../service-env.ts";
 
 const STAGES = ["dev", "prod", "pr-12"];
@@ -43,15 +43,24 @@ test("mcp: resource-server switches and limits per stage (D3, D5); the worker ge
       ["true", "false"],
     ],
   );
-  // The owner's defaults on dev and prod; previews ten times the call limits (their verify suites run as one principal).
+  // design D5 (group 7): prod the owner's defaults; the test stages (dev and
+  // previews) ten times the call limits, since their verify suites run as one principal.
   assert.deepEqual(
     STAGES.map((s) => [s, env(s)["RATE_LIMIT_PER_MINUTE"], env(s)["RATE_LIMIT_PER_DAY"], env(s)["PING_MAX_CONCURRENT"]]),
     [
-      ["dev", "60", "2000", "4"],
+      ["dev", "600", "20000", "4"],
       ["prod", "60", "2000", "4"],
       ["pr-12", "600", "20000", "4"],
     ],
   );
+  // One source: the stage configuration in config.ts (task 8.1).
+  for (const s of STAGES) {
+    const l = limitsFor(stageInfo(s));
+    assert.equal(env(s)["RATE_LIMIT_PER_MINUTE"], String(l.perMinute), s);
+    assert.equal(env(s)["RATE_LIMIT_PER_DAY"], String(l.perDay), s);
+    assert.equal(env(s)["PING_MAX_CONCURRENT"], String(l.pingMaxConcurrent), s);
+    assert.equal(env(s)["EDGE_REQUESTS_PER_5_MINUTES"], undefined, "the edge limit is the WAF's, not the service's");
+  }
   for (const s of STAGES) {
     const worker = serviceEnvNames("worker", stageInfo(s));
     for (const n of AUTH_NAMES) assert.ok(!worker.includes(n), `worker ${s} ${n}`);
@@ -76,6 +85,22 @@ test("mcp: issuer, JWKS and resource URL derived from the stage's hostnames (dom
       AUTH_ISSUER: `${web}/api/auth`,
       AUTH_JWKS_URL: `${web}/api/auth/jwks`,
     });
+  }
+});
+
+test("mcp: dev and pr-12 as index.ts wires them: resource = publicUrls().mcp, issuer = publicUrls().web + /api/auth (task 8.2)", () => {
+  const domain = "a2h-protocol.org";
+  for (const [s, resource, issuer] of [
+    ["dev", "https://mcp.dev.a2h-protocol.org/mcp", "https://dev.a2h-protocol.org/api/auth"],
+    ["pr-12", "https://mcp.dev.a2h-protocol.org/pr-12/mcp", "https://pr-12.dev.a2h-protocol.org/api/auth"],
+  ] as const) {
+    const stage = stageInfo(s);
+    const urls = publicUrls(stage, domain);
+    // index.ts: albBaseUrl() is publicUrls().albBase with a domain; the web URL is webBaseUrl() of the distribution URL.
+    const env = authEnvironment(stage, urls.albBase, webBaseUrl(stage, domain, "https://d111.cloudfront.net"));
+    assert.deepEqual(env, { MCP_RESOURCE_URL: resource, AUTH_ISSUER: issuer, AUTH_JWKS_URL: `${issuer}/jwks` }, s);
+    assert.equal(env.MCP_RESOURCE_URL, urls.mcp, s);
+    assert.equal(env.AUTH_ISSUER, `${urls.web}/api/auth`, s);
   }
 });
 

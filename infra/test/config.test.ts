@@ -5,11 +5,16 @@ import { KEEP_ALIVE_TIMEOUT_MS } from "../../apps/mcp/src/http-timeouts.ts";
 import { PrincipalSchema, ValidationPolicySchema } from "../../packages/protocol/src/index.ts";
 import {
   ALB_IDLE_TIMEOUT_SECONDS,
+  ALLOWLIST_NONE,
+  allowlistParameterName,
+  allowlistReadPermission,
   CLEARING_SHARE,
   DEVELOPMENT_POLICY,
   developmentPrincipal,
   FEE_RATE,
+  limitsFor,
   OPEN_NEXT_VERSION,
+  PR_STAGE_OPTIONAL_READS,
   PR_STAGE_READS,
   SHARED_PARAMETERS,
   STORAGE_AREAS,
@@ -37,6 +42,8 @@ test("dev stage: shared owner, public schema, /mcp routing at 49000", () => {
       ["/mcp", 49000],
       ["/mcp/*", 49001],
       ["/healthz", 49002],
+      // Path-aware protected-resource metadata (RFC 9728; m1-hosted-connector D3, task 8.1).
+      ["/.well-known/oauth-protected-resource/mcp", 49003],
     ],
   );
 });
@@ -50,6 +57,7 @@ test("prod stage: owns everything, one-year logs, warm", () => {
   assert.equal(s.warm, 1);
   assert.equal(s.logRetention, "1 year");
   assert.deepEqual(s.mcpScaling, { min: 1, max: 2 });
+  assert.deepEqual(s.mcpRules, stageInfo("dev").mcpRules);
 });
 
 test("pr-12 stage: borrows shared resources, own schema, path prefix, priority 112", () => {
@@ -66,16 +74,68 @@ test("pr-12 stage: borrows shared resources, own schema, path prefix, priority 1
   assert.deepEqual(s.mcpScaling, { min: 1, max: 1 });
   assert.deepEqual(
     s.mcpRules.map((r) => [r.path, r.priority]),
-    [["/pr-12/*", 112]],
+    [
+      ["/pr-12/*", 112],
+      ["/.well-known/oauth-protected-resource/pr-12/mcp", 20012],
+    ],
   );
   // ECS service names, task families and log groups are per cluster, so
   // components on a pr stage carry the PR number to avoid colliding with dev.
   assert.equal(s.componentSuffix, "Pr12");
 });
 
-test("pr priorities stay below the dev/prod range", () => {
-  assert.equal(stageInfo("pr-48899").mcpRules[0]?.priority, 48999);
-  assert.throws(() => stageInfo("pr-48900"), /PR number/);
+test("pr priorities: two disjoint bands below the dev/prod range, refused past pr-19899", () => {
+  // Band 1: `/pr-<n>/*` at 100 + n (100..19999). Band 2: the metadata path at
+  // 20000 + n (20001..39899). dev/prod: 49000-49003. AWS allows 1-50000.
+  const shared = new Set(stageInfo("dev").mcpRules.map((r) => r.priority));
+  const seen = new Map<number, string>();
+  for (const n of [1, 2, 12, 99, 100, 9999, 19899]) {
+    const rules = stageInfo(`pr-${n}`).mcpRules;
+    assert.deepEqual(
+      rules.map((r) => r.priority),
+      [100 + n, 20000 + n],
+      `pr-${n}`,
+    );
+    for (const r of rules) {
+      assert.ok(r.priority >= 1 && r.priority < 49000, `pr-${n} ${r.priority}`);
+      assert.ok(!shared.has(r.priority), `pr-${n} collides with dev/prod at ${r.priority}`);
+      assert.equal(seen.get(r.priority), undefined, `pr-${n} ${r.path} collides with ${seen.get(r.priority)}`);
+      seen.set(r.priority, `pr-${n} ${r.path}`);
+    }
+  }
+  // The two bands never meet: the highest band-1 priority is below the lowest band-2 one.
+  assert.ok(100 + 19899 < 20000 + 1);
+  assert.throws(() => stageInfo("pr-19900"), /PR number/);
+  assert.throws(() => stageInfo("pr-48899"), /PR number/);
+});
+
+// apps/mcp/src/auth.ts, loaded at run time only: its SDK types (DOM `URL`)
+// do not typecheck under infra's `types: ["node"]`, so tsc must not follow it.
+const MCP_AUTH_MODULE: string = "../../apps/mcp/src/auth.ts";
+interface McpAuthModule {
+  createGate: (config: Record<string, unknown>, verifier: unknown) => { metadataPath: string };
+}
+
+test("the metadata path of every stage is the one the MCP server answers (one derivation, RFC 9728)", async () => {
+  // apps/mcp derives it from the resource URL with the SDK's
+  // getOAuthProtectedResourceMetadataUrl (createGate().metadataPath).
+  const { createGate } = (await import(MCP_AUTH_MODULE)) as McpAuthModule;
+  const verifier = { verifyAccessToken: () => Promise.reject(new Error("unused")) };
+  for (const s of ["dev", "prod", "pr-12"]) {
+    const stage = stageInfo(s);
+    const gate = createGate(
+      {
+        required: true,
+        issuer: "https://dev.a2h-protocol.org/api/auth",
+        jwksUrl: "https://dev.a2h-protocol.org/api/auth/jwks",
+        resourceUrl: `https://mcp.dev.a2h-protocol.org${stage.mcpBasePath}`,
+        pingOpen: false,
+      },
+      verifier,
+    );
+    assert.equal(stage.metadataPath, gate.metadataPath, s);
+    assert.ok(stage.mcpRules.some((r) => r.path === gate.metadataPath), `${s}: no ALB rule for ${gate.metadataPath}`);
+  }
 });
 
 test("unknown or malformed stages are refused", () => {
@@ -84,7 +144,7 @@ test("unknown or malformed stages are refused", () => {
   }
 });
 
-test("the eight shared SSM parameters of the contract", () => {
+test("the nine shared SSM parameters of the contract", () => {
   assert.deepEqual(Object.values(SHARED_PARAMETERS).map(sharedParameterName), [
     "/a2h/shared/vpc-id",
     "/a2h/shared/cluster-id",
@@ -94,6 +154,8 @@ test("the eight shared SSM parameters of the contract", () => {
     "/a2h/shared/aurora-secret-arn",
     "/a2h/shared/uploads-bucket",
     "/a2h/shared/email-sender",
+    // m1-hosted-connector D5: dev's CloudFront-scope web ACL, attached to every preview's distribution.
+    "/a2h/shared/web-acl-cloudfront-arn",
   ]);
 });
 
@@ -132,6 +194,9 @@ test("pr stages read only the shared identifiers they use, never the Aurora mast
     "emailSender",
   ]);
   assert.ok(!PR_STAGE_READS.includes("auroraSecretArn"));
+  // dev's CloudFront web ACL: read when dev has published it (first dev deploy after task 8.1), else the preview's web has none.
+  assert.deepEqual(PR_STAGE_OPTIONAL_READS, ["webAclCloudfrontArn"]);
+  assert.ok(!PR_STAGE_OPTIONAL_READS.some((k) => PR_STAGE_READS.includes(k)));
 });
 
 test("storage areas match the lifecycle prefixes", () => {
@@ -142,7 +207,7 @@ test("every stage has a non-empty storage prefix, and no stage's prefix contains
   // A dev object under uploads/pr-<n>/... must never be reachable by a
   // preview's grant on uploads/pr-<n>/*: so dev and prod keys live under
   // dev/ and prod/, never at the area root.
-  const stages = ["dev", "prod", "pr-1", "pr-12", "pr-120", "pr-48899"].map(stageInfo);
+  const stages = ["dev", "prod", "pr-1", "pr-12", "pr-120", "pr-19899"].map(stageInfo);
   for (const s of stages) {
     assert.match(s.storagePrefix, /^[a-z0-9-]+\/$/, s.name);
     assert.equal(s.storagePrefix, `${s.name}/`, s.name);
@@ -183,7 +248,7 @@ test("pg-boss schema per stage: pgboss on dev and prod, pr_<n>_jobs on previews 
   assert.equal(stageInfo("dev").jobsSchema, "pgboss");
   assert.equal(stageInfo("prod").jobsSchema, "pgboss");
   assert.equal(stageInfo("pr-12").jobsSchema, "pr_12_jobs");
-  for (const s of ["dev", "prod", "pr-12", "pr-48899"]) {
+  for (const s of ["dev", "prod", "pr-12", "pr-19899"]) {
     const { dbSchema, jobsSchema } = stageInfo(s);
     assert.notEqual(jobsSchema, dbSchema, s);
     assert.match(jobsSchema, /^[a-z_][a-z0-9_]{0,62}$/, s);
@@ -220,8 +285,47 @@ test("fee rate and clearing share are configuration in [0, 1) and [0, 1] (ADR 00
 
 test("the policy and the principal are valid packages/protocol shapes (no duplicated schema)", () => {
   assert.deepEqual(ValidationPolicySchema.parse(DEVELOPMENT_POLICY), DEVELOPMENT_POLICY);
-  for (const s of ["dev", "prod", "pr-48899"]) {
+  for (const s of ["dev", "prod", "pr-19899"]) {
     const principal = developmentPrincipal(stageInfo(s));
     assert.deepEqual(PrincipalSchema.parse(principal), principal, s);
   }
+});
+
+// m1-hosted-connector design D5, D7; tasks 8.1 and 8.2.
+test("stage limits are configuration: test stages 600/20000, prod 60/2000, 4 held pings, edge 600 per 5 minutes", () => {
+  assert.deepEqual(
+    ["dev", "pr-12", "prod"].map((s) => [s, limitsFor(stageInfo(s))]),
+    [
+      ["dev", { perMinute: 600, perDay: 20000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 600 }],
+      ["pr-12", { perMinute: 600, perDay: 20000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 600 }],
+      ["prod", { perMinute: 60, perDay: 2000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 600 }],
+    ],
+  );
+  for (const s of ["dev", "prod", "pr-12"]) {
+    const l = limitsFor(stageInfo(s));
+    for (const v of Object.values(l)) assert.ok(Number.isSafeInteger(v) && v > 0, `${s} ${v}`);
+    assert.ok(l.perMinute <= l.perDay, s);
+    // AWS WAF rate-based rules accept 10 to 2,000,000,000 requests per window.
+    assert.ok(l.edgeRequestsPer5Minutes >= 10 && l.edgeRequestsPer5Minutes <= 2_000_000_000, s);
+  }
+  // A fresh copy each time: a caller cannot change another stage's limits.
+  const a = limitsFor(stageInfo("dev"));
+  a.perMinute = 1;
+  assert.equal(limitsFor(stageInfo("dev")).perMinute, 600);
+});
+
+test("allow-list parameter per environment (D7): dev and previews share one, prod has its own; only dev and prod create it", () => {
+  assert.equal(allowlistParameterName(stageInfo("dev")), "/a2h/shared/principal-allowlist");
+  assert.equal(allowlistParameterName(stageInfo("pr-12")), "/a2h/shared/principal-allowlist");
+  assert.equal(allowlistParameterName(stageInfo("prod")), "/a2h/prod/principal-allowlist");
+  // SSM refuses empty values: the deploy writes this marker for "nobody yet".
+  assert.equal(ALLOWLIST_NONE, "none");
+  assert.deepEqual(allowlistReadPermission(stageInfo("pr-12"), "123456789012"), {
+    actions: ["ssm:GetParameter"],
+    resources: ["arn:aws:ssm:eu-west-3:123456789012:parameter/a2h/shared/principal-allowlist"],
+  });
+  assert.deepEqual(allowlistReadPermission(stageInfo("prod"), "123456789012").resources, [
+    "arn:aws:ssm:eu-west-3:123456789012:parameter/a2h/prod/principal-allowlist",
+  ]);
+  assert.throws(() => allowlistReadPermission(stageInfo("dev"), "nope"), /account/);
 });

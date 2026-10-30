@@ -47,7 +47,7 @@ const app = createApp({
   a2h: {
     db: database.db,
     feeRate: config.feeRate,
-    // A preview's limits (infra/service-env.ts STAGE_LIMITS.pr).
+    // A preview's limits (infra/config.ts limitsFor).
     limits: { perMinute: 600, perDay: 20000 },
     clearingShare: config.clearingShare,
     approvalKey: Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + 3) & 0xff),

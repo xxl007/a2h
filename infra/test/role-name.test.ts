@@ -5,21 +5,21 @@ import { ROLE_NAME_MAX, roleName } from "../config.ts";
 // IAM role names: 1-64 characters from [A-Za-z0-9+=,.@_-].
 const IAM_ROLE_NAME = /^[A-Za-z0-9+=,.@_-]{1,64}$/;
 
-// The longest stage we allow: listener priority 100 + n must stay below
-// 49000 (config.ts stageInfo), so n <= 48899.
-const LONGEST_STAGE = "pr-48899";
+// The longest stage we allow: a preview's two listener priorities, 100 + n and
+// 20000 + n, must stay in disjoint bands (config.ts stageInfo), so n <= 19899.
+const LONGEST_STAGE = "pr-19899";
 const STAGES = ["dev", "prod", "pr-1", "pr-12", LONGEST_STAGE];
 
 // Logical names of every role SST 4.17.2 creates for our components, computed
-// from .sst/platform/src/components/aws/ for stage pr-48899 (componentSuffix
-// "Pr48899"; the Web component has no suffix; region eu-west-3 gives
+// from .sst/platform/src/components/aws/ for stage pr-19899 (componentSuffix
+// "Pr19899"; the Web component has no suffix; region eu-west-3 gives
 // logicalName("eu-west-3") = "Euwest3").
 const SST_ROLES = {
   // fargate.ts:991 createTaskRole / :1023 createExecutionRole, `${name}TaskRole`
-  mcpTask: "McpPr48899TaskRole",
-  mcpExecution: "McpPr48899ExecutionRole",
-  workerTask: "WorkerPr48899TaskRole",
-  workerExecution: "WorkerPr48899ExecutionRole",
+  mcpTask: "McpPr19899TaskRole",
+  mcpExecution: "McpPr19899ExecutionRole",
+  workerTask: "WorkerPr19899TaskRole",
+  workerExecution: "WorkerPr19899ExecutionRole",
   // ssr-site.ts:1469 Function `${name}Server${logicalName(region)}` -> function.ts:2277 `${name}Role`
   webServer: "WebServerEuwest3Role",
   // ssr-site.ts:1606 Function `${name}ImageOptimizer`
@@ -46,7 +46,7 @@ test("revalidation subscriber role keeps the a2h-<stage>- prefix on every stage"
     assert.match(n, IAM_ROLE_NAME);
   }
   // SST's own physicalName(64, …) would give "a-dev-…", "prod-…", "pr-12-…".
-  assert.equal(roleName("pr-48899", logical).length, 64);
+  assert.equal(roleName("pr-19899", logical).length, 64);
 });
 
 test("every role SST creates for our components: a2h-<stage>-, <= 64, IAM-legal", () => {
@@ -92,7 +92,7 @@ test("stable: same input, same output; pinned values must never change after the
   assert.equal(roleName("dev", "McpTaskRole"), "a2h-dev-McpTaskRole-be23f65f");
   assert.equal(
     roleName(LONGEST_STAGE, SST_ROLES.webRevalidationSubscriber),
-    "a2h-pr-48899-WebRevalidationEventsSubscriberXkzrmsFunct-e3173c96",
+    "a2h-pr-19899-WebRevalidationEventsSubscriberXkzrmsFunct-e3173c96",
   );
 });
 
