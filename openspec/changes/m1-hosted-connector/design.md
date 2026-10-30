@@ -68,7 +68,276 @@ Tokens, magic links, emails and client secrets never appear in logs or rows (spe
 
 ## Screens (Design agent, after Gate 1)
 
-Sign-in (email field, allow-list neutral confirmation), "Check your email", consent (client name and origin, scopes in plain words, accept and decline), connected clients with revoke, signed-out. Each with empty, loading, error and offline states; tokens from `packages/ui`; copy in `design.md` of this change under this section.
+Five screens in `apps/web`, all built from `packages/ui` (`@a2h/ui`); the web dev composes them and owns routing, server actions and data. Every screen and state below exists as a component and a Storybook story (`packages/ui/src/screens/Screens.stories.tsx`, "Screens/…"); the copy below is the copy in `packages/ui/src/screens/copy.ts`, and the two change together.
+
+### S0. Foundations used, and what is provisional
+
+- **No palette is chosen here.** `packages/ui` had no tokens yet, and the primitive ladder (warm neutral, accent hue, status hues) belongs to `m2-design-foundations` and its owner checkpoint (ADR 0003, Consequences). This change adds the **semantic tier only** (`packages/ui/src/tokens/tokens.css`), with every role resolved to a CSS system colour (`Canvas`, `CanvasText`, `LinkText`) or a `color-mix` of them. The browser supplies the values in both themes; no hex or OKLCH value exists in the package, and a test enforces it (`test/tokens.test.ts`). When the foundations change lands it replaces the right-hand sides of `tokens.css`; no component, story or screen changes.
+- Consequences until then, accepted for M1 (dev and previews only, no prod): the accent is the browser's link colour; the four status triplets share one neutral derivation, so status is carried by the notice title in words (which the skill requires anyway, §3.2); the typeface is the system stack (`--font-sans`, `--font-mono`).
+- Roles used: `--surface`, `--surface-2`, `--text`, `--text-muted`, `--border`, `--border-strong`, `--accent`, `--on-accent`, `--focus`, `--danger-*`, `--success-*`, `--neutral-*`; spacing `--space-1…8` (4/8/12/16/24/32/48/64), radius `--radius-md` (controls) and `--radius-lg` (notices, identity block), `--target-min` (44 px), `--measure` (62ch), type steps `--text-xs…xl` with line heights on the 4 pt grid, motion tokens only under `prefers-reduced-motion: no-preference`.
+- Base layer: React Aria Components (ADR 0003 D1) for every control (`Button`, `Link`, `TextField`/`Input`/`Label`/`FieldError`), CSS modules on semantic roles (D8).
+- Theme: `prefers-color-scheme`, overridable with `data-theme="light|dark"` on `<html>` (skill §2.3). The app imports `@a2h/ui/tokens.css` and `@a2h/ui/base.css` once in the root layout.
+
+### S1. Components (packages/ui)
+
+| Component | Used by | Notes |
+|---|---|---|
+| `AuthShell` | all five | header with the text wordmark "A2H"; optional account area ("Signed in as {address}" + ghost **Sign out**, a `POST` form); optional one-line stage notice; one `<main>` column (480 px, 640 px for Connected apps). |
+| `Button`, `ButtonLink`, `TextLink` | all | React Aria `Button`/`Link`. Primary = solid `--accent` with `--on-accent`; ghost = `--accent` text, `--border-strong` edge. 44 × 44 px minimum. `isPending` swaps the label for a pending label and marks the button busy. `TextLink` is underlined, so a link is never confused with accent-coloured machine text. |
+| `TextField` | sign-in | visible `<label>`, description and error wired by React Aria (`aria-describedby`, `aria-invalid`); error text prefixed "Error:"; 16 px input text (no zoom on iOS). |
+| `Notice` | all | tones `danger`, `success`, `pending`, `neutral` (status triplets) and `platform` (A2H note, title in `--accent`). A title is required: the status is always in words. Optional `reference` (request id, mono role). `live`: `alert` for an error after an action, `status` for a confirmation, none for content present on load. |
+| `ClientIdentity` | consent | machine-origin block (below). |
+| `ClientRow` | connected apps | one app with the inline revoke confirmation (below). |
+| `Skeleton` | connected apps loading | `--surface-2` block, `aria-hidden`; pulses only without reduced motion. |
+| Screens | `SignInScreen`, `CheckEmailScreen`, `LinkExpiredScreen`, `ConsentScreen`, `ConnectedClientsScreen`, `SignedOutScreen` | presentational; take a `state` prop, form `action`s (URL or server action) and preformatted data. |
+
+**Colour roles on these screens (skill §3).** The only human words here are the principal's own address, shown plain (`--text`, weight strong). Machine-origin content, meaning everything the *client* declares about itself, takes the machine role: the client's name in `--accent` (never underlined, never a link), the host it is identified by in the mono role, and how A2H knows it in words beneath. Platform notes ("You still approve every question") use `Notice tone="platform"`. Every control takes `--accent`. No second hue.
+
+### Routes
+
+| Route | Screen | Reached from |
+|---|---|---|
+| `/sign-in` | S2 Sign in | Better Auth `loginPage`; direct. Query `next` (the authorize URL to resume) is kept in a hidden field. A signed-in visitor is redirected to `next` or `/account/clients`. |
+| `/sign-in/sent` | S3 Check your email | after the sign-in form posts. The address comes from the form's server action state or a short-lived, HttpOnly flash cookie: **never from the URL** (no PII in URLs or access logs). |
+| `/sign-in/expired` | S3b Link no longer works | the magic-link verify endpoint's `errorCallbackURL` for an expired or used link, keeping `next`. |
+| `/consent` | S4 Consent | Better Auth `consentPage`. |
+| `/account/clients` | S5 Connected apps | after sign-in without `next`; link from consent. Signed-out visitors go to `/sign-in?next=/account/clients`. |
+| `/signed-out` | S6 Signed out | after the sign-out `POST` revokes the session. |
+
+Document titles: "Sign in · A2H", "Check your email · A2H", "Sign-in link no longer works · A2H", "Connect {client} · A2H", "Connected apps · A2H", "Signed out · A2H".
+
+On a non-production stage every screen shows one line under the header: **"Test stage {stage}. Not the live service."** (`AuthShell stageName`). Prod never passes `stageName`; no copy anywhere says "development" (test `copy.test.ts`).
+
+### S2. Sign in (`/sign-in`)
+
+```html
+<AuthShell [stageName]>
+  <h1>Sign in to A2H</h1>                                   <!-- --text-xl, --text -->
+  <p class="lead">{lead | leadConnecting}</p>               <!-- --text-md, measure 62ch -->
+  [<Notice tone=danger|neutral live=alert|status>]           <!-- error, rate-limited, offline -->
+  <form method=post action={requestMagicLink} novalidate>
+    [<input type=hidden name=next>]
+    <TextField label="Email address" name=email type=email autocomplete=email required [errorMessage]/>
+    <Button type=submit primary fullWidth isPending pendingLabel>Email me a sign-in link</Button>
+  </form>
+  <p class="muted">A2H is open to invited addresses only for now.</p>   <!-- --text-sm, --text-muted -->
+</AuthShell>
+```
+
+Copy:
+- h1 **Sign in to A2H**
+- lead **Enter your email address and we'll send you a link to sign in. There is no password.**
+- lead when `next` is present (an agent started the connection): **Sign in to finish connecting your agent. We'll email you a link; open it in this browser to come back here.**
+- label **Email address**; button **Email me a sign-in link**, pending **Sending the link…**
+- footnote **A2H is open to invited addresses only for now.** (shown to everyone, before submission; see open question 1)
+
+States:
+- **Empty**: the form above, focus not forced (the page's first focusable is the field after the header).
+- **Submitting**: button shows "Sending the link…", busy, not pressable twice. No spinner-only state.
+- **Invalid** (client or server validation): field error **Error: Enter your email address.** or **Error: Enter an email address in the form name@example.com.**; focus returns to the field; the address typed is kept.
+- **Error** (server failure): `Notice danger` **The link was not sent** / "Something went wrong on our side. Your address is still in the field; try again." + Reference {request id}; `role=alert`.
+- **Rate limited** (429 from the auth endpoint or the edge): `Notice danger` **Too many attempts** / "Too many sign-in links were asked for from here. Wait a few minutes, then try again."
+- **Offline** (submission fails with no network, or `navigator.onLine` is false at submit): `Notice neutral` **You're offline** / "Your address is kept. Send the link when you're back online."
+- **Allow-listed or not**: there is no state for it. Both go to S3 with identical markup (spec "Unknown address"; test `screens.test.tsx`).
+- **Already signed in**: redirect, no screen.
+
+### S3. Check your email (`/sign-in/sent`)
+
+```html
+<AuthShell [stageName]>
+  <h1>Check your email</h1>
+  [<Notice tone=neutral title="On this test stage, links are not emailed">]   <!-- non-prod only -->
+  <p class="lead">If <strong>{address}</strong> can sign in to A2H, a sign-in link is on its way to it.</p>
+  <p>The link works once and for 15 minutes. Open it in this browser.</p>
+  <p class="muted">Nothing after a few minutes? Check your spam folder, or send another link.</p>
+  [<Notice tone=success|danger|neutral>]                    <!-- resent, error, offline -->
+  <form method=post action={requestMagicLink}>              <!-- same address, same next -->
+    <Button ghost type=submit>Send another link</Button>
+    <ButtonLink ghost href="/sign-in[?next]">Use a different address</ButtonLink>
+  </form>
+</AuthShell>
+```
+
+Copy:
+- h1 **Check your email**
+- **If {address} can sign in to A2H, a sign-in link is on its way to it.** The address is the one the person typed, plain text, weight strong. Without it (reload after the flash cookie expired): **If your address can sign in to A2H, a sign-in link is on its way to it.**
+- **The link works once and for 15 minutes. Open it in this browser.**
+- **Nothing after a few minutes? Check your spam folder, or send another link.**
+- ghost **Send another link** (pending **Sending…**), ghost link **Use a different address**
+- non-prod only, `Notice neutral`: **On this test stage, links are not emailed** / "The link is kept in this stage's mail sink. The runbook shows how to read it." (spec "Preview sign-in"; D6)
+
+States:
+- **Sent** (default) and **resending** (pending label).
+- **Resent**: `Notice success`, `role=status`: **Another link is on its way** / "Use the newest one. It works once and for 15 minutes." Whatever the address, the same notice (unknown addresses still create nothing).
+- **Error**: `Notice danger` **Another link was not sent** / "Something went wrong on our side. Wait a moment and try again." + reference.
+- **Offline**: `Notice neutral` **You're offline** / "You can send another link when you're back online."
+- **Loading / empty**: none; the page is server-rendered with its content.
+
+#### S3b. Link no longer works (`/sign-in/expired`)
+
+```html
+<AuthShell [stageName]>
+  <h1>This sign-in link no longer works</h1>
+  <p class="lead">A sign-in link works once and for 15 minutes. This one has expired or was already used, so you are not signed in.</p>
+  <ButtonLink primary fullWidth href="/sign-in[?next]">Send me a new link</ButtonLink>
+</AuthShell>
+```
+
+One message for expired and reused links (it does not say which, and creates no session: spec "Expired or reused link"). The button goes to the form because the address is not known from a spent link.
+
+### S4. Consent (`/consent`)
+
+```html
+<AuthShell account={email, signOutAction} [stageName]>
+  <h1>Let this app act for you on A2H?</h1>
+  <section aria-label="The app asking to connect" class="identity">   <!-- --border, --radius-lg -->
+    <p class="eyebrow">App asking to connect</p>                         <!-- --text-xs, --text-muted -->
+    <h2 class="name">{client_name}</h2>                                  <!-- --accent, machine origin -->
+    <p class="origin">{origin}</p>                                       <!-- mono role -->
+    <p class="provenance">{provenance}</p>                               <!-- --text-muted; --text when dynamic -->
+  </section>
+  <section aria-labelledby="consent-scopes">
+    <h2 id="consent-scopes">It will be able to</h2>
+    <ul><li>{scope in plain words}</li>…</ul>
+  </section>
+  <Notice tone=platform title="You still approve every question">…</Notice>
+  [<Notice tone=danger|neutral>]                                         <!-- error, offline -->
+  <p>It will act for <strong>{address}</strong>.</p>
+  <p class="muted">After you choose, you go back to {return origin}.</p>
+  <form method=post action={consent}>
+    <input type=hidden …consent fields…>                                 <!-- never displayed -->
+    <Button primary type=submit name=accept value=true>Connect</Button>
+    <Button ghost type=submit name=accept value=false>Don't connect</Button>
+  </form>
+  <p class="muted">You can disconnect it at any time from <TextLink href="/account/clients">Connected apps</TextLink>.</p>
+</AuthShell>
+```
+
+Data (props, from the authorization server; web dev):
+- `client.name`: `client_name` from the metadata document, the dynamic registration or the pre-registered record. Rendered as text only (React escapes it), wraps anywhere, never truncated (a long name must be readable in full; story "ConsentLongName").
+- `client.origin`: the host the client is identified by: the `client_id` URL's host for a metadata-document client; the redirect URI's host for a dynamic or pre-registered client. `localhost`, `127.0.0.1` and `[::1]` are shown as **a program on this computer** (Claude Code and other CLI clients).
+- `client.registration`: `metadata-document` | `dynamic` | `pre-registered`, which picks the provenance line:
+  - metadata document: **Name published by {origin}.**
+  - pre-registered: **Registered with A2H by the A2H team.**
+  - dynamic: **This app registered itself. A2H has not checked its name. Continue only if you started this connection.** (in `--text`, not muted)
+- `scopes`: the requested scopes, each in plain words; scope identifiers are never shown:
+  - `a2h`: **Find humans, send them approved questions and read their answers on your behalf**
+  - `offline_access`: **Stay connected without signing in again**
+- `returnOrigin`: the redirect URI's host, same local rule.
+- `email`: the signed-in principal's own address.
+
+Copy:
+- h1 **Let this app act for you on A2H?**; eyebrow **App asking to connect**; h2 **It will be able to**
+- platform note **You still approve every question** / "Every question is shown to you for approval before it is sent. Nothing reaches a person without your yes." (the one rule, principal side)
+- **It will act for {address}.** / **After you choose, you go back to {origin}.**
+- primary **Connect** (pending **Connecting…**), ghost **Don't connect** (pending **Cancelling…**). Labels are fixed: the client's name never goes on a button (a name like "Cancel" must not be able to relabel the accept action).
+- **You can disconnect it at any time from Connected apps.** (link)
+
+States:
+- **Ready**: as above.
+- **Accepting / declining**: the pressed button shows its pending label; the other is disabled until the response.
+- **Declined**: the authorization server redirects to the client with `access_denied`; no A2H screen. Fallback only if the redirect cannot happen: h1 **Not connected** / "{client} was not connected to your A2H account. You can close this page."
+- **Error** (the consent post failed): `Notice danger` **Your choice was not recorded** / "Nothing was connected. Try again." + reference; buttons stay.
+- **Offline**: `Notice neutral` **You're offline** / "Nothing is connected. Choose when you're back online." Nothing is queued: consent is never sent later on the person's behalf.
+- **Invalid request** (unknown client, metadata document refused, redirect URI mismatch, private-address document; PKCE errors are refused before this screen per spec): h1 **This connection can't continue**, `Notice danger` **Nothing was connected** / "The app's request to A2H was not valid. Go back to the app and start the connection again. If it keeps happening, the app may not work with A2H yet." + reference. No client name (it could not be established), no reason code.
+- **Expired** (the consent request timed out): h1 **This connection request has expired**, `Notice danger` **Nothing was connected** / "Go back to the app and start the connection again."
+- **Loading / empty**: none; server-rendered after the authorization server has validated the request.
+
+### S5. Connected apps (`/account/clients`)
+
+```html
+<AuthShell width=wide account={email, signOutAction} [stageName]>
+  <h1>Connected apps</h1>
+  <p class="lead">These apps can act for you on A2H. Every question they draft is still shown to you before it is sent.</p>
+  [<Notice tone=success live=status focusable>]                      <!-- after a disconnect -->
+  [<Notice tone=neutral|danger>]                                     <!-- offline, error -->
+  <ul aria-label="Connected apps">                                   <!-- --border top and between rows -->
+    <li>
+      <h2 class="name">{client_name}</h2>                            <!-- --accent -->
+      <p class="origin">{origin}</p>                                 <!-- mono -->
+      <p class="dates">Connected {date} · last used {date}</p>       <!-- --text-muted, tabular-nums, <time> -->
+      <Button ghost aria-label="Disconnect {client} ({origin})">Disconnect</Button>
+      [<div role=group aria-labelledby=q tabindex=-1 class="confirm">] <!-- --surface-2, --border-strong -->
+         <p id=q>Disconnect {client}?</p>
+         <p>It will not be able to reconnect without asking you again. Access it already has ends within an hour. Requests you already approved are not affected.</p>
+         <Button primary>Disconnect</Button> <Button ghost>Keep connected</Button>
+      [</div>]
+    </li>
+  </ul>
+</AuthShell>
+```
+
+Data per row (`ConnectedClient`): `id`, `name`, `origin`, `registration`, `connectedAt` and `lastUsedAt` as `{ iso, label }` formatted by the app (dates at the edge; `lastUsedAt: null` reads **not used yet**). One row per client holding a consent for this principal.
+
+Copy: h1 **Connected apps**; lead as above; row dates **Connected {date} · last used {date}** / **· not used yet**; **Disconnect**; confirmation **Disconnect {client}?** / "It will not be able to reconnect without asking you again. Access it already has ends within an hour. Requests you already approved are not affected." / primary **Disconnect** (pending **Disconnecting…**) / ghost **Keep connected**.
+
+The confirmation tells the truth of spec "Client revoked": refresh tokens die at once, access tokens already issued live to their expiry (one hour at most, D1).
+
+States:
+- **Ready**: the list, most recently used first.
+- **Empty**: `Notice neutral` **No apps are connected** / "To connect one, add A2H as a connector in your agent, for example Claude or Claude Code, and sign in when it asks."
+- **Loading** (client-side refresh only; the first render is server-side): three skeleton rows in a `role=status aria-busy=true` container labelled "Loading connected apps".
+- **Error** (list could not be read): `Notice danger` **Connected apps could not be loaded** / "Your connections are unchanged. Reload the page to try again." + reference; ghost **Reload**.
+- **Offline**: `Notice neutral` **You're offline** / "This list may be out of date. Disconnecting needs a connection." The list stays; a disconnect attempt fails into the row error.
+- **Confirming → revoking → done**: inline, never a browser dialog. Done removes the row and shows `Notice success` **{client} is disconnected** / "Access it already has ends within an hour."
+- **Revoke failed**: the row keeps its **Disconnect** button and shows `Notice danger` **{client} is still connected** / "The disconnection did not go through. Try again." + reference.
+- **Sign out** (header): `POST`, then `/signed-out`. If it fails: `Notice danger` **You are still signed in** / "Signing out did not go through. Try again."
+
+### S6. Signed out (`/signed-out`)
+
+```html
+<AuthShell [stageName]>
+  <h1>You're signed out</h1>
+  <p class="lead">Apps you connected stay connected: signing out of this page does not disconnect them. To disconnect one, sign in and open Connected apps.</p>
+  <ButtonLink primary fullWidth href="/sign-in">Sign in again</ButtonLink>
+</AuthShell>
+```
+
+The lead states the difference between the browser session (revoked) and the consents held by agents (kept), which spec "Sign-out revokes" separates.
+
+### Accessibility (all screens)
+
+- **Keyboard-complete.** Every action is a React Aria `Button`/`Link` or a native input; Tab order follows the DOM: header (Sign out), main heading content, field, primary action, secondary action, links. Forms submit with Enter. In a connected-apps row, **Disconnect** opens the confirmation and moves focus to it (a labelled group); **Keep connected** or **Escape** closes it and returns focus to **Disconnect**; a failure moves focus to the row's error notice; success moves focus to the "disconnected" notice. No focus trap anywhere; no browser `confirm()`.
+- **Focus visible**: `outline: 2px solid var(--focus); outline-offset: 2px` on every control (`:focus-visible` and React Aria's `data-focus-visible`), never removed.
+- **Targets**: 44 × 44 px minimum on buttons, button links and inputs (`--target-min`) at 390 px and 1280 px. Inline links inside a sentence are exempt (WCAG 2.5.8) and are underlined.
+- **Forms**: visible `<label for>`; errors via `FieldError`, linked with `aria-describedby`, `aria-invalid="true"`, prefixed "Error:"; the field keeps its value; validation messages say what to do. `autocomplete="email"`, `inputmode="email"`, `spellcheck="false"`.
+- **Announcements**: errors after an action `role=alert`; confirmations (resent, disconnected, offline) `role=status`; notices present on page load are plain content. Pending buttons keep focus and announce busy (React Aria `isPending`).
+- **Headings**: one `h1` per screen; the client name is an `h2` on consent and in each row, so the list is navigable by heading.
+- **Colour is never the only signal**: every notice has a title in words; the client's accent name sits under the words "App asking to connect"; links are underlined.
+- **Reduced motion** is the default stylesheet; the skeleton pulse and button transition exist only under `prefers-reduced-motion: no-preference`.
+- **Contrast**: system colours and `color-mix` derivations; no new pair is introduced beyond the semantic roles. Measured by axe (WCAG 2.2 AA rules) on every story in both themes during the review pass below. CI contrast tests on the ladder arrive with `m2-design-foundations`.
+- **Zoom and reflow**: single column, no horizontal scroll at 320 px CSS width; long names and addresses wrap (`overflow-wrap: anywhere`).
+- `<html lang="en">`; safe-area insets on the gutters.
+
+### Never shown on these screens
+
+- Tokens of any kind (access, refresh, magic-link, consent codes, authorization codes, `state`, PKCE values), client secrets, client ids, scope identifiers, error codes or stack traces. A request id ("Reference …", mono) is the only technical string, and only on errors.
+- Any address other than the signed-in principal's own; on sign-in screens, only the address the person typed. Nothing on any screen distinguishes an allow-listed address from an unknown one.
+- The client's logo, `client_uri`, `policy_uri`, `tos_uri` or any other link from its metadata (they are unverified and a phishing vector); the client's name on a button.
+- The word "development"; "allow-list"; any protocol jargon (`copy.test.ts`).
+- The question text of any request; participants' names or anything about participants.
+- The address in a URL query string (sent page uses form state or a flash cookie).
+
+### Prototype and PRD
+
+The principal prototype's connector step ends in "Connect and set my contact policy"; the contact policy is M5 scope (proposal, Out of scope), so consent ends in **Connect** and the stage's default policy applies (D4). The prototype's colours and fonts are not normative (ADR 0003); nothing here takes them.
+
+### Open questions on the screens
+
+For the product owner:
+1. The sign-in footnote "A2H is open to invited addresses only for now." is shown to everyone before submission, so it reveals nothing about a given address, but it does say a list exists. Keep it (strangers understand why no email comes) or drop it?
+2. Name of the list: "Connected apps" (chosen: plain, what Google and GitHub call it) or "Connected agents"?
+3. The empty state of Connected apps could link to a public setup page (`docs/runbooks/mcp-setup.md` is internal). Is there a public URL to point at, or none for M1?
+
+For the web dev (task 5.4):
+4. "Last used": if Better Auth records no last use per client, pass `lastUsedAt` as `undefined` and the row shows only "Connected {date}". `null` means "not used yet".
+5. The consent page needs the client's registration kind (metadata document, dynamic, pre-registered) and the redirect URI's host, beyond `client_name`; and distinct outcomes for an expired versus an invalid consent request.
+6. "Requests you already approved are not affected" (revoke confirmation) assumes revoking a client never cancels the principal's requests. Confirm with protocol-dev; if it ever does, the sentence changes.
+7. Consuming `@a2h/ui` from `apps/web`: source package with CSS modules, so `transpilePackages: ["@a2h/ui"]` in `next.config.ts`; import `@a2h/ui/tokens.css` and `@a2h/ui/base.css` once in the root layout.
+
+### Review on Storybook (2026-10-30)
+
+Storybook build `pnpm --filter @a2h/ui build-storybook` (46 stories: 10 component states, 36 screen states). Playwright pass over every story at 390 px and 1280 px, light and dark (`prefers-color-scheme` and `data-theme`), reduced motion on: screenshots, axe-core 4.14 (WCAG 2.0/2.1/2.2 A and AA plus best practice), a 44 px target check and a horizontal-overflow check. Keyboard pass on Sign in, Consent and Connected apps (Interactive story). Results: see the PR. The preview review of the built pages (task 5.4) follows the same checklist once `apps/web` serves them.
 
 ## Risks / Trade-offs
 
