@@ -1,7 +1,9 @@
 // Aurora Serverless v2, PostgreSQL 17, database `a2h`.
 // dev: shared with pr-* (schema per stage, created/dropped by CI through the
 // RDS Data API), scales to 0 ACU and pauses after 10 minutes.
-// prod: its own cluster, min 0.5 ACU, never pauses, no Data API.
+// prod: its own cluster, min 0.5 ACU, never pauses.
+// Both have the RDS Data API (design D2 of m1-hosted-connector): CI migrates
+// through it, and the web Lambda will reach its schema through it.
 import {
   dbCredentials,
   prDbSecretName,
@@ -22,9 +24,10 @@ export function createDatabase(stage: StageInfo, vpc: sst.aws.Vpc): sst.aws.Auro
       stage.kind === "prod"
         ? { min: "0.5 ACU", max: "4 ACU" }
         : { min: "0 ACU", max: "4 ACU", pauseAfter: "10 minutes" },
-    // Only CI's schema create/drop uses the Data API; business code connects
-    // by connection string only.
-    dataApi: stage.kind === "dev",
+    // CI (schema create/drop, migrations) and, from m1-hosted-connector D2,
+    // the web Lambda use the Data API; the services connect by connection
+    // string. A cluster setting only: it deploys nothing on prod by itself.
+    dataApi: true,
   });
 }
 

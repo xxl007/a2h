@@ -165,33 +165,85 @@ The eight `/a2h/shared/*` parameters are what every `pr-<n>` stage reads; if the
 
 Also make the Postgres read-only role for the `postgres-readonly` MCP server (see `docs/runbooks/mcp-setup.md`) once you want agents to inspect data. It is not needed for M0.
 
-## 8. Domain and TLS (decide; 20 minutes once decided)
+## 8. Domain and TLS (done 2026-10-30)
 
-Without a domain, the web stage URLs are CloudFront hostnames (HTTPS) and the MCP endpoint is the ALB hostname over **HTTP**. MCP Inspector and curl accept that; hosted MCP clients such as Claude.ai require HTTPS, so a domain is needed before any external agent connects (M1 Gate 2 at the latest).
+The domain is **`a2h-protocol.org`** (proposal `m1-hosted-connector`, decision 1). Hosted MCP clients such as claude.ai require HTTPS, which is why the domain comes before any external agent connects.
 
-1. Choose a domain for A2H (the existing `aiplayboox.com` zone belongs to another project). Register it in Route 53 or delegate its NS records to a new Route 53 hosted zone:
-   `aws route53 create-hosted-zone --profile a2h-member --name <domain> --caller-reference a2h-$(date +%s)`
-2. Set `domain` in `infra/config.ts` (see `infra/README.md` for how stage hostnames are derived) and merge. SST then issues the ACM certificates (us-east-1 for CloudFront, eu-west-3 for the ALB, DNS-validated in the zone), creates the records, and adds the HTTPS listener with the HTTP→HTTPS redirect.
-3. ACM in us-east-1 is the single exception to the one-region rule (ADR 0001); it holds no data.
+Done by the owner:
+
+1. Registered `a2h-protocol.org` in Route 53 in the A2H account (dedicated account, profile `a2h-member`); Route 53 created its public hosted zone. The delegation became visible on public resolvers at 01:30 UTC on 2026-10-30. To check it at any time (read-only):
+
+   ```sh
+   dig +short NS a2h-protocol.org @8.8.8.8          # expect the four awsdns name servers of the zone
+   aws route53 list-hosted-zones-by-name --profile a2h-member --dns-name a2h-protocol.org --max-items 1
+   ```
+
+   **The zone must be in the A2H account (442123849268), the one the deploy roles use.** SST finds it with `ListHostedZones` in that account (`sst.aws.dns()` without a zone ID). The first preview with the domain (PR #52, 2026-10-30) failed with `could not find hosted zone for domain _<token>.pr-52.dev.a2h-protocol.org`: the delegation is public, but the zone answering it is not in 442123849268. Check which account holds it, then move it:
+
+   ```sh
+   aws route53 list-hosted-zones-by-name --profile a2h-member --dns-name a2h-protocol.org --max-items 1 --query 'HostedZones[].[Name,Id]'   # must list a2h-protocol.org.
+   aws route53 list-hosted-zones-by-name --profile a2h --dns-name a2h-protocol.org --max-items 1 --query 'HostedZones[].[Name,Id]'          # the old account
+   aws route53domains get-domain-detail --profile a2h --region us-east-1 --domain-name a2h-protocol.org --query Nameservers                  # where the registration is (try both profiles)
+   ```
+
+   If the zone is in the other account: create one in the A2H account, point the registration at its name servers, wait for `dig NS` to show them, then delete the old zone (it holds nothing A2H needs yet).
+
+   ```sh
+   aws route53 create-hosted-zone --profile a2h-member --name a2h-protocol.org --caller-reference a2h-$(date +%s) --query DelegationSet.NameServers
+   aws route53domains update-domain-nameservers --profile <account holding the registration> --region us-east-1 --domain-name a2h-protocol.org \
+     --nameservers Name=<ns1> Name=<ns2> Name=<ns3> Name=<ns4>
+   ```
+
+   Optionally move the registration itself to the A2H account later (`aws route53domains transfer-domain-to-another-aws-account`, accepted from the A2H account); the deploys only need the zone.
+
+2. `domain = "a2h-protocol.org"` in `infra/config.ts` (PR for task 1.2 of `m1-hosted-connector`). Hostnames per stage: `infra/README.md`, "Hostnames".
+
+What the first `dev` deploy after that merge creates, all through `sst.aws.dns()` in the zone, nothing by hand:
+
+- an ACM certificate in eu-west-3 for `mcp.dev.a2h-protocol.org`, DNS-validated, on a new HTTPS listener (443) of dev's ALB; the HTTP listener (80) now answers 301 to HTTPS; an alias record `mcp.dev.a2h-protocol.org` -> ALB;
+- an ACM certificate in **us-east-1** for `dev.a2h-protocol.org` on the CloudFront distribution of the web app, and its alias record (ACM in us-east-1 is the single exception to the one-region rule, ADR 0001; it holds no data);
+- the SES identity and its records (§9).
+
+Certificate issuance waits for DNS validation, so that deploy takes several minutes longer than usual. Each preview (`pr-<n>`) then creates its own us-east-1 certificate and `pr-<n>.dev.a2h-protocol.org` record, removed with the stage; its MCP endpoint is `https://mcp.dev.a2h-protocol.org/pr-<n>/mcp` on dev's certificate. Prod (`a2h-protocol.org`, `mcp.a2h-protocol.org`) is derived but not deployed.
+
+Verify after the dev deploy (read-only):
+
+```sh
+curl -sI http://mcp.dev.a2h-protocol.org/mcp | sed -n '1p;/^[Ll]ocation/p'   # expect 301 and Location: https://mcp.dev.a2h-protocol.org:443/mcp
+curl -s https://mcp.dev.a2h-protocol.org/healthz                            # expect the health answer, certificate accepted
+curl -sI https://dev.a2h-protocol.org | head -1                             # expect HTTP/2 200
+```
+
+Rollback: set `domain` back to `undefined` and merge; the ALB returns to HTTP on its AWS hostname.
 
 ## 9. Email: SES identity and production access
 
-Sandbox is enough for M0–M2: you can send to verified addresses only (your own), 200 per day.
+Sandbox is enough until real participants receive mail: you can send to verified addresses only (your own), 200 per day.
 
-1. Set `emailSender` in `infra/config.ts`: the domain from §8 (preferred, SST adds DKIM/SPF/DMARC records in Route 53) or a single address for now (SES mails that address a verification link; click it).
-2. Before M3 (request delivery to real participants), request production access. Explain the use case as transactional email to participants who opted in on A2H, with one-tap decline links and bounce/complaint handling through the SES configuration set events:
+1. **Identity (done by the deploy).** `emailSender` in `infra/config.ts` is the domain, `a2h-protocol.org`. The first dev deploy after the task 1.2 merge creates the SES **domain** identity in eu-west-3, its three DKIM CNAME records and a `_dmarc.a2h-protocol.org` TXT record `v=DMARC1; p=none;` (SST's default) in the zone. SES verifies the identity on its own once it sees the DKIM records, usually within minutes, at most 72 hours. Check (read-only):
+
+   ```sh
+   aws sesv2 get-email-identity --profile a2h-member --region eu-west-3 --email-identity a2h-protocol.org \
+     --query '{verified: VerifiedForSendingStatus, dkim: DkimAttributes.Status}'   # expect verified true, dkim SUCCESS
+   dig +short TXT _dmarc.a2h-protocol.org @8.8.8.8                                # expect "v=DMARC1; p=none;"
+   ```
+
+   The identity belongs to dev. Prod shares the account and region, where an identity exists once: before the first prod deploy, prod reuses it (see `infra/README.md`, "Prod and the SES identity").
+
+2. **Production access (you, once the identity is verified).** Magic links on prod need it; dev and previews use a mail sink in this change, so nothing waits for the answer. Console: **Amazon SES** (region **Europe (Paris) eu-west-3**) > **Account dashboard** > **Request production access**; mail type *Transactional*, website `https://a2h-protocol.org`, and the use case below. Or from your shell:
 
 ```sh
 aws sesv2 put-account-details --profile a2h-member --region eu-west-3 \
   --production-access-enabled \
   --mail-type TRANSACTIONAL \
-  --website-url https://<domain> \
-  --use-case-description "A2H sends transactional notifications (request summaries, decline links, answer notifications, payout notices) to participants who created an account and opted in. Bounces and complaints are processed through SES event notifications and suppress the address." \
+  --website-url https://a2h-protocol.org \
+  --use-case-description "A2H sends transactional email only: sign-in links to principals and participants who created an account, and notifications (request summaries, decline links, answer notifications, payout notices) to participants who opted in. Bounces and complaints are processed through SES event notifications and suppress the address." \
   --additional-contact-email-addresses <your email> \
   --contact-language EN
+aws sesv2 get-account --profile a2h-member --region eu-west-3 --query '{production: ProductionAccessEnabled, review: Details.ReviewDetails}'   # status of the request
 ```
 
-AWS answers within 96 hours. Having a verified **domain** identity before asking speeds approval.
+AWS answers within about a day (at most 96 hours). Note the case id from the confirmation email in `openspec/changes/m1-hosted-connector/tasks.md`, task 1.1.
 
 ## 10. Downgrade the local IAM user (after §7)
 
