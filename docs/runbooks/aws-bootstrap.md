@@ -178,6 +178,24 @@ Done by the owner:
    aws route53 list-hosted-zones-by-name --profile a2h-member --dns-name a2h-protocol.org --max-items 1
    ```
 
+   **The zone must be in the A2H account (442123849268), the one the deploy roles use.** SST finds it with `ListHostedZones` in that account (`sst.aws.dns()` without a zone ID). The first preview with the domain (PR #52, 2026-10-30) failed with `could not find hosted zone for domain _<token>.pr-52.dev.a2h-protocol.org`: the delegation is public, but the zone answering it is not in 442123849268. Check which account holds it, then move it:
+
+   ```sh
+   aws route53 list-hosted-zones-by-name --profile a2h-member --dns-name a2h-protocol.org --max-items 1 --query 'HostedZones[].[Name,Id]'   # must list a2h-protocol.org.
+   aws route53 list-hosted-zones-by-name --profile a2h --dns-name a2h-protocol.org --max-items 1 --query 'HostedZones[].[Name,Id]'          # the old account
+   aws route53domains get-domain-detail --profile a2h --region us-east-1 --domain-name a2h-protocol.org --query Nameservers                  # where the registration is (try both profiles)
+   ```
+
+   If the zone is in the other account: create one in the A2H account, point the registration at its name servers, wait for `dig NS` to show them, then delete the old zone (it holds nothing A2H needs yet).
+
+   ```sh
+   aws route53 create-hosted-zone --profile a2h-member --name a2h-protocol.org --caller-reference a2h-$(date +%s) --query DelegationSet.NameServers
+   aws route53domains update-domain-nameservers --profile <account holding the registration> --region us-east-1 --domain-name a2h-protocol.org \
+     --nameservers Name=<ns1> Name=<ns2> Name=<ns3> Name=<ns4>
+   ```
+
+   Optionally move the registration itself to the A2H account later (`aws route53domains transfer-domain-to-another-aws-account`, accepted from the A2H account); the deploys only need the zone.
+
 2. `domain = "a2h-protocol.org"` in `infra/config.ts` (PR for task 1.2 of `m1-hosted-connector`). Hostnames per stage: `infra/README.md`, "Hostnames".
 
 What the first `dev` deploy after that merge creates, all through `sst.aws.dns()` in the zone, nothing by hand:
