@@ -88,7 +88,7 @@ Why this shape:
 
 - `PowerUserAccess` covers everything SST creates (S3, ECR, ECS, ELB, RDS, SES, SSM, Secrets Manager, CloudFront, Lambda, DynamoDB, SQS, CloudWatch, Route 53, ACM) but no IAM.
 - The inline policy adds IAM only for roles named `a2h-*`, which `sst.config.ts` enforces for every role it creates (`a2h-<stage>-<readable>-<hash>`, at most 64 characters; SST's own naming drops the prefix for long names, see `infra/README.md`). It may create or change those roles **only if they carry the boundary** `a2h-workload-boundary`. It may attach only the four AWS managed policies SST uses (ECS task execution, Lambda basic, Lambda VPC access, Lambda durable execution). It can pass roles only to ECS tasks and Lambda. It can never remove a boundary, edit the boundary policy, touch the `gha-*` roles, assume any other role, or use IAM Identity Center, Organizations or account settings.
-- The boundary caps every workload role at A2H's own resources: S3, SQS, DynamoDB and Lambda named `a2h-*`, secrets named `a2h-*` (SST's own naming, for example the Aurora master secret `a2h-dev-DatabaseProxySecret-…`) or `a2h/*` (the per-PR logins), parameters under `/a2h/` and `/sst/`. Beyond that it allows only runtime plumbing: logs, image pull from SST's `sst-asset` repository, KMS decryption only through Secrets Manager, S3, SQS and SSM, network interfaces, SES sending from this account's identities, CloudFront invalidation for Next.js revalidation, and Transcribe. It never allows IAM or role assumption. ECS Exec (`ssmmessages`) is deliberately not allowed, so shell access to running containers is off.
+- The boundary caps every workload role at A2H's own resources: S3, SQS, DynamoDB and Lambda named `a2h-*`, secrets named `a2h-*` (SST's own naming, for example the Aurora master secret `a2h-dev-DatabaseProxySecret-…`) or `a2h/*` (the per-PR logins), parameters under `/a2h/` and `/sst/`, the RDS Data API on Aurora clusters named `a2h-*` in eu-west-3 (since §16). Beyond that it allows only runtime plumbing: logs, image pull from SST's `sst-asset` repository, KMS decryption only through Secrets Manager, S3, SQS and SSM, network interfaces, SES sending from this account's identities, CloudFront invalidation for Next.js revalidation, and Transcribe. It never allows IAM or role assumption. ECS Exec (`ssmmessages`) is deliberately not allowed, so shell access to running containers is off.
 
 **Residual risks: read before you approve. This account also hosts another project.**
 
@@ -364,3 +364,22 @@ aws iam put-user-policy --profile a2h-member --user-name <your IAM user> --polic
 ```
 
 Check what is set: `aws ssm get-parameter --profile a2h-member --region eu-west-3 --name /a2h/shared/principal-allowlist --with-decryption --query Parameter.Value --output text`.
+
+## 16. IAM update for m1-hosted-connector (once, before the dev deploy of PR #57)
+
+PR #57 adds the edge rate limit (AWS WAF), the allow-list parameter and the web app's database access through the RDS Data API. Checked against `infra/bootstrap/` (`infra/test/bootstrap-policies.test.ts`):
+
+- **Deploy roles (`gha-a2h-dev`, `gha-a2h-preview`): no change.** `PowerUserAccess` already covers everything this change and PR #52 create or call at deploy time: WAF web ACLs in eu-west-3 (REGIONAL) and us-east-1 (CLOUDFRONT) and their association with the ALB and the distribution, Route 53 records in the `a2h-protocol.org` zone (certificate validation, DKIM, DMARC, aliases), ACM certificates in eu-west-3 and us-east-1, the SES identity and configuration set, the SSM parameters (SecureString on the AWS-managed `aws/ssm` key), and the Data API flag on the clusters (`rds:ModifyDBCluster`). The inline policy `a2h-sst-iam` only adds IAM on `role/a2h-*`, and no new kind of role appears (WAF without logging, ACM, Route 53 and SES create none), so `iam:PassRole` stays limited to ECS tasks and Lambda. The inline policy is unchanged, so there is nothing to re-apply.
+- **Workload boundary: one statement added**, `A2HDataApi`: `rds-data:ExecuteStatement`, `BatchExecuteStatement`, `BeginTransaction`, `CommitTransaction`, `RollbackTransaction` on `arn:aws:rds:eu-west-3:442123849268:cluster:a2h-*`. Without it, the web app's sign-in, consent and token paths fail with `AccessDeniedException ... rds-data:ExecuteStatement ... because no permissions boundary allows` (design D2). The boundary already allows reading the allow-list (`ssm:GetParameter` on `/a2h/*`, `kms:Decrypt` through SSM) and the database secret.
+
+A managed policy keeps at most five versions. Check, delete the oldest non-default version if there are five, then publish the new one as default:
+
+```sh
+BOUNDARY=arn:aws:iam::442123849268:policy/a2h-workload-boundary
+aws iam list-policy-versions --profile a2h-member --policy-arn "$BOUNDARY" --query 'Versions[].[VersionId,IsDefaultVersion,CreateDate]' --output table
+# only if five versions are listed: delete the oldest one whose IsDefaultVersion is False, for example v1
+aws iam delete-policy-version --profile a2h-member --policy-arn "$BOUNDARY" --version-id v1
+aws iam create-policy-version --profile a2h-member --policy-arn "$BOUNDARY" --policy-document file://infra/bootstrap/a2h-workload-boundary.json --set-as-default
+```
+
+These calls need IAM write rights, which your user lost in §10: use your break-glass admin. The change applies at once to every existing `a2h-*` role; nothing is redeployed. If you ever change `gha-a2h-deploy-iam.json`, it is an inline role policy, not a managed one: re-apply it with `aws iam put-role-policy --profile a2h-member --role-name gha-a2h-<dev|preview> --policy-name a2h-sst-iam --policy-document file://infra/bootstrap/gha-a2h-deploy-iam.json` for both roles (no versions to prune).
