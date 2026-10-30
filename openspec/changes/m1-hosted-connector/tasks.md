@@ -4,7 +4,7 @@ Owners: **PD** protocol-dev (apps/mcp, apps/worker, packages/protocol, packages/
 
 ## 1. Domain, TLS and email identity (Owner, then PD; gates everything else)
 
-- [ ] 1.1 Owner: register the chosen domain or delegate it to a Route 53 hosted zone in the A2H account (runbook §8) and request SES production access on it (§9); verify `dig NS <domain>` returns the Route 53 name servers and the SES request is filed (case id noted in this file)
+- [ ] 1.1 Owner: register the chosen domain or delegate it to a Route 53 hosted zone in the A2H account (runbook §8) and request SES production access on it (§9); verify `dig NS <domain>` returns the Route 53 name servers and the SES request is filed (case id noted in this file). Domain `a2h-protocol.org` registered with its hosted zone on 2026-10-30 (Route 53 email); the SES production-access request is still to file (after task 1.2 creates the identity)
 - [ ] 1.2 PD: set `domain` in `infra/config.ts`, add the SES identity for the domain (`infra/email.ts`, `emailSender`), enable the Data API on the prod cluster definition (D2) without deploying prod; verify `infra/test` asserts the hostnames of `platform/hosted-endpoint` "Stage hostnames…", that the listener is `443/https` with the 80 redirect, and that the SES identity's DNS records are created by the deploy
 - [ ] 1.3 PD: merge and deploy to dev; verify `https://mcp.dev.<domain>/mcp` answers `tools/list`, `http://…` returns 301 to HTTPS ("HTTP redirected"), the certificate is valid for the name, and the preview URL in the PR comment is under the domain ("Development hostnames resolve"); update `tests/contract` URL handling only if the deploy outputs changed shape
 
