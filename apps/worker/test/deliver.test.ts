@@ -11,7 +11,7 @@ import type { WorkerLogLine } from "../src/log.ts";
 import type { Jobs } from "../src/queues.ts";
 import { jobsFor, startBoss } from "./lib/boss.ts";
 import { createRequest, statusOf } from "./lib/requests.ts";
-import { PRINCIPAL_ID, rows, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
+import { addPrincipal, PRINCIPAL_ID, rows, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
 
@@ -45,6 +45,36 @@ describe("deliver", { skip }, () => {
       [id],
     );
   }
+
+  // m1-hosted-connector task 7.2; spec request-approval "Principal's own policy applies".
+  test("Scenario: Principal's own policy applies at delivery: each request re-validated with its own principal's record", async () => {
+    // sim-hb-1f7d takes questions from organisations only.
+    await addPrincipal(stage.admin, "user-person", "real_name");
+    await addPrincipal(stage.admin, "user-gbp", "verified_organisation", "GBP");
+    const org = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400 });
+    const person = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400, principal_id: "user-person" });
+    const gbp = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400, principal_id: "user-gbp" });
+    logs = [];
+    for (const r of [org, person, gbp]) await deliverRequest(ctx(), r.id);
+    assert.deepEqual(await deliveryOf(org.id), [{ outcome: "delivered", participant_id: org.participant_id }]);
+    assert.deepEqual(await deliveryOf(person.id), [{ outcome: "blocked", participant_id: person.participant_id }]);
+    assert.deepEqual(await blockedOf(person.id), [{ participant_id: person.participant_id, principal_id: "user-person", stage: "rules", code: "asker_not_allowed" }]);
+    // The policy's currency is the principal's own (EUR request, GBP policy): not delivered.
+    assert.deepEqual(await deliveryOf(gbp.id), [{ outcome: "blocked", participant_id: gbp.participant_id }]);
+    assert.deepEqual(await blockedOf(gbp.id), [], "not the participant's rules: not counted for them");
+  });
+
+  test("a request whose principal has no rows any more fails closed: blocked, not delivered, not counted for the participant", async () => {
+    const r = await createRequest(stage.admin, { handle: "sim-mv-7f3c", intent: "judgment", bid_minor: 3500, principal_id: "user-without-rows" });
+    logs = [];
+    await deliverRequest(ctx(), r.id);
+    assert.deepEqual(await deliveryOf(r.id), [{ outcome: "blocked", participant_id: r.participant_id }]);
+    assert.deepEqual(await blockedOf(r.id), []);
+    assert.deepEqual(await jobsFor(stage.admin, "simulate", r.id), []);
+    const line = logs.find((l) => l.msg === "delivery blocked");
+    assert.equal(line?.code, "principal_not_accountable");
+    assert.equal(line?.principal_id, "user-without-rows");
+  });
 
   test("Scenario: Rules changed after approval", async () => {
     // sim-th-2a91 (prompt): knowledge reserve 4500 net = 5625 gross; the bid of 5700 passed at approval.
