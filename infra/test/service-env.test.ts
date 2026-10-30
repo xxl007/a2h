@@ -43,10 +43,16 @@ test("mcp: resource-server switches and limits per stage (D3, D5); the worker ge
       ["true", "false"],
     ],
   );
+  // The owner's defaults on dev and prod; previews ten times the call limits (their verify suites run as one principal).
+  assert.deepEqual(
+    STAGES.map((s) => [s, env(s)["RATE_LIMIT_PER_MINUTE"], env(s)["RATE_LIMIT_PER_DAY"], env(s)["PING_MAX_CONCURRENT"]]),
+    [
+      ["dev", "60", "2000", "4"],
+      ["prod", "60", "2000", "4"],
+      ["pr-12", "600", "20000", "4"],
+    ],
+  );
   for (const s of STAGES) {
-    assert.equal(env(s)["PING_MAX_CONCURRENT"], "4");
-    assert.equal(env(s)["RATE_LIMIT_PER_MINUTE"], "60");
-    assert.equal(env(s)["RATE_LIMIT_PER_DAY"], "2000");
     const worker = serviceEnvNames("worker", stageInfo(s));
     for (const n of AUTH_NAMES) assert.ok(!worker.includes(n), `worker ${s} ${n}`);
     const mcp = serviceEnvNames("mcp", stageInfo(s));

@@ -18,12 +18,21 @@ export type { Service } from "./stage-secrets.ts";
 export const AUTH_REQUIRED_BY_STAGE_KIND: Record<StageInfo["kind"], boolean> = { dev: true, pr: false, prod: true };
 
 /**
- * Stage limits (proposal decision 5; design D5). Configuration, not code
- * constants in the services: the same on every stage for now. They belong
- * next to the development policy in config.ts; kept here while infra PR #52
- * owns config.ts (move them with task 8.1).
+ * Stage limits (proposal decision 5; design D5): configuration, not code
+ * constants in the services. dev and prod use the owner's defaults (60 tool
+ * calls a minute and 2,000 a day per principal, 4 held pings). Previews get
+ * ten times the call limits: their verify job runs the contract and
+ * adversarial suites as one principal, well over 60 calls a minute (measured
+ * on a local stage), as dev's budget is raised for the same reason
+ * (DEV_BUDGET_MULTIPLIER). They belong next to the development policy in
+ * config.ts; kept here while infra PR #52 owns config.ts (move them with
+ * task 8.1).
  */
-export const STAGE_LIMITS = { RATE_LIMIT_PER_MINUTE: 60, RATE_LIMIT_PER_DAY: 2000, PING_MAX_CONCURRENT: 4 } as const;
+export const STAGE_LIMITS: Record<StageInfo["kind"], { RATE_LIMIT_PER_MINUTE: number; RATE_LIMIT_PER_DAY: number; PING_MAX_CONCURRENT: number }> = {
+  dev: { RATE_LIMIT_PER_MINUTE: 60, RATE_LIMIT_PER_DAY: 2000, PING_MAX_CONCURRENT: 4 },
+  prod: { RATE_LIMIT_PER_MINUTE: 60, RATE_LIMIT_PER_DAY: 2000, PING_MAX_CONCURRENT: 4 },
+  pr: { RATE_LIMIT_PER_MINUTE: 600, RATE_LIMIT_PER_DAY: 20000, PING_MAX_CONCURRENT: 4 },
+};
 
 /**
  * Plain (non-secret) environment of a service. Both services: the stage, the
@@ -48,7 +57,7 @@ export function plainEnvironment(service: Service, stage: StageInfo): Record<str
     env["AUTH_REQUIRED"] = String(AUTH_REQUIRED_BY_STAGE_KIND[stage.kind]);
     // dev and previews: QA reaches ping and the handshake without a token.
     env["PING_OPEN"] = String(stage.kind !== "prod");
-    for (const [k, v] of Object.entries(STAGE_LIMITS)) env[k] = String(v);
+    for (const [k, v] of Object.entries(STAGE_LIMITS[stage.kind])) env[k] = String(v);
   }
   return env;
 }
