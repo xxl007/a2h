@@ -1,0 +1,17 @@
+.page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); }
+.header {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap;
+  padding: var(--space-3) max(var(--space-4), env(safe-area-inset-right)) var(--space-3) max(var(--space-4), env(safe-area-inset-left));
+  border-bottom: 1px solid var(--border);
+}
+.wordmark { font-weight: var(--weight-strong); font-size: var(--text-lg); line-height: var(--leading-lg); }
+.account { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); }
+.account form { margin: 0; }
+.email { color: var(--text); overflow-wrap: anywhere; }
+.stage { margin: 0; padding: var(--space-2) max(var(--space-4), env(safe-area-inset-left)); font-size: var(--text-sm); line-height: var(--leading-sm); background: var(--neutral-bg); color: var(--neutral-text); border-bottom: 1px solid var(--neutral-border); }
+.main {
+  flex: 1; width: 100%; box-sizing: border-box; max-width: 480px; margin: 0 auto;
+  padding: var(--space-6) max(var(--space-4), env(safe-area-inset-right)) calc(var(--space-6) + env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
+  display: flex; flex-direction: column; gap: var(--space-5);
+}
+.wide { max-width: 640px; }

@@ -21,7 +21,7 @@ Owners: **PD** protocol-dev (apps/mcp, apps/worker, packages/protocol, packages/
 
 ## 4. Design: sign-in, consent and connected-clients screens (DS)
 
-- [ ] 4.1 Write the "Screens" section of design.md for sign-in, check-your-email, consent (client name and origin, scopes in plain words, accept and decline), connected clients with revoke, signed-out: HTML specs with `packages/ui` tokens, copy, empty/loading/error/offline states, accessibility notes (keyboard-complete, 44 px targets); verify Storybook renders each state and the copy avoids any reference to "development" on prod wording
+- [x] 4.1 Write the "Screens" section of design.md for sign-in, check-your-email, consent (client name and origin, scopes in plain words, accept and decline), connected clients with revoke, signed-out: HTML specs with `packages/ui` tokens, copy, empty/loading/error/offline states, accessibility notes (keyboard-complete, 44 px targets); verify Storybook renders each state and the copy avoids any reference to "development" on prod wording
 
 ## 5. Authorization server and web app (WD, after 4.1)
 
