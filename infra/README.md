@@ -1,6 +1,6 @@
 # infra: A2H stacks (SST 4.17.2, Ion components)
 
-`sst.config.ts` at the repo root is thin: it sets app `a2h`, `home: "aws"`, region `eu-west-3`, registers the role transform (permissions boundary and `a2h-<stage>-` role names), and calls `deploy($app.stage)` from `infra/index.ts`. One module per concern: `config.ts` (stage model, constants, owner-settable `domain` and `emailSender`), `access.ts` (database login and storage grant per stage; pure), `vpc.ts`, `cluster.ts` (ECS cluster + ALB), `database.ts`, `storage.ts`, `email.ts`, `mcp.ts`, `worker.ts`, `web.ts`, `shared.ts`. Contract: `openspec/changes/m0-foundation/tasks.md` §Step 4 and **Contract amendment 1**.
+`sst.config.ts` at the repo root is thin: it sets app `a2h`, `home: "aws"`, region `eu-west-3`, registers the role transform (permissions boundary and `a2h-<stage>-` role names), and calls `deploy($app.stage)` from `infra/index.ts`. One module per concern: `config.ts` (stage model, constants, owner-settable `domain` and `emailSender`), `access.ts` (database login and storage grant per stage; pure), `vpc.ts`, `cluster.ts` (ECS cluster + ALB), `database.ts`, `storage.ts`, `email.ts`, `mcp.ts`, `worker.ts`, `web.ts`, `shared.ts`, `edge.ts` (WAF rule; pure), `waf.ts` (web ACLs), `allowlist.ts` (sign-in allow-list parameter). Contract: `openspec/changes/m0-foundation/tasks.md` §Step 4 and **Contract amendment 1**.
 
 **Nothing here is deployed by agents.** Deploys run only in CI through the OIDC role (`.github/workflows/`); the first `dev` deploy is the owner's (`docs/runbooks/aws-bootstrap.md`).
 
@@ -8,19 +8,49 @@
 
 | Stage | Creates | Borrows from dev | removal / protect |
 |---|---|---|---|
-| `dev` | VPC (2 AZ, no NAT), ECS cluster, ALB, Aurora (pg 17, 0-4 ACU, pauses after 10 min, Data API on), `Uploads` bucket, SES domain identity for `a2h-protocol.org` (DKIM and DMARC records in the zone), 8 SSM parameters, MCP + worker services, Web | nothing | `retain` / `true` |
-| `pr-<n>` | MCP + worker services (`McpPr<n>`, `WorkerPr<n>`, Fargate Spot), listener rule, Web | VPC, cluster, ALB, SES identity via `static get`; Aurora endpoint via the `aws.rds.getCluster` data source (not `Aurora.get`, see below); bucket by name only (not linked) | `remove` / `false` |
-| `prod` | everything of its own (Aurora min 0.5 ACU, no pause, Data API on since m1-hosted-connector D2, not yet deployed); publishes nothing | nothing | `retain` / `true` |
+| `dev` | VPC (2 AZ, no NAT), ECS cluster, ALB, Aurora (pg 17, 0-4 ACU, pauses after 10 min, Data API on), `Uploads` bucket, SES domain identity for `a2h-protocol.org` (DKIM and DMARC records in the zone), 9 shared SSM parameters, the allow-list parameter `/a2h/shared/principal-allowlist`, web ACLs (REGIONAL on the ALB, CLOUDFRONT in us-east-1 for the web), MCP + worker services, Web | nothing | `retain` / `true` |
+| `pr-<n>` | MCP + worker services (`McpPr<n>`, `WorkerPr<n>`, Fargate Spot), two listener rules, Web | VPC, cluster, ALB (with dev's REGIONAL web ACL), dev's CLOUDFRONT web ACL on its distribution, dev's allow-list parameter, SES identity via `static get`; Aurora endpoint via the `aws.rds.getCluster` data source (not `Aurora.get`, see below); bucket by name only (not linked) | `remove` / `false` |
+| `prod` | everything of its own (Aurora min 0.5 ACU, no pause, Data API on since m1-hosted-connector D2, not yet deployed), its own web ACLs and `/a2h/prod/principal-allowlist`; publishes nothing | nothing | `retain` / `true` |
 
 Any other stage name is refused by `stageInfo()` so that a personal stage cannot create a second Aurora cluster by accident.
 
 ## SSM contract (`dev` publishes, `pr-*` reads at deploy time)
 
-`/a2h/shared/` + `vpc-id`, `cluster-id` (cluster ARN), `alb-arn`, `aurora-cluster-id`, `aurora-cluster-arn`, `aurora-secret-arn`, `uploads-bucket`, `email-sender`. SSM rejects empty strings, so while no sender is configured `email-sender` holds `none` and `pr-*` stages skip the Email component. `pr-*` resolves the values it uses (`PR_STAGE_READS` in `config.ts`: everything except the two Aurora ARNs) with `aws.ssm.getParameter`, as plain strings, because the scoped storage ARNs and the email branch are decided at program time. Only the CI workflows read the two Aurora ARNs, to create and drop the `pr_<n>` schema and login through the RDS Data API; the `pr-*` stage never reads the master secret ARN.
+`/a2h/shared/` + `vpc-id`, `cluster-id` (cluster ARN), `alb-arn`, `aurora-cluster-id`, `aurora-cluster-arn`, `aurora-secret-arn`, `uploads-bucket`, `email-sender`, `web-acl-cloudfront-arn` (m1-hosted-connector D5). `pr-*` reads `web-acl-cloudfront-arn` only if present (`PR_STAGE_OPTIONAL_READS`): dev publishes it from its first deploy with task 8.1, and a preview deployed before that gets no web ACL on its distribution (the deploy prints a warning) rather than failing; move it to `PR_STAGE_READS` once dev has it. SSM rejects empty strings, so while no sender is configured `email-sender` holds `none` and `pr-*` stages skip the Email component. `pr-*` resolves the values it uses (`PR_STAGE_READS` in `config.ts`: everything except the two Aurora ARNs) with `aws.ssm.getParameter`, as plain strings, because the scoped storage ARNs and the email branch are decided at program time. Only the CI workflows read the two Aurora ARNs, to create and drop the `pr_<n>` schema and login through the RDS Data API; the `pr-*` stage never reads the master secret ARN.
 
 ## Routing on the shared ALB
 
-Two listeners: HTTPS on 443 with the stage's ACM certificate (DNS-validated in the zone), where every rule attaches (`serviceListener()` = `443/https`); HTTP on 80, whose default action is a 301 to the same URL on 443 and nothing else (spec `platform/hosted-endpoint`, "HTTP redirected"). Both come from `domain` in `config.ts`; unset it and the ALB falls back to 80 only with rules on 80 (the rollback, design Migration Plan). Idle timeout **4000 s**, the AWS maximum (`ALB_IDLE_TIMEOUT_SECONDS` in `config.ts`, applied in `cluster.ts` `transform.loadBalancer`), required by the mcp-transport scenario "Idle stream survives": 61 minutes idle is 3660 s, so 3600 would cut it. The MCP server keeps idle keep-alive connections for 4010 s (`apps/mcp/src/http-timeouts.ts`) so that the ALB, not Node, closes them first; `infra/test/config.test.ts` asserts both. Rules: dev/prod `/mcp` 49000, `/mcp/*` 49001, `/healthz` 49002; `pr-<n>` `/pr-<n>/*` at 100 + n (n < 48900). Target health check: `/healthz` or `/pr-<n>/healthz`, every 15 s, expects 200. The path has one source: `healthPathFor()` in `apps/mcp/src/health-path.ts` (pure, no SST, no imports), which both the server and `config.ts` `stageInfo()` import; `infra/test/config.test.ts` asserts they agree for `/mcp` and `/pr-12/mcp`.
+Two listeners: HTTPS on 443 with the stage's ACM certificate (DNS-validated in the zone), where every rule attaches (`serviceListener()` = `443/https`); HTTP on 80, whose default action is a 301 to the same URL on 443 and nothing else (spec `platform/hosted-endpoint`, "HTTP redirected"). Both come from `domain` in `config.ts`; unset it and the ALB falls back to 80 only with rules on 80 (the rollback, design Migration Plan). Idle timeout **4000 s**, the AWS maximum (`ALB_IDLE_TIMEOUT_SECONDS` in `config.ts`, applied in `cluster.ts` `transform.loadBalancer`), required by the mcp-transport scenario "Idle stream survives": 61 minutes idle is 3660 s, so 3600 would cut it. The MCP server keeps idle keep-alive connections for 4010 s (`apps/mcp/src/http-timeouts.ts`) so that the ALB, not Node, closes them first; `infra/test/config.test.ts` asserts both. Rules: dev/prod `/mcp` 49000, `/mcp/*` 49001, `/healthz` 49002, `/.well-known/oauth-protected-resource/mcp` 49003; `pr-<n>` `/pr-<n>/*` at 100 + n and `/.well-known/oauth-protected-resource/pr-<n>/mcp` at 20000 + n, two disjoint bands, so n <= 19899 (`stageInfo()` refuses larger PR numbers). The well-known rules carry the path-aware protected-resource metadata (RFC 9728, m1-hosted-connector D3) that the mcp service answers; without them the 401 challenge would point at a URL the service never receives. `StageInfo.metadataPath` is asserted equal to the path apps/mcp derives (`createGate().metadataPath`, the SDK's `getOAuthProtectedResourceMetadataUrl`) in `infra/test/config.test.ts`. Target health check: `/healthz` or `/pr-<n>/healthz`, every 15 s, expects 200. The path has one source: `healthPathFor()` in `apps/mcp/src/health-path.ts` (pure, no SST, no imports), which both the server and `config.ts` `stageInfo()` import; `infra/test/config.test.ts` asserts they agree for `/mcp` and `/pr-12/mcp`.
+
+## Limits and the edge rate limit (m1-hosted-connector D5)
+
+Stage configuration, `limitsFor(stage)` in `config.ts` next to `developmentPolicy`:
+
+| Stage | `perMinute` / `perDay` (tool calls per principal) | `pingMaxConcurrent` (per instance) | `edgeRequestsPer5Minutes` (per source address) |
+|---|---|---|---|
+| `dev`, `pr-<n>` | 600 / 20,000 | 4 | 600 (dev's web ACLs, previews included) |
+| `prod` | 60 / 2,000 | 4 | 600 |
+
+The mcp service receives the first three as `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_PER_DAY`, `PING_MAX_CONCURRENT` (`service-env.ts`). The edge limit is enforced by AWS WAF only (`edge.ts`, `waf.ts`): dev and prod each create a REGIONAL web ACL `a2h-<stage>-mcp-edge` associated with their ALB, and a CLOUDFRONT web ACL `a2h-<stage>-web-edge` in **us-east-1** (CloudFront requires it; ADR 0001 amendment 4, the second exception to the one-region rule, holding no data). Each has one rate-based rule: `aggregateKeyType: IP`, 5-minute window, scoped by a regular expression on the URI path (after `URL_DECODE` and `NORMALIZE_PATH`) to `/mcp`, `/pr-<n>/mcp` and their subpaths, `/.well-known/oauth-protected-resource…`, `/.well-known/oauth-authorization-server…`, `/.well-known/openid-configuration…` and `/api/auth` with its subpaths; the health paths and every other page are never counted. Over the limit: 429 (WAF's default block is 403). No `Retry-After` (WAF prefixes custom headers with `x-amzn-waf-`). Request sampling is off (a sample would keep bearer tokens and addresses, design D10); CloudWatch metrics are on. Previews create no web ACL: their MCP paths are on dev's ALB, and their web distribution gets dev's CLOUDFRONT ACL through the shared parameter. The web distribution is reached without editing `web.ts`: `attachWebAcl()` registers `$transform(sst.aws.Cdn, …)` for the Cdn named `WebCdn` (the one `sst.aws.Nextjs("Web")` creates), which sets `CdnArgs.webAclArn` (CloudFront's `webAclId`). WAF counts per web ACL across everything associated with it, so dev and all previews share one counter per address.
+
+## Sign-in allow-list (m1-hosted-connector D7)
+
+An SSM SecureString per environment (`allowlist.ts`): dev creates `/a2h/shared/principal-allowlist` (dev and every preview read it), prod creates `/a2h/prod/principal-allowlist`; previews create none. The deploy writes `none` (SSM refuses empty values; `ALLOWLIST_NONE`) and `ignoreChanges: ["value"]`, so the owner's value is never reverted by a later deploy. Value: addresses separated by commas, or `none`. The owner sets it with one line (`docs/runbooks/aws-bootstrap.md` §15).
+
+The web server function reads it. These are `web.ts` changes (Web-dev, group 5), with the names and the permission from `config.ts`:
+
+```ts
+import { allowlistParameterName, allowlistReadPermission } from "./config.ts";
+// createWeb(stage, { storage, mcpUrl, accountId }) — accountId from aws.getCallerIdentityOutput().accountId in index.ts
+permissions: [
+  ...store.permissions,
+  // apply(): the account id is an Output
+  { actions: ["ssm:GetParameter"], resources: [$interpolate`arn:aws:ssm:eu-west-3:${accountId}:parameter${allowlistParameterName(stage)}`] },
+],
+environment: { /* … */ ALLOWLIST_PARAMETER: allowlistParameterName(stage) },
+```
+
+(`allowlistReadPermission(stage, accountId)` gives the same statement for a plain account id.) No `kms:Decrypt`: the parameter uses the AWS-managed `aws/ssm` key, and the workload boundary already allows `ssm:GetParameter` on `/a2h/*` and `kms:Decrypt` through SSM.
 
 ## Hostnames (`domain` = `a2h-protocol.org`)
 
@@ -107,13 +137,13 @@ Why: SST names roles with `physicalName(64, …)` (`naming.ts` `prefixName`, app
 
 Who wins (checked in the 4.17.2 sources): SST sets a default `name` in a transformation registered on each component (`component.ts:66-403`; the role rule is line 259, the "already set" check line 368), and only when `name` is unset. Pulumi runs a resource's own transformations, then its parent's, which already include the component chain and then the stack's (`@pulumi/pulumi/resource.js:180`, `[...opts.transformations, ...parent.__transformations]`). So SST's default runs first and this stack transformation overwrites it. Component `transform.*` arguments (such as `transform.executionRole` in `mcp.ts`) are applied before the resource is constructed, so they run before both. SST's own stack transformations (`auto/run.ts`, `link.ts`) are registered before `run()` and do not touch role names. Only a `$transform(aws.iam.Role, …)` registered after this one could override it; there is none, and there must not be.
 
-Computed names for the longest stage, `pr-48899`, and the longest logical name:
+Computed names for the longest stage, `pr-19899`, and the longest logical name:
 
 | Logical name | Role name |
 |---|---|
-| `McpPr48899TaskRole` | `a2h-pr-48899-McpPr48899TaskRole-55981595` |
-| `WorkerPr48899ExecutionRole` | `a2h-pr-48899-WorkerPr48899ExecutionRole-4a9f8e50` |
-| `WebRevalidationEventsSubscriberXkzrmsFunctionRole` | `a2h-pr-48899-WebRevalidationEventsSubscriberXkzrmsFunct-e3173c96` (64) |
+| `McpPr19899TaskRole` | `a2h-pr-19899-McpPr19899TaskRole-a39afb69` |
+| `WorkerPr19899ExecutionRole` | `a2h-pr-19899-WorkerPr19899ExecutionRole-34937101` |
+| `WebRevalidationEventsSubscriberXkzrmsFunctionRole` | `a2h-pr-19899-WebRevalidationEventsSubscriberXkzrmsFunct-e3173c96` (64) |
 
 **Changing a role's name replaces the role.** For roles that SST names by default, SST also adds `ignoreChanges: ["name"]` (`component.ts:400`), so a changed `roleName()` would instead be ignored for roles already deployed and applied only to new ones: the function would no longer describe what is deployed. Either outcome is unacceptable once a stage exists. Nothing is deployed yet, so this rename is free now; after the first deploy, `roleName()` and its pinned test values must never change without a migration note (which roles, replace or keep, and how running tasks and functions move to the new role).
 
@@ -124,8 +154,8 @@ Computed names for the longest stage, `pr-48899`, and the longest logical name:
 
 ## Outputs (`.sst/outputs.json`)
 
-`stage`, `web`, `mcp` (ALB base URL + `MCP_BASE_PATH`), `albUrl`; on `dev` also `shared` (the eight identifiers).
+`stage`, `web`, `mcp` (ALB base URL + `MCP_BASE_PATH`), `albUrl`; on `dev` also `shared` (the nine identifiers).
 
 ## Typecheck and tests without AWS credentials
 
-`pnpm typecheck` runs `sst install` (downloads the pinned providers and generates the gitignored `.sst/platform/config.d.ts`; no cloud access) and then `tsc` on `infra/*.ts` and `sst.config.ts`. tsc also reads SST's own `.ts` sources, so `infra/tsconfig.json` turns off four flags those sources do not satisfy (`verbatimModuleSyntax`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noImplicitOverride`); `strict` stays on. `pnpm test` runs `infra/test/config.test.ts` (stage model, priorities, SSM names, idle timeout, boundary ARN, pr reads, health-path agreement) `infra/test/role-name.test.ts` (role names: `a2h-<stage>-` prefix, 64-character limit, uniqueness, stability) `infra/test/access.test.ts` (per-PR login, valueFrom, scoped storage ARNs, execution role policy, the remove-time secret decision) and `infra/test/storage.test.ts` (lifecycle rules cover every stage's prefix), `infra/test/stage-secrets.test.ts` (secret names, Ed25519 and 32-byte formats importable by packages/protocol, key id, pinned valueFrom, per-service grants, generations) and `infra/test/service-env.test.ts` (the policy environment round-trips to packages/protocol's `ValidationPolicySchema` and `PrincipalSchema`, `DB_JOBS_SCHEMA`, `SIMULATOR_ENABLED`, names per service) with `node --test`. No SST synth or diff runs without AWS credentials: the Pulumi resources themselves (tls, random, Secrets Manager) are exercised only by a deploy.
+`pnpm typecheck` runs `sst install` (downloads the pinned providers and generates the gitignored `.sst/platform/config.d.ts`; no cloud access) and then `tsc` on `infra/*.ts` and `sst.config.ts`. tsc also reads SST's own `.ts` sources, so `infra/tsconfig.json` turns off four flags those sources do not satisfy (`verbatimModuleSyntax`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`, `noImplicitOverride`); `strict` stays on. `pnpm test` runs `infra/test/config.test.ts` (stage model, priorities and the two preview bands, SSM names, idle timeout, boundary ARN, pr reads, health-path and metadata-path agreement, stage limits, allow-list names) `infra/test/role-name.test.ts` (role names: `a2h-<stage>-` prefix, 64-character limit, uniqueness, stability) `infra/test/access.test.ts` (per-PR login, valueFrom, scoped storage ARNs, execution role policy, the remove-time secret decision) and `infra/test/storage.test.ts` (lifecycle rules cover every stage's prefix), `infra/test/stage-secrets.test.ts` (secret names, Ed25519 and 32-byte formats importable by packages/protocol, key id, pinned valueFrom, per-service grants, generations) and `infra/test/service-env.test.ts` (the policy environment round-trips to packages/protocol's `ValidationPolicySchema` and `PrincipalSchema`, `DB_JOBS_SCHEMA`, `SIMULATOR_ENABLED`, names per service, limits and the issuer and resource URLs per stage) and `infra/test/edge.test.ts` (the WAF rule: paths in and out of scope, health excluded, limit, per-address key, 429; the web ACLs per stage kind, the us-east-1 provider, the ALB association, the `WebCdn` transform; the allow-list parameter) with `node --test`. No SST synth or diff runs without AWS credentials: the Pulumi resources themselves (tls, random, Secrets Manager) are exercised only by a deploy.

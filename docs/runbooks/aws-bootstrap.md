@@ -343,3 +343,24 @@ If the key leaked, rotating stops new signatures with it but does not make old o
 ### Rotating the approval key (`a2h/<stage>/approval`)
 
 Same steps with `STAGE_KEY_GENERATIONS.dev.approval` (or `STAGE_KEY_GENERATIONS.prod.approval`). The key protects only approvals in flight: a pending approval is valid for 15 minutes, nothing about it is stored, and no answer or request depends on the key afterwards. So a rotation can only interrupt a request whose elicitation was shown in the last 15 minutes and not yet accepted, or one whose retry lands on a task still running the old key while the deploy rolls (a minute or two). That principal's client gets an "invalid request state" refusal and simply asks again. To avoid even that, rotate when no one is using the stage.
+
+## 15. Who may sign in: the allow-list (M1, m1-hosted-connector D7)
+
+The deploy creates one SSM SecureString per environment and never changes its value afterwards: `/a2h/shared/principal-allowlist` (created by `dev`; `dev` and every preview read it) and `/a2h/prod/principal-allowlist` (created by `prod` on its first deploy). Until you set it, it holds `none` and nobody can sign in. The web app re-reads it within five minutes; no deploy is needed.
+
+Set it (addresses separated by commas, no spaces; the whole list each time):
+
+```sh
+aws ssm put-parameter --profile a2h-member --region eu-west-3 --name /a2h/shared/principal-allowlist --type SecureString --overwrite --value 'you@example.com,teammate@example.com'
+```
+
+For prod, the same line with `--name /a2h/prod/principal-allowlist`. To close sign-in again, set `--value none`.
+
+Your user is read-only after §10, so this call needs either your break-glass admin or, once, a policy that allows exactly this (the parameters use the AWS-managed `aws/ssm` key, whose key policy already admits callers of the account through SSM, so no KMS statement is needed):
+
+```sh
+aws iam put-user-policy --profile a2h-member --user-name <your IAM user> --policy-name a2h-allowlist-writer \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ssm:PutParameter","ssm:GetParameter"],"Resource":["arn:aws:ssm:eu-west-3:442123849268:parameter/a2h/shared/principal-allowlist","arn:aws:ssm:eu-west-3:442123849268:parameter/a2h/prod/principal-allowlist"]}]}'
+```
+
+Check what is set: `aws ssm get-parameter --profile a2h-member --region eu-west-3 --name /a2h/shared/principal-allowlist --with-decryption --query Parameter.Value --output text`.
