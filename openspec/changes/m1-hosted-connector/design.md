@@ -360,6 +360,8 @@ For the product owner:
 2. Name of the list: "Connected apps" (chosen: plain, what Google and GitHub call it) or "Connected agents"?
 3. The empty state of Connected apps could link to a public setup page (`docs/runbooks/mcp-setup.md` is internal). Is there a public URL to point at, or none for M1?
 
+PM defaults applied in group 5 until the owner says otherwise (2026-10-30): keep the footnote (it tells a stranger why no email comes and reveals nothing about any address); the page is "Connected apps"; the empty state carries no external link in M1.
+
 For the web dev (task 5.4):
 4. "Last used": if Better Auth records no last use per client, pass `lastUsedAt` as `undefined` and the row shows only "Connected {date}". `null` means "not used yet".
 5. The consent page needs the client's registration kind (metadata document, dynamic, pre-registered) and the redirect URI's host, beyond `client_name`; and distinct outcomes for an expired versus an invalid consent request.
