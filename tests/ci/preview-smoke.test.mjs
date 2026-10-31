@@ -20,8 +20,11 @@ function smoke(args, routes) {
   try {
     const bin = join(dir, "bin");
     mkdirSync(bin);
-    const table = Object.entries(routes)
-      .map(([path, v]) => `  "${path}") set -- ${v} ;;`)
+    // Keys: "<path>" for any scheme, or "<scheme>:<path>" (checked first).
+    // Values: "<status> <server> [<location>]".
+    const entries = Object.entries(routes).sort(([a], [b]) => Number(b.includes(":")) - Number(a.includes(":")));
+    const table = entries
+      .map(([key, v]) => (key.includes(":") ? `  "${key}") set -- ${v} ;;` : `  *:"${key}") set -- ${v} ;;`))
       .join("\n");
     writeFileSync(
       join(bin, "curl"),
@@ -30,11 +33,14 @@ function smoke(args, routes) {
         'url="${*: -1}"',
         `echo "$url" >> "${dir}/urls"`,
         `path="/\${url#*://*/}"`,
-        'case "$path" in',
+        'scheme="${url%%://*}"',
+        'case "$scheme:$path" in',
         table,
         '  *) set -- 403 awselb/2.0 ;;',
         "esac",
-        'printf "HTTP/1.1 %s X\\r\\nServer: %s\\r\\n\\r\\n" "$1" "$2"',
+        'printf "HTTP/1.1 %s X\\r\\nServer: %s\\r\\n" "$1" "$2"',
+        '[ -n "${3:-}" ] && printf "Location: %s\\r\\n" "$3"',
+        'printf "\\r\\n"',
       ].join("\n"),
       { mode: 0o755 },
     );
@@ -78,4 +84,66 @@ test("anything but a PR number or dev is a usage error", () => {
     const r = smoke([ALB, bad], {});
     assert.equal(r.status, 2, `${bad}: ${r.out}`);
   }
+});
+
+// m1-hosted-connector task 1.2: the deploy outputs become
+// https://mcp.dev.a2h-protocol.org/..., and the workflows pass the base URL
+// with its scheme. Spec platform/hosted-endpoint "HTTP redirected".
+const HOST = "mcp.dev.a2h-protocol.org";
+
+test("a base URL with https:// is probed over HTTPS, and plain HTTP must answer 301 to HTTPS", () => {
+  const r = smoke([`https://${HOST}`, "dev"], {
+    "https:/healthz": "200 -",
+    "http:/healthz": `301 awselb/2.0 https://${HOST}:443/healthz`,
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.deepEqual(r.urls, [`https://${HOST}/healthz`, `http://${HOST}/healthz`]);
+  assert.match(r.out, /ok {3}HTTP redirected/);
+  assert.match(r.out, new RegExp(`--cli https://${HOST}/mcp `));
+});
+
+test("preview over HTTPS: health, dev health, routing and the redirect of the preview path", () => {
+  const r = smoke([`https://${HOST}`, "12"], {
+    "https:/pr-12/healthz": "200 -",
+    "https:/healthz": "200 -",
+    "https:/pr-12/nope": "404 -",
+    "http:/pr-12/healthz": `301 awselb/2.0 https://${HOST}/pr-12/healthz`,
+  });
+  assert.equal(r.status, 0, r.out);
+  assert.match(r.out, new RegExp(`https://${HOST}/pr-12/mcp`));
+});
+
+test("HTTPS: plain HTTP serving 200 instead of redirecting fails the smoke", () => {
+  const r = smoke([`https://${HOST}`, "dev"], { "/healthz": "200 -" });
+  assert.equal(r.status, 1, r.out);
+  assert.match(r.out, /FAIL HTTP redirected/);
+});
+
+test("HTTPS: a redirect to anything but the same URL over HTTPS fails the smoke", () => {
+  for (const location of [`http://${HOST}/healthz`, `https://evil.example/healthz`, `https://${HOST}/`]) {
+    const r = smoke([`https://${HOST}`, "dev"], { "https:/healthz": "200 -", "http:/healthz": `301 awselb/2.0 ${location}` });
+    assert.equal(r.status, 1, `${location}: ${r.out}`);
+    assert.match(r.out, /FAIL HTTP redirected/);
+  }
+});
+
+test("HTTPS: a 302 is not a permanent redirect", () => {
+  const r = smoke([`https://${HOST}`, "dev"], {
+    "https:/healthz": "200 -",
+    "http:/healthz": `302 awselb/2.0 https://${HOST}/healthz`,
+  });
+  assert.equal(r.status, 1, r.out);
+});
+
+test("a base URL with a path or another scheme is a usage error", () => {
+  for (const bad of [`https://${HOST}/mcp`, `ftp://${HOST}`, "https://"]) {
+    const r = smoke([bad, "dev"], {});
+    assert.equal(r.status, 2, `${bad}: ${r.out}`);
+  }
+});
+
+test("a bare host keeps the old behaviour: http, no redirect check", () => {
+  const r = smoke([ALB, "dev"], { "/healthz": "200 -" });
+  assert.equal(r.status, 0, r.out);
+  assert.doesNotMatch(r.out, /HTTP redirected/);
 });
