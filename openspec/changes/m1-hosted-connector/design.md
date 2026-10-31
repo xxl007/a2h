@@ -71,7 +71,7 @@ Allow-listed addresses live in an SSM SecureString parameter per environment (`/
 CIMD and DCR both enabled (spec "Clients register…"); the authorization-server metadata advertises `client_id_metadata_document_supported: true`, `token_endpoint_auth_methods_supported` including `none`, `code_challenge_methods_supported: ["S256"]`, `authorization_response_iss_parameter_supported: true` (verified against Better Auth during task 3; if Better Auth does not emit `iss`, the gap is recorded and the claim removed). Verified in group 5: Better Auth emits `iss`. No OpenID Connect discovery in M1: `<issuer>/.well-known/openid-configuration` returns 404, because the server is OAuth-only (scopes `a2h` and `offline_access`, no `openid`; Better Auth serves the OIDC document only when `openid` is a scope). MCP clients read the RFC 8414 document first, and it carries everything listed here; adding `openid` would first need a plain-words line for it on the consent screen. Dynamic registrations older than 30 days without a token are pruned by the worker. Pre-registered clients (id, redirect URIs, optional secret hash) come from stage configuration for hosts that cannot use CIMD or DCR.
 
 ### D9. Order of work: domain, TLS, spike, then authorization
-Nothing hosted can be tried before TLS, and the claude.ai approval-form question decides the shape of Gate 2, so the order is: hosted zone and `domain` (owner, then one infra PR); claude.ai connector spike on dev with "No sign-in", driving `request_human` to the approval; decision 6 of the proposal; then the authorization build, which does not depend on the spike's answer.
+Nothing hosted can be tried before TLS, and the claude.ai approval-form question decides the shape of Gate 2, so the order is: hosted zone and `domain` (owner, then one infra PR); claude.ai connector spike on dev with "No sign-in", driving `request_human` to the approval; decision 6 of the proposal; then the authorization build, which does not depend on the spike's answer. Spike run 2026-10-31: claude.ai renders the form (decision 6 settled, no fallback) but the payload is unreadable there; the copy and structure that fix it are in "Approval form (MCP `input_required`) in hosted clients" under Screens.
 
 ### D10. Logging and records
 Tokens, magic links, emails and client secrets never appear in logs or rows (spec "Tokens are never forwarded"). Log lines carry the opaque principal id, the client id and the request id. Better Auth's own logger is set to the structured logger with its default `info` lines on auth events only.
@@ -378,6 +378,148 @@ For the web dev (task 5.4):
 ### Review on Storybook (2026-10-30)
 
 Storybook build `pnpm --filter @a2h/ui build-storybook` (46 stories: 10 component states, 36 screen states). Playwright pass over every story at 390 px and 1280 px, light and dark (`prefers-color-scheme` and `data-theme`), reduced motion on: screenshots, axe-core 4.14 (WCAG 2.0/2.1/2.2 A and AA plus best practice), a 44 px target check and a horizontal-overflow check. Keyboard pass on Sign in, Check your email, Consent, Link expired, Signed out and Connected apps (Interactive story). Result: 184 runs, no axe violation, no control under 44 px, no horizontal overflow; Tab order as specified, focus visible (2 px) on every stop, disconnect focus moves (open, Escape, failure, success) as specified. Not run: a screen reader, real browsers other than Chromium, the built pages in `apps/web` (task 5.4 preview review). The preview review of the built pages (task 5.4) follows the same checklist once `apps/web` serves them.
+
+### Approval form (MCP `input_required`) in hosted clients
+
+Spike finding (owner, claude.ai, 2026-10-31; decision 6 settled: claude.ai renders the 2026-07-28 form-mode elicitation, there is no fallback). The form is shown but unreadable: claude.ai collapses every `\n` of `message` into one paragraph, so the nine bullet lines run together as a wall of text; each `\n` inside the `question` default is drawn as a replacement character (�) in the text box; the client labels its own buttons **Decline** and **Submit**, so our closing line "Decline = Don't send. Accept = Send · hold €35.00" names a button that does not exist; the expiry is a raw ISO timestamp with offset; request type, format and audience are protocol values with underscores swapped for spaces. Claude Code and MCP Inspector render the same payload with line breaks kept. Everything below must therefore read in a renderer that collapses whitespace **and** in one that preserves it: sentences, not layout; nothing carried by bullets, indentation or line position.
+
+What MCP form elicitation offers, and nothing else: one `message` string; fields with `title`, `description`, string fields with `default`, `minLength`, `maxLength`; single-select enums with a human title per value (`oneOf: [{const, title}]`; `enumNames` is the deprecated spelling, not used); booleans; numbers. No read-only field, no markdown, no button labels. So every fact the spec requires at approval is placed on one of those, as follows.
+
+#### Structure
+
+One `message` (two sentences), then two fields in this order: the editable `question`, then a required `decision` enum whose option titles carry the consequence. The money sits on the choice itself, so it reads correctly whatever the client calls its buttons; the client's **Submit** only submits the choice.
+
+| Part | Content | Carries (spec "Approval shows the exact wording") |
+|---|---|---|
+| `message` | two sentences, below | participant handle, simulated marker, the promise that nothing moves before the choice |
+| `question` string, `default` = the agent's draft, `minLength: 1`, `maxLength: 2000`, required | `title` "Question, sent exactly as written"; `description` below | the exact wording, editable; poll options and the scale verbatim (they are part of what the participant reads with the question) |
+| `decision` string enum, `oneOf`, required, **no `default`** | `title` "Your decision"; `description` = the terms sentence; options "Don't send" and "Send · hold €35.00" (or the free-lane variant) | request type, format, audience, gross bid and fee note or free lane, expiry, data terms, delivery timing; and the consequence of accepting on the option title |
+
+Option order: **"Don't send" first, "Send · hold €N" second**, and no default. A client that pre-selects the first option or that submits on Enter then sends nothing; the cost of that is one extra click for the principal, never a hold (the one rule: the agent's convenience never wins a tie). Labels for the enum values: `dont_send` → "Don't send"; `send` → "Send · hold €35.00" (paid) or "Send · free lane, nothing held" (free).
+
+Server behaviour on the retry (for protocol-dev, no code here): `action: "accept"` with `decision = "send"` creates the request from the returned `question`; `accept` with `decision` missing or `"dont_send"` is treated exactly like `decline`; `decline` and `cancel` as today. Nothing else about the state, hash or nonce changes.
+
+#### 1. The `message`
+
+Common case (paid, named participant, simulated):
+
+> A2H will send the question below to sim-mv-7f3c, a simulated participant, exactly as you leave it. Nothing is sent and nothing is held until you choose "Send · hold €35.00" below.
+
+Real participant: drop ", a simulated participant". Free lane: the second sentence ends "until you choose "Send · free lane, nothing held" below." No bullets, no line break, no reference to Accept, Decline or Submit; the only thing it names is our own option title, which exists in every client. Under 240 characters in every variant.
+
+#### 2. Where every fact is shown
+
+All values are formatted at the edge from the validated manifest; never a protocol value, an underscore or an ISO string.
+
+| Fact | Where | Wording |
+|---|---|---|
+| Participant handle, simulated marker | `message`, first sentence | "to sim-mv-7f3c, a simulated participant" / "to mv-7f3c" |
+| Request type | `decision` description, first sentence | the intent in sentence case: Observation, Verification, Judgment, Opinion, Estimate, Knowledge, Authorisation, Action, Referral |
+| Format | same sentence | `single_field` "one written answer" · `poll` "one option picked from the list" · `form` "a short form" · `upload` "a file" · `voice` "a voice note" |
+| Audience | same sentence | `named_individual` "to this person only" (the only audience in this change; later audiences get their own phrase when they arrive) |
+| Bid, gross, fee note | `decision` option title and second sentence | title "Send · hold €35.00"; "€35.00 is held now and includes the A2H fee; you pay what clears, never more, and nothing if it expires unanswered." Gross to the principal (ADR 0002 D4), `money()` formatting, tabular where the host allows (it does not; plain digits) |
+| Free lane | `decision` option title and second sentence | title "Send · free lane, nothing held"; "Free lane (their own publications / facts about themselves): nothing is held and nothing is charged." |
+| Expiry | `decision` description, third sentence | "Expires in 12 h, at 12:20 on 1 Nov 2026 (UTC+01:00)." (§4 below) |
+| Data terms | `decision` description, fourth sentence | "Their answer is stored in your workspace, not attributed, never used for training." Second person: the reader is the principal. Variants: "attributed to them" · "used for training only if they opt in" |
+| Delivery timing | `decision` description, last sentence | "Delivered now." or "Delivered at 08:00 on 1 Nov 2026 (UTC+01:00), the earliest their rules allow." The time is what the spec's "Quiet hours" scenario returns anyway; the rule itself (the hours, the limit) is never stated |
+| Poll options | `question` description, first sentence | "The participant picks one of: “The fox in the rain (cover A)”, “Night garden, «lanterns» & owls — cover B”, “ZZ-OPTION-LABEL-3 中文”." Labels verbatim, in manifest order, each in typographic double quotes (“ ”), separated by commas; ids are machine values and are not shown. The quotes are the delimiter, so a label containing “ or ” is refused as `schema_invalid` at the same place today's line-imitation check lives (PollOptionSchema already forbids line breaks and control characters) |
+| Scale | `question` description, first sentence | "The participant answers on a scale from 1 to 7." |
+
+The complete `decision` description for the screenshot's request:
+
+> Judgment, one written answer, to this person only. €35.00 is held now and includes the A2H fee; you pay what clears, never more, and nothing if it expires unanswered. Expires in 12 h, at 12:20 on 1 Nov 2026 (UTC+01:00). Their answer is stored in your workspace, not attributed, never used for training. Delivered now.
+
+Five short sentences, full stops between them: readable collapsed into one paragraph and readable as lines. Separators inside a sentence are commas, never " · " (a screen reader may read the dot aloud or skip it; the one exception is the established option title "Send · hold €N", skill §6).
+
+#### 3. The `question` field
+
+- `default` is the agent's draft **byte for byte, line breaks included**. Normalising `\n` to spaces is not allowed: the spec requires the approval to show the exact wording and the request to be byte-identical to what the principal approved; a draft whose paragraphs were silently joined is not the agent's text, and the principal would be approving something neither party wrote. The � is the client's rendering of a character that is still there.
+- `title`: "Question, sent exactly as written".
+- `description`, no options or scale: "Edit it here if you want. Line breaks are kept as written; some clients show each one as a placeholder symbol, which does not change the text."
+- `description` with options: the options sentence (§2) first, then "Edit the question here if you want; the options cannot be edited here. Line breaks are kept as written; some clients show each one as a placeholder symbol, which does not change the text."
+- Whatever the client returns in `question` is the approved text, re-validated as today (spec "Approval covers the validated manifest"). **Protocol-dev checks in the spike what claude.ai sends back for a default that contained `\n`:** if the returned string carries U+FFFD where the line breaks were, the client has corrupted the text and the server must refuse the retry (the approved text is not a text anyone wrote) rather than store it; that would need a scenario and an owner decision on wording. If `\n` comes back intact, nothing more is needed.
+
+#### 4. Expiry and other times
+
+Format: "**in 12 h, at 12:20 on 1 Nov 2026 (UTC+01:00)**".
+
+- Relative part from the server clock at the first round: under one hour "in 40 min"; under 48 hours "in 12 h" (nearest whole hour); otherwise "in 3 days". The state is valid for fifteen minutes, so the relative figure cannot go stale by more than that.
+- Absolute part: 24-hour clock, day, abbreviated month, year, then the offset in parentheses, rendered **in the offset `expires_at` carries**, exactly as the agent wrote it (`DatetimeSchema` requires one). `Z` renders as "(UTC)".
+- Time zone source, stated honestly: the server knows no zone name. The manifest carries an offset, not a zone; the principal row and policy have no time zone (D4); the participant's IANA zone is private (profile `quiet_hours`) and must never surface. "Paris time" can only be printed once the principal's account carries an IANA zone, which is M5 principal-surface scope unless the owner pulls it forward (open question 2 below). Until then the offset form is what ships; it is correct in every client and never names a place it cannot know.
+- The same format is used for the delivery time and the ETA in the results below.
+
+#### 5. Result messages (text content, read by the model and shown raw in Claude Code)
+
+- Declined, or submitted with "Don't send": "Not sent. Nothing was created, nothing is held and sim-mv-7f3c was not contacted."
+- Dismissed without a choice: "Not sent: the approval was closed without a choice. Nothing was created, nothing is held and sim-mv-7f3c was not contacted."
+- Sent, paid, delivered now: "Sent A2H-7f3c to sim-mv-7f3c (simulated participant). €35.00 is held, A2H fee included; you pay what clears, never more. Delivered now; their answer is expected by 06:20 on 1 Nov 2026 (UTC+01:00), their usual latency. This chat may end before then: ask me to check later, or call check_requests with request_id A2H-7f3c."
+- Sent, deferred: replace the delivery sentence with "Delivered at 08:00 on 1 Nov 2026 (UTC+01:00), the earliest their rules allow; their answer is expected by 14:00 on 1 Nov 2026 (UTC+01:00)."
+- Sent, free lane: replace the money sentence with "Free lane: nothing is held and nothing is charged."
+- Every result is sentences separated by a space; a client may break them into lines, none depends on it. `structuredContent` is unchanged.
+
+#### 6. Claude Code rendering of the same payload
+
+Claude Code shows `message`, then each field with its title, description and control, then its own Submit and Decline (Esc) affordances. Nothing regresses: the two-sentence message replaces a nine-line list; the question keeps real line breaks in the text control; the terms read as five lines under "Your decision"; the consequence is on the radio option, so the user never has to map "Accept" to a key. Expected layout (text, Claude Code 2.x):
+
+```
+A2H dev wants your input (request_human)
+
+A2H will send the question below to sim-mv-7f3c, a simulated participant, exactly as
+you leave it. Nothing is sent and nothing is held until you choose "Send · hold €35.00"
+below.
+
+Question, sent exactly as written *
+Edit it here if you want. Line breaks are kept as written; some clients show each one
+as a placeholder symbol, which does not change the text.
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│ Is the following patient-information leaflet text alarming for a newly diagnosed │
+│ patient? Please answer "yes" or "no", followed by one sentence explaining why.    │
+│                                                                                  │
+│ Leaflet text:                                                                    │
+│ "If you miss a dose, do not take a double dose. ..."                             │
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+Your decision *
+Judgment, one written answer, to this person only. €35.00 is held now and includes
+the A2H fee; you pay what clears, never more, and nothing if it expires unanswered.
+Expires in 12 h, at 12:20 on 1 Nov 2026 (UTC+01:00). Their answer is stored in your
+workspace, not attributed, never used for training. Delivered now.
+  ○ Don't send
+  ○ Send · hold €35.00
+
+Submit · Esc to decline
+```
+
+The skill's terminal pattern (§4b: box in `--accent`, "Edit in $EDITOR") describes what the client draws; the payload above is what we control and is the same in every client. MCP Inspector renders the same, with a `<select>` for the decision.
+
+#### 7. Accessibility
+
+What the host renders is the host's; what we control is the payload, so every rule below is about the payload.
+
+- Every field has a `title` in words, so the host's label is never empty or a machine key; `description` is the host's `aria-describedby` material and is written as sentences for that reason.
+- The consequence of accepting is text on the option ("Send · hold €35.00"), not a colour, an icon, a position or a button the client may rename; a screen-reader user hears the amount at the moment of choosing.
+- `decision` is required with no default: nothing can be submitted by Enter, Tab-Submit or a pre-selected radio without a deliberate choice, and the safe choice is listed first.
+- No information is carried by whitespace, bullets, indentation or order of lines; the same text makes sense collapsed, linearised by a screen reader or read in a terminal.
+- No ISO timestamps, protocol values or underscores reach a reader (a screen reader spells "2026-11-01T12:20:00+01:00" digit by digit); times are "12:20 on 1 Nov 2026 (UTC+01:00)".
+- Separators inside sentences are commas; " · " appears only in the option title the whole product uses.
+- Option labels and the question are quoted, never truncated, so what the participant will read is exactly what the principal hears.
+- Target sizes, focus and contrast belong to the host (claude.ai, Claude Code); the Storybook review does not cover this surface. Verified on the spike only by the owner's screenshot; a keyboard pass in claude.ai is part of Gate 2 (task 9.3), not claimed here.
+
+#### Spec and test consequences (for the PM, task 2.3)
+
+The current spec and tests pin the shape this section changes; it needs an amendment of `protocol/request-approval` in this change's spec folder before protocol-dev builds it:
+
+1. "Approval shows the exact wording": "exactly one pre-filled text field holding the question" becomes "one pre-filled text field holding the question and one required single-choice field whose option titles state the consequence ("Send · hold €N" or "Send · free lane, nothing held", and "Don't send")"; the facts move from the message to the fields' descriptions. `apps/mcp/test/request-human.test.ts` ("exactly one field", `single_field|single field`, `/2026-10-29/`, `Send · hold €32\.00` in the message) and `tests/contract/request-approval.test.ts` ("last line") change accordingly; `tests/README.md` rows too.
+2. "Options shown with the question": option labels appear verbatim, quoted and comma-separated, in the question field's description; the scale as a sentence; the last-line wording clause is replaced by the option title. The imitation refusal becomes "a label containing the delimiter quotes is refused".
+3. New scenario, "Submitted with Don't send chosen": accept with `decision` other than `send` creates nothing and the result says not sent, as Decline.
+4. The protocol skill §Approval line ("exactly one pre-filled string field", "Primary action text states the consequence") and PRD §5 wording are updated at archive.
+
+#### Open questions for the product owner
+
+1. **Two fields instead of one.** The spec says one field because form elicitation cannot label buttons; the spike shows the client's own labels contradict a message-only consequence. Recommendation: the `decision` field above (money on the choice, "Don't send" first, no default), with the spec amendment. Alternative: keep one field and put "Choose Submit to send and hold €35.00" in the message, which depends on the client's button name and breaks the moment a client renames it.
+2. **Time zone naming.** "12:20 Paris time" needs an IANA zone on the principal's account, which does not exist until M5. Ship the offset form "(UTC+01:00)" in M1, or add a `time_zone` column to `principals` now (one migration, set at consent from the browser's zone, D4)?
+3. **Simulated marker wording.** "a simulated participant" (chosen) versus "a test participant, no real person receives this". The first is accurate to the product vocabulary; the second is clearer to a first-time principal.
+4. **Should "Don't send" chosen via Submit be logged as `declined`** (recommended, the principal chose it) or as its own code? Protocol-dev's call unless the owner cares.
 
 ## Risks / Trade-offs
 
