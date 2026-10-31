@@ -161,7 +161,8 @@ jobs:
         run: |
           host="${MCP_URL#*://}"
           host="${host%%/*}"
-          bash tests/ci/preview-smoke.sh "$host" dev
+          base="${MCP_URL%%://*}://$host"
+          bash tests/ci/preview-smoke.sh "$base" dev
 
       - name: MCP contract tests
         id: contract

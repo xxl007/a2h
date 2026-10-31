@@ -16,6 +16,7 @@ export default defineConfig([
     "**/node_modules/",
     "**/coverage/",
     "**/.turbo/",
+    "**/storybook-static/",
   ]),
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
