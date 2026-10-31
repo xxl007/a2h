@@ -8,7 +8,7 @@ import { createPool } from "../src/db.ts";
 import { expireDue } from "../src/expire.ts";
 import type { WorkerLogLine } from "../src/log.ts";
 import { createRequest, eventsOf, statusOf } from "./lib/requests.ts";
-import { skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
+import { PRINCIPAL_ID, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
 
@@ -65,5 +65,27 @@ describe("expire", { skip }, () => {
     await expireDue(ctx(at(31)));
     assert.equal(await statusOf(stage.admin, r.id), "declined");
     assert.equal((await eventsOf(stage.admin, r.id)).filter((e) => e.to_status === "expired").length, 0);
+  });
+
+  // m1-hosted-connector task 7.3 (design D5): the expiry job prunes the rate-limit windows older than a day.
+  test("the expiry run deletes rate-limit windows that started more than a day ago, and keeps the others", async () => {
+    const now = new Date("2026-10-28T12:00:30Z");
+    await stage.admin.query(
+      `INSERT INTO rate_limit_windows (principal_id, window_kind, window_start, count) VALUES
+         ($1, 'minute', '2026-10-27T11:59:00Z', 3), ($1, 'day', '2026-10-27T00:00:00Z', 9),
+         ($1, 'minute', '2026-10-28T12:00:00Z', 1), ($1, 'day', '2026-10-28T00:00:00Z', 1)`,
+      [PRINCIPAL_ID],
+    );
+    logs = [];
+    await expireDue(ctx(() => now));
+    const left = await stage.admin.query<{ window_kind: string; window_start: Date }>(`SELECT window_kind, window_start FROM rate_limit_windows ORDER BY window_start`);
+    assert.deepEqual(
+      left.rows.map((r) => [r.window_kind, r.window_start.toISOString()]),
+      [
+        ["day", "2026-10-28T00:00:00.000Z"],
+        ["minute", "2026-10-28T12:00:00.000Z"],
+      ],
+    );
+    assert.ok(logs.some((l) => l.msg === "rate-limit windows pruned" && l.count === 2), JSON.stringify(logs));
   });
 });

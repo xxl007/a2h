@@ -1,41 +1,35 @@
-// The HTTP shell: health, the MCP endpoint, 404 for everything else, request
-// logging and graceful shutdown. Plain node:http, no framework.
-import { randomBytes, randomUUID } from "node:crypto";
+// The HTTP shell: health, the protected-resource metadata, the MCP
+// endpoint behind the bearer gate (m1-hosted-connector design D3), 404 for
+// everything else, request logging and graceful shutdown. Plain node:http,
+// no framework.
+import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { toNodeHandler, type NodeIncomingMessageLike } from "@modelcontextprotocol/node";
-import type { McpDb } from "@a2h/db";
-import type { Principal, ValidationPolicy } from "@a2h/protocol";
-import { createMcpHandler, createRequestStateCodec, type McpServerFactory } from "@modelcontextprotocol/server";
+import { createMcpHandler, type McpServerFactory, type OAuthTokenVerifier } from "@modelcontextprotocol/server";
+import { type AuthConfig, type Caller, callerOf, createGate } from "./auth.ts";
 import { healthPathFor } from "./health-path.ts";
 import { HEADERS_TIMEOUT_MS, KEEP_ALIVE_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from "./http-timeouts.ts";
 import type { LogLine } from "./logging.ts";
 import { createMcpServer } from "./mcp-server.ts";
-import type { ApprovalState, ToolDeps } from "./tools/common.ts";
+import { a2hSession, type A2hOptions, HeldPings } from "./session.ts";
 
 export type { LogLine } from "./logging.ts";
-
-/** Approval state lives 15 minutes (design D1); an older state is refused. */
-export const APPROVAL_TTL_SECONDS = 15 * 60;
-
-/** What the A2H tools need; production builds it from infra/env.ts and src/db.ts. */
-export interface A2hOptions {
-  db: McpDb;
-  principal: Principal;
-  policy: ValidationPolicy;
-  clearingShare: number;
-  /** HMAC key of the approval state (32 bytes or more), the same on every instance of the stage. */
-  approvalKey: Uint8Array;
-  /** The clock; tests pin it. */
-  now?: () => Date;
-  /** Randomness for request ids; tests pin it. */
-  randomBytes?: (n: number) => Uint8Array;
-}
+export { APPROVAL_TTL_SECONDS, type A2hOptions, type RateLimits } from "./session.ts";
+export type { AuthConfig } from "./auth.ts";
 
 export interface AppOptions {
   stage: string;
   /** `/mcp` or `/pr-<n>/mcp` (env MCP_BASE_PATH). */
   mcpBasePath: string;
   log: (line: LogLine) => void;
+  /** The resource-server settings (AUTH_REQUIRED, AUTH_ISSUER, AUTH_JWKS_URL, MCP_RESOURCE_URL, PING_OPEN). */
+  auth: AuthConfig;
+  /** Held pings this instance carries at once (PING_MAX_CONCURRENT). */
+  pingMaxConcurrent: number;
+  /** With the gate off: who every call acts for. Default `dev-principal-<stage>` (tests override it). */
+  fallbackPrincipalId?: string;
+  /** Override the token verifier (tests); default: the JWKS verifier of auth.ts. */
+  verifier?: OAuthTokenVerifier;
   /** Override the per-request server factory (tests count its calls). */
   factory?: McpServerFactory;
   /** The A2H tools' dependencies. Without them the server offers `ping` only (M0 tests). */
@@ -65,30 +59,24 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
   res.end(JSON.stringify(body));
 }
 
-function toolDeps(stage: string, o: A2hOptions, log: (line: LogLine) => void): ToolDeps {
-  const principalId = o.principal.principal_id;
-  return {
-    stage,
-    db: o.db,
-    principal: o.principal,
-    policy: o.policy,
-    clearingShare: o.clearingShare,
-    // HMAC-signed (not encrypted) state, bound to the principal of the
-    // connection: a state minted for one principal fails for another.
-    codec: createRequestStateCodec<ApprovalState>({ key: o.approvalKey, ttlSeconds: APPROVAL_TTL_SECONDS, bind: () => principalId }),
-    now: o.now ?? (() => new Date()),
-    randomBytes: o.randomBytes ?? ((n) => new Uint8Array(randomBytes(n))),
-    log,
-  };
-}
-
 export function createApp(options: AppOptions): App {
-  const { stage, mcpBasePath, log } = options;
+  const { stage, mcpBasePath, log, auth } = options;
   const healthPath = healthPathFor(mcpBasePath);
   const stopping = new AbortController();
-  const a2h = options.a2h ? toolDeps(stage, options.a2h, log) : undefined;
+  const heldPings = new HeldPings(options.pingMaxConcurrent);
+  const gate = createGate(auth, ...(options.verifier ? [options.verifier] : []));
+  // AUTH_REQUIRED=false (dev and previews only, the env adapter refuses it on
+  // prod): every call acts for the stage's fallback principal.
+  const fallback: Caller | undefined = auth.required ? undefined : { principal_id: options.fallbackPrincipalId ?? `dev-principal-${stage}` };
+  const a2h = options.a2h;
   const factory: McpServerFactory =
-    options.factory ?? (() => createMcpServer(stage, { signal: stopping.signal, ...(a2h ? { a2h } : {}) }));
+    options.factory ??
+    ((ctx) =>
+      createMcpServer(stage, {
+        signal: stopping.signal,
+        heldPings,
+        ...(a2h ? { a2h: a2hSession(stage, a2h, fallback ?? callerOf(ctx.authInfo), log) } : {}),
+      }));
 
   // Stateless by default: a fresh server per request, no session ids.
   // keepAliveMs 0: no SSE comment frames, so a held ping sends nothing at all
@@ -98,9 +86,26 @@ export function createApp(options: AppOptions): App {
     keepAliveMs: 0,
     onerror: (error) => log({ level: "error", msg: "mcp handler error", error: error.name }),
   });
-  const mcp = toNodeHandler(handler, {
-    onerror: (error) => log({ level: "error", msg: "mcp adapter error", error: error.name }),
-  });
+  // Who each in-flight HTTP request acts for, by request id, for its access log line.
+  const callers = new Map<string, Caller>();
+  const gated = toNodeHandler(
+    {
+      fetch: async (request) => {
+        const metadata = await gate.metadata(request);
+        if (metadata) return metadata;
+        const outcome = await gate.check(request);
+        if (!outcome.ok) return outcome.response;
+        const caller = fallback ?? callerOf(outcome.authInfo);
+        const id = request.headers.get("x-request-id");
+        if (caller && id) callers.set(id, caller);
+        return handler.fetch(request, {
+          ...(outcome.authInfo ? { authInfo: outcome.authInfo } : {}),
+          ...(outcome.parsedBody !== undefined ? { parsedBody: outcome.parsedBody } : {}),
+        });
+      },
+    },
+    { onerror: (error) => log({ level: "error", msg: "mcp adapter error", error: error.name }) },
+  );
 
   const server = createServer((req, res) => {
     const started = performance.now();
@@ -111,6 +116,8 @@ export function createApp(options: AppOptions): App {
     // The tools read it back for their log lines (correlation with this one).
     req.headers["x-request-id"] = requestId;
     res.once("close", () => {
+      const caller = callers.get(requestId);
+      callers.delete(requestId);
       log({
         level: "info",
         msg: "request",
@@ -119,6 +126,9 @@ export function createApp(options: AppOptions): App {
         status: res.statusCode,
         duration_ms: Math.round(performance.now() - started),
         http_request_id: requestId,
+        // Opaque ids only (design D10): never a token, never an email.
+        ...(caller ? { principal_id: caller.principal_id } : {}),
+        ...(caller?.client_id ? { client_id: caller.client_id } : {}),
       });
     });
 
@@ -132,16 +142,15 @@ export function createApp(options: AppOptions): App {
       }
       return;
     }
-    if (path === mcpBasePath) {
+    if (path === mcpBasePath || path === gate.metadataPath) {
       // The adapter's duck type declares `method: string`; Node types it
       // `string | undefined` (never undefined for a server request). Under
       // exactOptionalPropertyTypes that needs this cast.
-      void mcp(req as NodeIncomingMessageLike, res);
+      void gated(req as NodeIncomingMessageLike, res);
       return;
     }
     sendJson(res, 404, { error: "not_found" });
   });
-
   server.requestTimeout = REQUEST_TIMEOUT_MS;
   server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
   server.headersTimeout = HEADERS_TIMEOUT_MS;

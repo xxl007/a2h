@@ -1,13 +1,14 @@
 // Deployment adapter: the only place that knows how this deployment passes
 // configuration to the mcp service (infra/service-env.ts): DB_HOST, DB_PORT,
-// DB_NAME, DB_USER, DB_SCHEMA, the development principal and its policy,
-// FEE_RATE and CLEARING_SHARE as plain environment; DB_PASSWORD and
+// DB_NAME, DB_USER, DB_SCHEMA, MCP_BASE_PATH, FEE_RATE, CLEARING_SHARE, the
+// resource server's AUTH_REQUIRED, AUTH_ISSUER, AUTH_JWKS_URL,
+// MCP_RESOURCE_URL, PING_OPEN, and the limits RATE_LIMIT_PER_MINUTE,
+// RATE_LIMIT_PER_DAY, PING_MAX_CONCURRENT as plain environment; DB_PASSWORD and
 // APPROVAL_KEY (base64 of 32 bytes, from `a2h/<stage>/approval`) injected by
 // ECS from Secrets Manager; DB_CA_BUNDLE baked into the image by
 // apps/mcp/Dockerfile. Mirrors apps/worker/infra/env.ts. It logs nothing, and
 // no error message carries a value.
 import { readFileSync } from "node:fs";
-import { PrincipalSchema, ValidationPolicySchema } from "@a2h/protocol";
 import type { DbConfig, McpConfig } from "../src/config.ts";
 
 type Env = Record<string, string | undefined>;
@@ -17,16 +18,8 @@ type Env = Record<string, string | undefined>;
 const SCHEMA_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
 const APPROVAL_KEY_MIN_BYTES = 32;
 
-/** ValidationPolicy field -> the variable it comes from, for error messages. */
-const POLICY_ENV: Record<string, string> = {
-  fee_rate: "FEE_RATE",
-  currency: "PRINCIPAL_CURRENCY",
-  monthly_budget_minor: "PRINCIPAL_MONTHLY_BUDGET_MINOR",
-  per_request_cap_minor: "PRINCIPAL_PER_REQUEST_CAP_MINOR",
-  ask_first_above_minor: "PRINCIPAL_ASK_FIRST_ABOVE_MINOR",
-  daily_request_limit: "PRINCIPAL_DAILY_REQUEST_LIMIT",
-  throttled_daily_limit: "PRINCIPAL_THROTTLED_DAILY_LIMIT",
-};
+/** Stage defaults of the limits (m1-hosted-connector proposal decision 5), used when a variable is unset. */
+export const DEFAULT_LIMITS = { RATE_LIMIT_PER_MINUTE: 60, RATE_LIMIT_PER_DAY: 2000, PING_MAX_CONCURRENT: 4 } as const;
 
 function fail(message: string): never {
   throw new Error(`mcp configuration: ${message}`);
@@ -91,40 +84,70 @@ function approvalKeyFromEnv(env: Env): Uint8Array {
   return key;
 }
 
+function flag(env: Env, name: string, fallback: boolean): boolean {
+  const value = env[name];
+  if (value === undefined || value === "") return fallback;
+  if (value !== "true" && value !== "false") fail(`${name} is not true or false`);
+  return value === "true";
+}
+
+function positive(env: Env, name: keyof typeof DEFAULT_LIMITS): number {
+  if (env[name] === undefined || env[name] === "") return DEFAULT_LIMITS[name];
+  const n = integer(env, name);
+  if (n < 1) fail(`${name} is not a positive integer`);
+  return n;
+}
+
+function url(env: Env, name: string): string {
+  const text = required(env, name);
+  let parsed: URL;
+  try {
+    parsed = new URL(text);
+  } catch {
+    fail(`${name} is not a URL`);
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") fail(`${name} is not an http(s) URL`);
+  return text.replace(/\/$/, "");
+}
+
 export function mcpConfigFromEnv(env: Env = process.env): McpConfig {
+  // The development principal left with m1-hosted-connector: a stale
+  // variable means a stale deployment, so refuse it rather than ignore it.
+  const stale = Object.keys(env).find((k) => k.startsWith("PRINCIPAL_"));
+  if (stale) fail(`${stale} is set, but the development principal was removed by m1-hosted-connector (the principal is the token's account); remove PRINCIPAL_* from the environment`);
+
   const stage = required(env, "STAGE");
   const db = dbConfigFromEnv(env);
   const approvalKey = approvalKeyFromEnv(env);
+  const mcpBasePath = env["MCP_BASE_PATH"] || "/mcp";
 
-  const verifiedText = required(env, "PRINCIPAL_VERIFIED");
-  if (verifiedText !== "true" && verifiedText !== "false") fail("PRINCIPAL_VERIFIED is not true or false");
-  const principal = PrincipalSchema.safeParse({
-    principal_id: required(env, "PRINCIPAL_ID"),
-    identity_mode: required(env, "PRINCIPAL_IDENTITY_MODE"),
-    verified: verifiedText === "true",
-  });
-  if (!principal.success) {
-    const field = String(principal.error.issues[0]?.path[0] ?? "");
-    fail(`${field === "identity_mode" ? "PRINCIPAL_IDENTITY_MODE" : "PRINCIPAL_ID"} is not valid`);
-  }
-
-  const askFirst = required(env, "PRINCIPAL_ASK_FIRST_ABOVE_MINOR");
-  const policy = ValidationPolicySchema.safeParse({
-    fee_rate: rate(env, "FEE_RATE"),
-    currency: required(env, "PRINCIPAL_CURRENCY"),
-    monthly_budget_minor: integer(env, "PRINCIPAL_MONTHLY_BUDGET_MINOR"),
-    per_request_cap_minor: integer(env, "PRINCIPAL_PER_REQUEST_CAP_MINOR"),
-    ask_first_above_minor: askFirst === "none" ? null : integer(env, "PRINCIPAL_ASK_FIRST_ABOVE_MINOR"),
-    daily_request_limit: integer(env, "PRINCIPAL_DAILY_REQUEST_LIMIT"),
-    throttled_daily_limit: integer(env, "PRINCIPAL_THROTTLED_DAILY_LIMIT"),
-  });
-  if (!policy.success) {
-    const field = String(policy.error.issues[0]?.path[0] ?? "");
-    fail(`${POLICY_ENV[field] ?? "the principal policy"} is not valid`);
-  }
-
+  const feeRate = rate(env, "FEE_RATE");
+  if (feeRate >= 1) fail("FEE_RATE is not below 1");
   const clearingShare = rate(env, "CLEARING_SHARE");
   if (clearingShare > 1) fail("CLEARING_SHARE is not between 0 and 1");
 
-  return { stage, db, approvalKey, principal: principal.data, policy: policy.data, clearingShare };
+  const authRequired = flag(env, "AUTH_REQUIRED", true);
+  // Migration Plan rollback: dev and previews only; prod never ships without the gate.
+  if (!authRequired && stage === "prod") fail("AUTH_REQUIRED=false is refused on prod");
+  const resourceUrl = url(env, "MCP_RESOURCE_URL");
+  if (new URL(resourceUrl).pathname !== mcpBasePath) fail("MCP_RESOURCE_URL does not end in MCP_BASE_PATH");
+  const auth = {
+    required: authRequired,
+    issuer: url(env, "AUTH_ISSUER"),
+    jwksUrl: url(env, "AUTH_JWKS_URL"),
+    resourceUrl,
+    pingOpen: flag(env, "PING_OPEN", false),
+  };
+
+  return {
+    stage,
+    db,
+    approvalKey,
+    mcpBasePath,
+    feeRate,
+    clearingShare,
+    auth,
+    limits: { perMinute: positive(env, "RATE_LIMIT_PER_MINUTE"), perDay: positive(env, "RATE_LIMIT_PER_DAY") },
+    pingMaxConcurrent: positive(env, "PING_MAX_CONCURRENT"),
+  };
 }
