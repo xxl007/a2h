@@ -3,7 +3,7 @@
 // and read by tests/ci/infra-consistency.test.sh, which checks that every
 // variable the apps read is one infra provides (m1-protocol-connector task 6.1).
 // The SST wiring (Outputs, `ssm`, execution role) is containerConfig() in mcp.ts.
-import { CLEARING_SHARE, FEE_RATE, hostnames, MCP_PORT, type StageInfo } from "./config.ts";
+import { CLEARING_SHARE, FEE_RATE, limitsFor, MCP_PORT, publicUrls, type StageInfo } from "./config.ts";
 import { secretsEnvironment, STAGE_SECRET_KINDS, type SecretRef, type Service, type StageSecretKind } from "./stage-secrets.ts";
 
 export type { Service } from "./stage-secrets.ts";
@@ -16,23 +16,6 @@ export type { Service } from "./stage-secrets.ts";
  * verify job obtains a token (A2H_TOKEN) before the contract run.
  */
 export const AUTH_REQUIRED_BY_STAGE_KIND: Record<StageInfo["kind"], boolean> = { dev: true, pr: false, prod: true };
-
-/**
- * Stage limits (proposal decision 5; design D5): configuration, not code
- * constants in the services. dev and prod use the owner's defaults (60 tool
- * calls a minute and 2,000 a day per principal, 4 held pings). Previews get
- * ten times the call limits: their verify job runs the contract and
- * adversarial suites as one principal, well over 60 calls a minute (measured
- * on a local stage), as dev's budget is raised for the same reason
- * (DEV_BUDGET_MULTIPLIER). They belong next to the development policy in
- * config.ts; kept here while infra PR #52 owns config.ts (move them with
- * task 8.1).
- */
-export const STAGE_LIMITS: Record<StageInfo["kind"], { RATE_LIMIT_PER_MINUTE: number; RATE_LIMIT_PER_DAY: number; PING_MAX_CONCURRENT: number }> = {
-  dev: { RATE_LIMIT_PER_MINUTE: 60, RATE_LIMIT_PER_DAY: 2000, PING_MAX_CONCURRENT: 4 },
-  prod: { RATE_LIMIT_PER_MINUTE: 60, RATE_LIMIT_PER_DAY: 2000, PING_MAX_CONCURRENT: 4 },
-  pr: { RATE_LIMIT_PER_MINUTE: 600, RATE_LIMIT_PER_DAY: 20000, PING_MAX_CONCURRENT: 4 },
-};
 
 /**
  * Plain (non-secret) environment of a service. Both services: the stage, the
@@ -57,7 +40,11 @@ export function plainEnvironment(service: Service, stage: StageInfo): Record<str
     env["AUTH_REQUIRED"] = String(AUTH_REQUIRED_BY_STAGE_KIND[stage.kind]);
     // dev and previews: QA reaches ping and the handshake without a token.
     env["PING_OPEN"] = String(stage.kind !== "prod");
-    for (const [k, v] of Object.entries(STAGE_LIMITS[stage.kind])) env[k] = String(v);
+    // Stage configuration (config.ts limitsFor, design D5); the edge limit is the WAF's.
+    const limits = limitsFor(stage);
+    env["RATE_LIMIT_PER_MINUTE"] = String(limits.perMinute);
+    env["RATE_LIMIT_PER_DAY"] = String(limits.perDay);
+    env["PING_MAX_CONCURRENT"] = String(limits.pingMaxConcurrent);
   }
   return env;
 }
@@ -68,7 +55,7 @@ export function plainEnvironment(service: Service, stage: StageInfo): Record<str
  * own URL (an SST output), without a trailing slash.
  */
 export function webBaseUrl(stage: StageInfo, domain: string | undefined, distributionUrl: string): string {
-  if (domain) return `https://${hostnames(stage, domain).web}`;
+  if (domain) return publicUrls(stage, domain).web;
   return distributionUrl.replace(/\/$/, "");
 }
 

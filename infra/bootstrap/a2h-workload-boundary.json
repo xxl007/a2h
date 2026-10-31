@@ -40,6 +40,20 @@
       ]
     },
     {
+      "Sid": "A2HDataApi",
+      "Effect": "Allow",
+      "Action": [
+        "rds-data:BatchExecuteStatement",
+        "rds-data:BeginTransaction",
+        "rds-data:CommitTransaction",
+        "rds-data:ExecuteStatement",
+        "rds-data:RollbackTransaction"
+      ],
+      "Resource": [
+        "arn:aws:rds:eu-west-3:442123849268:cluster:a2h-*"
+      ]
+    },
+    {
       "Sid": "A2HParameters",
       "Effect": "Allow",
       "Action": [

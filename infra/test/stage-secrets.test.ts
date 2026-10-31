@@ -91,7 +91,7 @@ test("signing secret refuses anything but an Ed25519 PKCS#8 / SPKI PEM pair", ()
 
 test("key id: a2h-<stage>-<16 hex of SHA-256(public key)>, an opaque id of at most 64 characters", () => {
   const { rawPublic } = ed25519Pems();
-  for (const s of ["dev", "prod", "pr-48899"]) {
+  for (const s of ["dev", "prod", "pr-19899"]) {
     const id = signingKeyId(stageInfo(s), rawPublic);
     assert.match(id, new RegExp(`^a2h-${s}-[0-9a-f]{16}$`));
     assert.ok(id.length <= 64);
