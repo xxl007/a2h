@@ -346,7 +346,9 @@ Same steps with `STAGE_KEY_GENERATIONS.dev.approval` (or `STAGE_KEY_GENERATIONS.
 
 ## 15. Who may sign in: the allow-list (M1, m1-hosted-connector D7)
 
-The deploy creates one SSM SecureString per environment and never changes its value afterwards: `/a2h/shared/principal-allowlist` (created by `dev`; `dev` and every preview read it) and `/a2h/prod/principal-allowlist` (created by `prod` on its first deploy). Until you set it, it holds `none` and nobody can sign in. The web app re-reads it within five minutes; no deploy is needed.
+The deploy creates one SSM SecureString per stage and never changes its value afterwards: `/a2h/shared/principal-allowlist` (created and read by `dev`), `/a2h/prod/principal-allowlist` (created by `prod` on its first deploy) and `/a2h/pr-<n>/principal-allowlist` for each preview (created by the preview deploy, deleted with the stage; task 8.3 fact: a preview cannot depend on a parameter the dev deploy creates). Until you set it, it holds `none` and nobody can sign in. The web app re-reads it within five minutes; no deploy is needed.
+
+On a preview, the verify job adds the two QA test addresses `qa-principal-a@a2h-protocol.org` and `qa-principal-b@a2h-protocol.org` (synthetic; no mailbox exists and non-prod stages send nothing) before it signs in, and removes them when it ends, keeping any other address in the list (`.github/scripts/allowlist.sh add|remove`). To validate a preview yourself, add your address to that preview's parameter with the line the preview comment prints (same command as below with `--name /a2h/pr-<n>/principal-allowlist`).
 
 Set it (addresses separated by commas, no spaces; the whole list each time):
 

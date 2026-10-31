@@ -51,8 +51,27 @@ case "${1-} ${2-}" in
     case "$name" in
       */aurora-cluster-arn) echo "arn:aws:rds:eu-west-3:000000000000:cluster:synthetic" ;;
       */aurora-secret-arn) echo "arn:aws:secretsmanager:eu-west-3:000000000000:secret:synthetic" ;;
+      # The sign-in allow-list (.github/scripts/allowlist.sh): state in $STUB_DIR/allowlist, SecureString, so --with-decryption is required.
+      */principal-allowlist)
+        echo "get $name" >>"$STUB_DIR/ssm"
+        case "$*" in *--with-decryption*) ;; *) echo "stub: SecureString read without --with-decryption" >&2; exit 255 ;; esac
+        [ -f "$STUB_DIR/allowlist" ] || err ParameterNotFound GetParameter "Parameter $name not found."
+        cat "$STUB_DIR/allowlist"; echo ;;
       *) err ParameterNotFound GetParameter "unexpected parameter $name" ;;
     esac
+    exit 0 ;;
+
+  "ssm put-parameter")
+    name=$(arg --name "$@")
+    echo "put $name" >>"$STUB_DIR/ssm"
+    [ "$mode" = "ssm-put-denied" ] && err AccessDeniedException PutParameter "not authorized"
+    case "$name" in */principal-allowlist) ;; *) err ValidationException PutParameter "unexpected parameter $name" ;; esac
+    [ "$(arg --type "$@")" = "SecureString" ] || { echo "stub: allow-list written as $(arg --type "$@"), want SecureString" >&2; exit 255; }
+    case "$*" in *--overwrite*) ;; *) [ -f "$STUB_DIR/allowlist" ] && err ParameterAlreadyExists PutParameter "exists" ;; esac
+    value=$(arg --value "$@")
+    [ -n "$value" ] || err ValidationException PutParameter "1 validation error detected: Value at 'value' failed to satisfy constraint: Member must have length greater than or equal to 1"
+    printf '%s' "$value" >"$STUB_DIR/allowlist"
+    echo '{"Version": 2, "Tier": "Standard"}'
     exit 0 ;;
 
   "secretsmanager get-secret-value")

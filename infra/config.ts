@@ -250,14 +250,20 @@ export function limitsFor(stage: StageInfo): StageLimits {
 
 /**
  * The allow-list of addresses that may sign in (design D7): one SSM
- * SecureString per environment. dev creates `/a2h/shared/principal-allowlist`,
- * which every preview reads too; prod creates `/a2h/prod/principal-allowlist`.
- * The deploy writes ALLOWLIST_NONE and never reverts the owner's value
- * (allowlist.ts). Value format, read by apps/web (task 5.3): addresses
- * separated by commas, or ALLOWLIST_NONE for nobody.
+ * SecureString per stage, created by that stage's deploy. dev's is
+ * `/a2h/shared/principal-allowlist` (the owner's list for Gate 2), prod's
+ * `/a2h/prod/principal-allowlist`, and a preview's `/a2h/pr-<n>/principal-allowlist`
+ * (task 8.3 fact: a preview exists before the change is on main, so it
+ * cannot read a parameter the dev deploy creates; its own is removed with
+ * the stage). The deploy writes ALLOWLIST_NONE and never reverts the value
+ * set afterwards (allowlist.ts): the owner's, or the verify job's test
+ * addresses on a preview. Value format, read by apps/web (task 5.3):
+ * addresses separated by commas, or ALLOWLIST_NONE for nobody.
  */
 export function allowlistParameterName(stage: StageInfo): string {
-  return stage.kind === "prod" ? "/a2h/prod/principal-allowlist" : sharedParameterName("principal-allowlist");
+  if (stage.kind === "prod") return "/a2h/prod/principal-allowlist";
+  if (stage.kind === "pr") return `/a2h/${stage.name}/principal-allowlist`;
+  return sharedParameterName("principal-allowlist");
 }
 /** SSM rejects empty values, so "nobody yet" is written as this marker. */
 export const ALLOWLIST_NONE = "none";

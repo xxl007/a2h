@@ -35,7 +35,7 @@ The mcp service receives the first three as `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT
 
 ## Sign-in allow-list (m1-hosted-connector D7)
 
-An SSM SecureString per environment (`allowlist.ts`): dev creates `/a2h/shared/principal-allowlist` (dev and every preview read it), prod creates `/a2h/prod/principal-allowlist`; previews create none. The deploy writes `none` (SSM refuses empty values; `ALLOWLIST_NONE`) and `ignoreChanges: ["value"]`, so the owner's value is never reverted by a later deploy. Value: addresses separated by commas, or `none`. The owner sets it with one line (`docs/runbooks/aws-bootstrap.md` §15).
+An SSM SecureString per stage (`allowlist.ts`): dev creates `/a2h/shared/principal-allowlist`, prod `/a2h/prod/principal-allowlist`, and every preview its own `/a2h/pr-<n>/principal-allowlist` (task 8.3 fact: a preview exists before the dev deploy of the change, and its parameter is removed with the stage by `sst remove`). The deploy writes `none` (SSM refuses empty values; `ALLOWLIST_NONE`) and `ignoreChanges: ["value"]`, so a value set afterwards is never reverted by a later deploy. Value: addresses separated by commas, or `none`. The owner sets dev's and prod's with one line (`docs/runbooks/aws-bootstrap.md` §15); on a preview the verify job adds the two QA test addresses before signing in and removes them when it ends (`.github/scripts/allowlist.sh`), and the preview comment prints the line the owner uses to add their own address.
 
 The web server function reads it. These are `web.ts` changes (Web-dev, group 5), with the names and the permission from `config.ts`:
 
