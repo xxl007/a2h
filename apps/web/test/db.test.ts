@@ -61,7 +61,7 @@ describe.skipIf(!adminUrl)("packages/db queries on the web side (node-postgres s
   beforeAll(async () => {
     const url = await createStageSchema(adminUrl, SCHEMA);
     pool = new pg.Pool({ connectionString: url, max: 4 });
-    db = drizzle(pool) as unknown as PrincipalsDb;
+    db = drizzle(pool);
   });
   afterAll(async () => {
     await pool?.end();
