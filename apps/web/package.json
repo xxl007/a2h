@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "pnpm --filter \"@a2h/web^...\" run build && next build",
     "start": "next start",
     "lint": "eslint . --ignore-pattern next-env.d.ts",
     "typecheck": "next typegen && tsc --noEmit",
