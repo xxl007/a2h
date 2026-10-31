@@ -3,17 +3,7 @@
 // infra/test/web-env.test.ts and read by apps/web's configuration test. The
 // SST wiring is createWeb() in web.ts.
 import { prDbSecretName } from "./access.ts";
-import { developmentPolicy, hostnames, REGION, type StageInfo } from "./config.ts";
-
-/** SSM SecureString holding the allow-list (D7); created by the dev deploy (PR #57); dev and previews read it. */
-export const ALLOWLIST_PARAMETERS = {
-  shared: "/a2h/shared/principal-allowlist",
-  prod: "/a2h/prod/principal-allowlist",
-} as const;
-
-export function allowlistParameter(stage: StageInfo): string {
-  return stage.kind === "prod" ? ALLOWLIST_PARAMETERS.prod : ALLOWLIST_PARAMETERS.shared;
-}
+import { allowlistParameterName, allowlistReadPermission, developmentPolicy, hostnames, type StageInfo } from "./config.ts";
 
 /** Database name on every cluster (database.ts). */
 export const DB_NAME = "a2h";
@@ -40,7 +30,8 @@ export function webPlainEnvironment(stage: StageInfo, inputs: WebEnvInputs): Rec
   const env: Record<string, string> = {
     DB_NAME,
     DB_SCHEMA: stage.dbSchema,
-    ALLOWLIST_PARAMETER: allowlistParameter(stage),
+    // The SecureString created by infra/allowlist.ts (D7); dev and previews share dev's.
+    ALLOWLIST_PARAMETER: allowlistParameterName(stage),
     PRINCIPAL_CURRENCY: p.currency,
     PRINCIPAL_MONTHLY_BUDGET_MINOR: String(p.monthly_budget_minor),
     PRINCIPAL_PER_REQUEST_CAP_MINOR: String(p.per_request_cap_minor),
@@ -92,6 +83,6 @@ export function webDatabasePermissions(
   return [
     { actions: [...RDS_DATA_ACTIONS], resources: [input.clusterArn] },
     { actions: ["secretsmanager:GetSecretValue"], resources: [input.secretArn] },
-    { actions: ["ssm:GetParameter"], resources: [`arn:aws:ssm:${REGION}:${input.accountId}:parameter${allowlistParameter(stage)}`] },
+    allowlistReadPermission(stage, input.accountId),
   ];
 }

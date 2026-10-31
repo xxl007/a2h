@@ -3,7 +3,7 @@
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { createApp, type A2hOptions, type App, type AppOptions, type LogLine } from "../src/app.ts";
+import { createApp, type A2hOptions, type App, type AppOptions, type AuthConfig, type LogLine } from "../src/app.ts";
 
 export interface Running {
   app: App;
@@ -19,20 +19,21 @@ export interface Running {
 export function offlineA2h(): A2hOptions {
   return {
     db: drizzle.mock(),
-    principal: { principal_id: "dev-principal-test", identity_mode: "verified_organisation", verified: true },
-    policy: {
-      fee_rate: 0.2,
-      currency: "EUR",
-      monthly_budget_minor: 50_000,
-      per_request_cap_minor: 6_000,
-      ask_first_above_minor: null,
-      daily_request_limit: 50,
-      throttled_daily_limit: 5,
-    },
+    feeRate: 0.2,
     clearingShare: 0.5,
     approvalKey: new Uint8Array(32).fill(1),
+    limits: { perMinute: 60, perDay: 2000 },
   };
 }
+
+/** The gate off (AUTH_REQUIRED=false), as the M1 tests ran; authorization tests pass their own. */
+export const NO_AUTH: AuthConfig = {
+  required: false,
+  issuer: "http://127.0.0.1:1/api/auth",
+  jwksUrl: "http://127.0.0.1:1/api/auth/jwks",
+  resourceUrl: "https://mcp.dev.a2h.test/mcp",
+  pingOpen: false,
+};
 
 /** The real HTTP app with the A2H tools (offline unless `a2h` is given). */
 export async function start(options: Partial<AppOptions> = {}): Promise<Running> {
@@ -41,6 +42,8 @@ export async function start(options: Partial<AppOptions> = {}): Promise<Running>
     stage: "test",
     mcpBasePath: "/mcp",
     log: (line) => logs.push(line),
+    auth: NO_AUTH,
+    pingMaxConcurrent: 4,
     a2h: offlineA2h(),
     ...options,
   });

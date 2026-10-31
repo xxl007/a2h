@@ -43,7 +43,7 @@ async function clearedAmount(ctx: JobContext, db: Db, request: RequestRow): Prom
   // Without a published reserve the principal pays what was bid at most:
   // the reserve is taken as the bid. A reserve raised above the bid after
   // acceptance never raises the price above the bid.
-  const reserve = rule ? Math.min(gross(rule.reserve_net_minor, ctx.config.policy.fee_rate), request.bid_minor) : request.bid_minor;
+  const reserve = rule ? Math.min(gross(rule.reserve_net_minor, ctx.config.feeRate), request.bid_minor) : request.bid_minor;
   return clear(reserve, request.bid_minor, ctx.config.clearingShare);
 }
 

@@ -6,7 +6,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { developmentPolicy, stageInfo } from "../config.ts";
 import {
-  ALLOWLIST_PARAMETERS,
   authIssuer,
   RDS_DATA_ACTIONS,
   secretArnFromValueFrom,
@@ -27,8 +26,6 @@ test("issuer: https://<web host>/api/auth when the stage has a domain; none with
 });
 
 test("allow-list parameter: shared by dev and previews, prod its own (D7)", () => {
-  assert.equal(ALLOWLIST_PARAMETERS.shared, "/a2h/shared/principal-allowlist");
-  assert.equal(ALLOWLIST_PARAMETERS.prod, "/a2h/prod/principal-allowlist");
   assert.equal(webPlainEnvironment(stageInfo("pr-12"), {})["ALLOWLIST_PARAMETER"], "/a2h/shared/principal-allowlist");
   assert.equal(webPlainEnvironment(stageInfo("dev"), {})["ALLOWLIST_PARAMETER"], "/a2h/shared/principal-allowlist");
   assert.equal(webPlainEnvironment(stageInfo("prod"), {})["ALLOWLIST_PARAMETER"], "/a2h/prod/principal-allowlist");
