@@ -11,8 +11,26 @@ Owners: **PD** protocol-dev (apps/mcp, apps/worker, packages/protocol, packages/
 ## 2. Spike: claude.ai custom connector and the approval form (Owner with PD; decision 6 before group 5 is designed around it)
 
 - [ ] 2.1 PD: confirm dev at head serves `request_human` with the form over HTTPS from MCP Inspector in modern era with no token (the gate does not exist yet); verify the `input_required` round trip completes and record the Inspector version
-- [ ] 2.2 Owner: in claude.ai add a custom connector to `https://mcp.dev.<domain>/mcp` with "No sign-in"; ask for a human who can judge a leaflet, then ask to send a short question to `sim-mv-7f3c`; report whether an approval dialog with the pre-filled question appeared and what happened on accept (request id) or what the client showed instead; PD pastes the dev log lines (methods, protocol version, no bodies) under "Spike result" in this file
-- [ ] 2.3 PM: record the outcome and the owner's decision 6 in this file and in design.md D9; if the form did not render, write the spec delta for the chosen fallback as an amendment of this change before group 5 starts
+- [x] 2.2 Owner: in claude.ai add a custom connector to `https://mcp.dev.<domain>/mcp` with "No sign-in"; ask for a human who can judge a leaflet, then ask to send a short question to `sim-mv-7f3c`; report whether an approval dialog with the pre-filled question appeared and what happened on accept (request id) or what the client showed instead; PD pastes the dev log lines (methods, protocol version, no bodies) under "Spike result" in this file — done 2026-10-31 23:20 UTC: the approval form rendered in claude.ai (web, Max plan, Opus 5.5, tool permissions "Manual"); see Spike result
+- [x] 2.3 PM: record the outcome and the owner's decision 6 in this file and in design.md D9; if the form did not render, write the spec delta for the chosen fallback as an amendment of this change before group 5 starts — done: decision 6 = keep the MCP `input_required` approval form, no fallback (recorded in design.md D9); readability follow-up is 2.4
+
+- [ ] 2.4 DS then PD: the approval form must read well in a client that collapses whitespace (claude.ai) and in one that keeps it (Claude Code, Inspector): Design writes the section "Approval form (MCP input_required) in hosted clients" in design.md (message of two short sentences, facts as field titles and descriptions, a `decision` enum whose labels carry the hold amount, humanised expiry, no reliance on the client's button names); PD implements it in `apps/mcp/src/tools/request-human.ts` with the approval tests updated and the Claude Code rendering unchanged in substance; verify the owner's screenshot from claude.ai shows every fact of spec "Approval shows the exact wording" legibly, and the contract tests pass
+
+### Spike result (2026-10-31, dev at main 1b9e86b, no gate)
+
+Client: claude.ai web, Max plan, model Opus 5.5, custom connector "A2H dev" at `https://mcp.dev.a2h-protocol.org/mcp`, no sign-in, tool permissions "Manual" (claude.ai asks before each tool call; that prompt shows the raw tool arguments and is not our form).
+
+Dev log (methods and outcomes only, UTC):
+- 23:09:36 `find_humans` ok, 1 result (sim-mv-7f3c).
+- 23:11:36 `request_human` → `outside_participant_rules` (1 h expiry; the persona promises 6 h: `latency_mismatch`).
+- 23:18:55 `request_human` → `outside_participant_rules` (6 h expiry set on the client's clock, still short of 6 h at the server).
+- 23:20:47 `request_human` → `input_required` (12 h expiry). claude.ai rendered the form: message, the `question` field pre-filled and editable, buttons "Decline" and "Submit".
+- Two POST `/mcp` held about 66 s each with no tool call inside (the client keeping a stream open).
+
+Decision 6: the form renders; keep the approval form, no fallback. Findings:
+1. Rendering (task 2.4): claude.ai collapses newlines, so the bulleted message became one paragraph; newlines inside the `question` default show as replacement characters; the client names its buttons itself ("Submit"), so "Accept = Send" in our text is wrong there; the expiry is a raw ISO timestamp.
+2. Error detail (follow-up, protocol): the three refusals told the client only "outside the participant's published rules". The latency promise is public (shown by `find_humans`), so a specific `latency_mismatch` detail would not leak a private rule and would have saved two attempts. Candidate for M3's error-detail review; recorded here, not changed in this change.
+3. The PR #26 validation text ("one-hour expiry" to sim-mv-7f3c) is wrong since the latency check landed; the Gate 2 script of this change says 12 hours.
 
 ## 3. Database (PD writes, QA tests the scripts)
 
