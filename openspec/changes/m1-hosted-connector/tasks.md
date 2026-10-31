@@ -25,6 +25,7 @@ Dev log (methods and outcomes only, UTC):
 - 23:11:36 `request_human` → `outside_participant_rules` (1 h expiry; the persona promises 6 h: `latency_mismatch`).
 - 23:18:55 `request_human` → `outside_participant_rules` (6 h expiry set on the client's clock, still short of 6 h at the server).
 - 23:20:47 `request_human` → `input_required` (12 h expiry). claude.ai rendered the form: message, the `question` field pre-filled and editable, buttons "Decline" and "Submit".
+- 23:25:08 accept on the form → `request_human` ok, request `A2H-7aa6`, state `sent`, hold €35.00; worker: delivered 23:25:11, simulated answer stored 23:25:32 (`answered`).
 - Two POST `/mcp` held about 66 s each with no tool call inside (the client keeping a stream open).
 
 Decision 6: the form renders; keep the approval form, no fallback. Findings:
