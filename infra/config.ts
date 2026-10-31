@@ -68,19 +68,23 @@ export function roleName(stage: string, logicalName: string): string {
 }
 
 /**
- * Owner-settable. Leave `undefined` until the owner has chosen a domain and
- * created its Route 53 hosted zone (docs/runbooks/aws-bootstrap.md §8).
- * When set, the ALB gets HTTPS on 443 with an 80 -> 443 redirect, and stage
- * hostnames are derived as described in infra/README.md.
+ * Owner-settable. The product domain (proposal m1-hosted-connector, decision
+ * 1), registered in Route 53 with its hosted zone in the A2H account
+ * (docs/runbooks/aws-bootstrap.md §8). With it set, the ALB serves HTTPS on
+ * 443 with 80 -> 443 redirected, SST issues the certificates and creates the
+ * DNS records, and stage hostnames are derived as in infra/README.md.
+ * Setting it back to `undefined` is the rollback (HTTP on the ALB hostname).
  */
-export const domain: string | undefined = undefined;
+export const domain: string | undefined = "a2h-protocol.org";
 
 /**
  * Owner-settable. SES sender identity: a domain (preferred) or one address
- * (docs/runbooks/aws-bootstrap.md §9). While `undefined`, no Email component
- * is created and the SSM parameter `email-sender` holds EMAIL_SENDER_NONE.
+ * (docs/runbooks/aws-bootstrap.md §9). The domain itself: the deploy creates
+ * the SES domain identity and its DKIM and DMARC records in the hosted zone.
+ * While `undefined`, no Email component is created and the SSM parameter
+ * `email-sender` holds EMAIL_SENDER_NONE.
  */
-export const emailSender: string | undefined = undefined;
+export const emailSender: string | undefined = domain;
 
 /** SSM rejects empty values, so "no sender yet" is published as this marker. */
 export const EMAIL_SENDER_NONE = "none";
@@ -339,4 +343,16 @@ export function hostnames(stage: StageInfo, apex: string): { web: string; alb: s
   const alb = `mcp.dev.${apex}`;
   if (stage.kind === "dev") return { web: `dev.${apex}`, alb };
   return { web: `${stage.name}.dev.${apex}`, alb };
+}
+
+/**
+ * Public HTTPS URLs of a stage under the domain (spec platform/hosted-endpoint,
+ * "Stage hostnames under the product domain"). `albBase` has no trailing
+ * slash; `mcp` is `albBase` + the stage's MCP base path, the `mcp` deploy
+ * output that the contract tests and the preview comment read.
+ */
+export function publicUrls(stage: StageInfo, apex: string): { web: string; albBase: string; mcp: string } {
+  const host = hostnames(stage, apex);
+  const albBase = `https://${host.alb}`;
+  return { web: `https://${host.web}`, albBase, mcp: `${albBase}${stage.mcpBasePath}` };
 }
