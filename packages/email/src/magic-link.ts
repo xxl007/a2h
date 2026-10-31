@@ -26,15 +26,15 @@ import { Text } from "@react-email/text";
 export const MAGIC_LINK_MAX_MINUTES = 15;
 
 export interface MagicLinkInput {
-  /** The single-use sign-in URL. https only. */
+  /** The single-use sign-in URL. https only (http on a loopback host, for a local server). */
   link: string;
   /** Whole minutes the link stays valid, 1 to 15. */
   expiresInMinutes: number;
   /** "A2H". */
   productName: string;
   /**
-   * Non-production label from `stageLabel()`: "development" or
-   * "preview pr-<n>". Leave undefined on prod; prod shows no label.
+   * Non-production label from `stageLabel()`: "test stage dev" or
+   * "test stage pr-<n>". Leave undefined on prod; prod shows no label.
    */
   stage?: string | undefined;
 }
@@ -65,7 +65,8 @@ function validate(input: MagicLinkInput): void {
   } catch {
     throw new TypeError("link is not a URL.");
   }
-  if (url.protocol !== "https:") throw new TypeError("link must be https.");
+  const loopback = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new TypeError("link must be https.");
 }
 
 // Sentence case in the text version too (a2h-design §2.5): html-to-text
@@ -80,24 +81,25 @@ function minutes(n: number): string {
 
 function MagicLinkEmail(input: MagicLinkInput) {
   const { link, productName, stage } = input;
-  const validity = `It works for ${minutes(input.expiresInMinutes)} and only once.`;
+  const validity = `It works once and for ${minutes(input.expiresInMinutes)}.`;
   return h(
     Html,
     { lang: "en" },
     h(Head, null),
-    h(Preview, null, `Sign in to ${productName}. ${validity}`),
+    h(Preview, null, `Sign in to ${productName}. The link works once and for ${minutes(input.expiresInMinutes)}.`),
     h(
       Body,
       { style: body },
       h(
         Container,
         { style: container },
-        stage ? h(Text, { style: small }, `This email comes from the ${stage} stage of ${productName}.`) : null,
+        stage ? h(Text, { style: small }, `This email comes from ${productName} ${stage}, not the live service.`) : null,
         h(Heading, { as: "h1", style: heading }, `Sign in to ${productName}`),
-        h(Text, { style: p }, `Use this link to sign in. ${validity}`),
+        h(Text, { style: p }, `Use this link to sign in. ${validity} Open it in the browser where you asked for it.`),
         h(Section, { style: { margin: "0 0 24px" } }, h("a", { href: link, target: "_blank", style: button }, `Sign in to ${productName}`)),
         h(Text, { style: small }, "If the link does not open, copy this address into your browser:"),
         h(Text, { style: { ...small, wordBreak: "break-all" } }, link),
+        h(Text, { style: small }, "If it has expired, ask for a new one on the sign-in page."),
         h(
           Text,
           { style: small },

@@ -13,7 +13,7 @@ import { createStageSecrets } from "./stage-secrets-resources.ts";
 import { createUploads, type StorageGrant } from "./storage.ts";
 import { createVpc, getVpc } from "./vpc.ts";
 import { attachWebAcl, createEdgeAcls } from "./waf.ts";
-import { createWeb, WEB_NOT_DEPLOYED } from "./web.ts";
+import { createWeb, WEB_NOT_DEPLOYED, type WebDatabase } from "./web.ts";
 import { createWorker } from "./worker.ts";
 
 interface Base {
@@ -22,6 +22,10 @@ interface Base {
   db: DbAccess;
   storage: StorageGrant;
   email: sst.aws.Email | undefined;
+  /** The web app's Data API access (m1-hosted-connector D2). */
+  webDatabase: WebDatabase;
+  /** The `email-sender` value: the SES identity, or EMAIL_SENDER_NONE. */
+  emailSender: $util.Input<string>;
   /**
    * CLOUDFRONT-scope web ACL for the web distribution (design D5): the
    * stage's own on dev/prod, dev's on pr-* (undefined until dev has published it).
@@ -39,6 +43,7 @@ function ownResources(stage: StageInfo): Base {
   const database = createDatabase(stage, vpc);
   const uploads = createUploads();
   const email = createEmail();
+  const db = masterAccess(stage, database);
   // Edge rate limit (m1-hosted-connector D5): REGIONAL on this ALB, CLOUDFRONT for the web.
   const edge = createEdgeAcls(stage, alb);
   // The sign-in allow-list (D7): dev's is shared with previews.
@@ -46,9 +51,11 @@ function ownResources(stage: StageInfo): Base {
   return {
     cluster,
     alb,
-    db: masterAccess(stage, database),
+    db,
     storage: { mode: "link", bucket: uploads },
     email,
+    webDatabase: { clusterArn: database.clusterArn, secretValueFrom: "DB_PASSWORD" in db.ssm ? db.ssm.DB_PASSWORD : undefined },
+    emailSender: email ? email.sender : EMAIL_SENDER_NONE,
     webAclCloudfrontArn: edge.cloudfrontAclArn,
     shared: {
       vpcId: vpc.id,
@@ -73,12 +80,18 @@ async function borrowedResources(stage: StageInfo, command: string): Promise<Bas
   const vpc = getVpc(ids.vpcId);
   const storage = storageAccess(stage, ids.uploadsBucket);
   if (storage.mode !== "scoped") throw new Error(`Stage ${stage.name} must not link the bucket.`);
+  const db = await previewAccess(stage, ids.auroraClusterId, command);
   return {
     cluster: getCluster(ids.clusterId, vpc),
     alb: getAlb(ids.albArn),
-    db: await previewAccess(stage, ids.auroraClusterId, command),
+    db,
     storage,
     email: getEmail(ids.emailSender),
+    webDatabase: {
+      clusterArn: aws.rds.getClusterOutput({ clusterIdentifier: ids.auroraClusterId }).arn,
+      secretValueFrom: "DB_PASSWORD" in db.ssm ? db.ssm.DB_PASSWORD : undefined,
+    },
+    emailSender: ids.emailSender,
     // dev's ALB already carries dev's REGIONAL web ACL; the web distribution gets dev's CLOUDFRONT one.
     webAclCloudfrontArn: ids.webAclCloudfrontArn,
   };
@@ -90,7 +103,7 @@ async function borrowedResources(stage: StageInfo, command: string): Promise<Bas
  */
 export async function deploy(stageName: string, command: string) {
   const stage = stageInfo(stageName);
-  const { cluster, alb, db, storage, email, webAclCloudfrontArn, shared } = stage.ownsSharedResources
+  const { cluster, alb, db, storage, email, webDatabase, emailSender, webAclCloudfrontArn, shared } = stage.ownsSharedResources
     ? ownResources(stage)
     : await borrowedResources(stage, command);
 
@@ -105,7 +118,7 @@ export async function deploy(stageName: string, command: string) {
   if (webAclCloudfrontArn) attachWebAcl(webAclCloudfrontArn);
   // The web app hosts the stage's authorization server (m1-hosted-connector
   // D1), so it is created first: the mcp service trusts its issuer.
-  const web = createWeb(stage, { storage, mcpUrl });
+  const web = createWeb(stage, { storage, mcpUrl, database: webDatabase, emailSender });
   // Without apps/web there is no authorization server: the issuer then names
   // an address that serves no keys, and the gate answers 401 (fails closed).
   const webUrl = web ? web.url.apply((u) => webBaseUrl(stage, domain, u)) : $output(webBaseUrl(stage, domain, "https://web-not-deployed.invalid"));

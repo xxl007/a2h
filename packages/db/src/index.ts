@@ -3,3 +3,8 @@
 export * from "./schema.ts";
 export * from "./queries/mcp.ts";
 export * from "./queries/principals.ts";
+export * from "./auth-schema.ts";
+// The Drizzle query operators of the same drizzle-orm instance as the schema,
+// for callers whose package manager resolves another copy of drizzle-orm
+// (apps/web: its drizzle-orm has the Data API driver's peers).
+export { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";

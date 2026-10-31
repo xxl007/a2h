@@ -9,11 +9,11 @@ export function assertStage(stage: string): void {
 
 /**
  * The label shown in non-production emails, or undefined on prod (where no
- * label is ever shown): "development" for dev, "preview pr-<n>" for previews.
+ * label is ever shown): "test stage dev", "test stage pr-<n>", the words of
+ * the screens' stage line (design.md "Email: magic link").
  */
 export function stageLabel(stage: string): string | undefined {
   assertStage(stage);
   if (stage === "prod") return undefined;
-  if (stage === "dev") return "development";
-  return `preview ${stage}`;
+  return `test stage ${stage}`;
 }

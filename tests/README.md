@@ -474,6 +474,48 @@ Tasks 3.1 and 3.2 (A2H-owned tables only; the Better Auth tables come with group
 | request-approval: Principal's own policy applies (data side) | `principals.test.ts` "Principal's own policy applies" (two principals read their own policy rows); `schema.test.ts` "principal policies hold exactly the policy fields of @a2h/protocol" (every `ValidationPolicy` field but `fee_rate`, nothing else; `ask_first_above_minor` the only nullable one) | Validation uses the loaded policy, mcp and worker: group 7 |
 | design D4: principal and policy created on consent, once | `principals.test.ts` "ensurePrincipal" (created from the stage default; idempotent: a second call with other defaults returns the stored rows unchanged; two concurrent calls create one of each; the policy failing leaves no principal row; rolled back with the caller's transaction) | Consent step calls it: group 5 |
 | design D4: principal and policy constraints | `constraints.test.ts` "principals and their policies" (principal id unique and opaque, never an e-mail address; identity mode from `PrincipalSchema`, default `real_name`, `verified` default false; one policy per known principal; money columns refuse negatives and fractions, zero accepted; limits non-negative; currency three upper-case letters); `schema.test.ts` (every `*_minor` column integer next to a currency; identity modes and window kinds appear in check constraints) | - |
+| design D2: migrations per stage (table count) | `ci/db-migrate.test.sh` section 4: 15 tables in a preview schema (12 before this change; 27 with the Better Auth tables of group 5) | - |
+
+## Scenario to test map: m1-hosted-connector (authorization server and web app, group 5)
+
+Tasks 5.1 to 5.6 (issue #44). Spec `platform/principal-identity`, every scenario, plus what `platform/connector-authorization` expects of the tokens. Three layers:
+
+- **In-process** (`apps/web/test/`, vitest, part of `pnpm test`): the real Better Auth server (`createAuth`, the deployed configuration) on PostgreSQL 17 in Docker, driven over HTTP through `auth.handler` like a browser and an MCP client (cookie jar, PKCE). The database login is set up as a preview's is (`pr_<n>` with its `search_path` on the role), so no statement names the schema. Skipped without Docker unless `A2H_DB_PG_REQUIRED=1`.
+- **On a running stage** (`apps/web/test/e2e/`, Playwright, `pnpm --filter @a2h/web e2e`): the same scenarios through the built pages and the stage's mail sink. Run locally against `next start` on Docker Postgres with `LOCAL_MAIL_DIR` (green: 14 passed, the 3 metadata-document tests skipped because they need https); against a preview with the deploy role for the sink (see below). QA wires them into the verify jobs in task 8.3; `tests/lib/mail-sink.ts` (task 6.2) replaces `apps/web/test/e2e/lib/sink.ts`.
+- **The Data API itself** is exercised only on a deployed stage (preview or dev): locally the queries run on node-postgres.
+
+| Scenario | In-process | On a stage |
+|---|---|---|
+| Sign-in: Allowed address (one link, at most 15 minutes, single use) | `sign-in.test.ts` "Scenario: Allowed address" (one mail; verification row expires in 14 to 15 minutes; token stored hashed; first use signs in, second use goes to `/sign-in/expired`, no second session) | `e2e/sign-in.spec.ts` "Scenario: Allowed address" (sink holds one message, subject `[test stage pr-<n>]`; second use in another browser refused; address never in a URL) |
+| Sign-in: Unknown address (same page, nothing created, nothing logged) | `sign-in.test.ts` "Scenario: Unknown address" (no mail, no verification row, no user; the log line is byte-identical to the allowed case's); "the HTTP endpoint for asking a link is closed" (404: only the server action, allow-list first, asks); `log.test.ts` (no address, query, JWT or token in any line); `sign-in-timing.test.ts` (same response time: 20 interleaved samples each, means and medians within 25 ms, real timers, simulated work; a slow delivery raises the target for every address; a failure is reported only after the same time). Approach: `ResponsePacer` (`apps/web/src/auth/sign-in.ts`) ends every request at start + max(floor 800 ms, moving average of the allow-listed requests' real work); an unknown address does no work and waits for the same target | `e2e/sign-in.spec.ts` "Scenario: Unknown address" (the `main` markup is identical for a known and an unknown address; nothing in the sink) |
+| Sign-in: Expired or reused link | `sign-in.test.ts` "Scenario: Expired link" (clock 15 minutes on: refused, `next` kept, no session); reuse as above; "an address removed from the list after its link was sent cannot sign in" | reuse in `sign-in.spec.ts` |
+| Magic links leave production only through email: Preview sign-in | `infra-adapters.test.ts` "a preview writes one object under tmp/pr-<n>/mail/ and sends nothing"; `packages/email` `factory.test.ts` (SES client never built off prod) | `e2e/sign-in.spec.ts` reads the link from the sink |
+| Consent accepted | `oauth-flow.test.ts` "Scenario: Consent accepted" (code bound to PKCE, redirect URI and resource; `iss` on the redirect; consent and principal rows recorded) | `e2e/consent.spec.ts` "Scenario: Consent accepted, then Client revoked" (screen shows the client name, "a program on this computer", the provenance line, both scopes in words, the address; no client id or scope identifier) |
+| Consent declined | `oauth-flow.test.ts` "Scenario: Consent declined" (`access_denied`, no code, no consent, no principal) | `e2e/consent.spec.ts` "Scenario: Consent declined" |
+| Design D4: consent and principal in one transaction | `oauth-flow.test.ts` "D4: a failure while creating the principal rolls the consent and the code back" (and a refused consent leaves no principal) | - |
+| Client revoked | `oauth-flow.test.ts` "Scenario: Client revoked" (listed for its principal only; after revoke the refresh fails, the principal row stays) | `e2e/consent.spec.ts` (inline confirmation, "Requests you already approved are not affected.", refresh fails afterwards) |
+| Metadata-document client (match, cached; client_id mismatch; redirect not in the document) | `clients.test.ts` (stubbed transport) | `e2e/clients.spec.ts` "metadata-document clients" with `/test-fixtures/cimd/*.json` served by the preview itself (https only) |
+| Metadata document from a private address | `clients.test.ts` (127.0.0.1, localhost, 10/8, 169.254.169.254, [::1]: nothing fetched, nothing created); the real Node transport refuses a public name resolving to loopback | `e2e/clients.spec.ts` (https only) |
+| Dynamic registration | `oauth-flow.test.ts` "Scenario: Dynamic registration" (public client, no secret; `native` when `application_type` is omitted) | `e2e/clients.spec.ts` |
+| PKCE missing (or plain) | `oauth-flow.test.ts` "Scenario: PKCE missing" (`invalid_request`, never `/consent` or `/sign-in`) | `e2e/clients.spec.ts` |
+| Pre-registered client (design D8) | `clients.test.ts` "Pre-registered client" (from `AUTH_CLIENTS_JSON`, idempotent, "Registered with A2H by the A2H team") | - |
+| Resource recorded as audience | `oauth-flow.test.ts` (JWT verified against `/api/auth/jwks`: `iss` the issuer, `aud` exactly the MCP URL, `sub` the user id, `scope`, lifetime ≤ 1 h); "a token for another resource is not issued" | `e2e/consent.spec.ts` (`jose` against the stage's JWKS) |
+| Refresh token replayed | `oauth-flow.test.ts` "Scenario: Refresh token replayed" (rotation; the replayed token refused `invalid_grant`; the rotated descendant dead too) | `e2e/consent.spec.ts` |
+| Metadata advertised (D8) | `auth-metadata.test.ts` (RFC 8414 at `/.well-known/oauth-authorization-server/api/auth`: CIMD, `none`, `["S256"]`, `authorization_response_iss_parameter_supported`; no OpenID document: OAuth-only); JWKS Ed25519 public only | `e2e/clients.spec.ts` |
+| Task 5.1: Data API database, no AWS SDK in app code | `db.test.ts` (configuration; `ensurePrincipal` and `principalWithPolicy` through a login whose role sets the schema; `checkSchema` refuses a wrong schema); `boundaries.test.ts` and the ESLint rule for `apps/web/app`, `apps/web/src`; `infra-env.test.ts` (what infra gives the Lambda parses with the app's readers); `infra/test/web-env.test.ts` (IAM: Data API on the cluster, the stage's own database secret, never the master secret on a preview) | the preview |
+| Accessibility (design.md) | - | `e2e/a11y.spec.ts` (44 px targets at 390 and 1280 px; keyboard order and Enter; focus outline; no horizontal scroll at 320 px; nothing animated with reduced motion) |
+
+Running against a preview (needs the deploy role for the sink; `/a2h/shared/principal-allowlist`, created by PR #57, must hold the two addresses):
+
+```sh
+pnpm --filter @a2h/web exec playwright install chromium
+A2H_WEB_URL=https://pr-<n>.dev.a2h-protocol.org A2H_MCP_URL=https://mcp.dev.a2h-protocol.org/pr-<n>/mcp \
+A2H_STAGE=pr-<n> A2H_MAIL_SINK_BUCKET=<uploads bucket> A2H_TEST_EMAIL=<allowed> A2H_TEST_EMAIL_2=<allowed> \
+AWS_PROFILE=<deploy role> pnpm --filter @a2h/web e2e
+```
+
+Better Auth limits dynamic registration to 5 a minute per address and magic links to 30; the suite registers 3 clients, so leave a minute between two runs.
+
 | design D2: migrations per stage (table count) | `ci/db-migrate.test.sh` section 4: 15 tables in a preview schema (12 before this change) | - |
 
 ## Scenario to test map: m1-hosted-connector (services, group 7)

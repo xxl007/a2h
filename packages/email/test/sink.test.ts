@@ -16,7 +16,7 @@ function memory() {
   return { client, puts };
 }
 
-const message = { to: "owner@example.com", subject: "[development] Your A2H sign-in link", text: "t https://x/y", html: "<a href=\"https://x/y\">x</a>" };
+const message = { to: "owner@example.com", subject: "[test stage dev] Your A2H sign-in link", text: "t https://x/y", html: "<a href=\"https://x/y\">x</a>" };
 
 test("one object per message under <prefix>mail/<id>.json, content round-trips", async () => {
   const { client, puts } = memory();

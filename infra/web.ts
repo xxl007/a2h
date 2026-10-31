@@ -3,6 +3,18 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { domain, hostnames, OPEN_NEXT_VERSION, type StageInfo } from "./config.ts";
 import { storageArgs, type StorageGrant } from "./storage.ts";
+import { secretArnFromValueFrom, webDatabasePermissions, webPlainEnvironment } from "./web-env.ts";
+
+/**
+ * How the web Lambda reaches the stage's database through the Data API
+ * (m1-hosted-connector design D2): the cluster ARN and the ECS `valueFrom` of
+ * the stage's database secret (dev: the master secret; pr-<n>: a2h/pr-<n>/db),
+ * whose ARN the Data API reads. Absent only for a preview being removed.
+ */
+export interface WebDatabase {
+  clusterArn: $util.Input<string>;
+  secretValueFrom: $util.Input<string> | undefined;
+}
 
 export const WEB_NOT_DEPLOYED = "not deployed (apps/web has no Next.js app yet)";
 
@@ -21,10 +33,32 @@ export function hasNextApp(): boolean {
 
 export function createWeb(
   stage: StageInfo,
-  deps: { storage: StorageGrant; mcpUrl: $util.Input<string> },
+  deps: {
+    storage: StorageGrant;
+    mcpUrl: $util.Input<string>;
+    database: WebDatabase;
+    /** The `email-sender` shared value (a domain, an address or "none"). */
+    emailSender: $util.Input<string>;
+  },
 ): sst.aws.Nextjs | undefined {
   if (!hasNextApp()) return undefined;
   const store = storageArgs(deps.storage);
+  // Better Auth's secret (cookie signatures, hashes, the encryption of its
+  // signing keys): 32 random bytes per stage, kept secret in state like the
+  // stage's approval key (stage-secrets-resources.ts).
+  const authSecret = new random.RandomBytes("AuthSecret", { length: 32 });
+  const accountId = aws.getCallerIdentityOutput().accountId;
+  const secretArn = deps.database.secretValueFrom
+    ? $util.output(deps.database.secretValueFrom).apply(secretArnFromValueFrom)
+    : undefined;
+  const dbPermissions = secretArn
+    ? $util
+        .all([deps.database.clusterArn, secretArn, accountId])
+        .apply(([clusterArn, arn, account]) => webDatabasePermissions(stage, { clusterArn, secretArn: arn, accountId: account }))
+    : undefined;
+  const plain = $util.output(deps.emailSender).apply((emailSender) =>
+    webPlainEnvironment(stage, { domain, emailSender }),
+  );
   return new sst.aws.Nextjs("Web", {
     path: "apps/web",
     // SST's default OpenNext (3.9.14) refuses Next 15.5.x; see config.ts.
@@ -38,19 +72,28 @@ export function createWeb(
     },
     warm: stage.warm,
     ...(domain ? { domain: hostnames(stage, domain).web } : {}),
-    // Database deliberately not linked in M0: the Lambda is outside the VPC
-    // (Aurora is private) and SST's link would place the password in the
-    // function's environment. See infra/README.md, open items.
+    // Database not linked: the Lambda is outside the VPC (Aurora is private)
+    // and SST's link would place the password in the function's
+    // environment. It uses the Data API instead (m1-hosted-connector D2):
+    // IAM on the cluster ARN and the stage's database secret, no password.
     // Storage: dev/prod link the bucket; pr-* get object access under their
-    // own prefix only (server function role; contract amendment 1).
+    // own prefix only (server function role; contract amendment 1); the mail
+    // sink writes under tmp/<prefix>mail/ (D6), inside that grant.
     link: store.link,
-    permissions: store.permissions,
-    environment: {
-      STAGE: stage.name,
-      DB_SCHEMA: stage.dbSchema,
-      STORAGE_PREFIX: stage.storagePrefix,
-      MCP_URL: deps.mcpUrl,
-      ...store.environment,
-    },
+    permissions: dbPermissions
+      ? dbPermissions.apply((p) => [...store.permissions, ...p])
+      : store.permissions,
+    environment: $util
+      .all([plain, deps.mcpUrl, deps.database.clusterArn, secretArn ?? "", authSecret.base64, $util.output(store.environment)])
+      .apply(([env, mcpUrl, clusterArn, dbSecretArn, secret, storage]) => ({
+        ...env,
+        ...storage,
+        STAGE: stage.name,
+        STORAGE_PREFIX: stage.storagePrefix,
+        MCP_URL: mcpUrl,
+        DB_CLUSTER_ARN: clusterArn,
+        DB_SECRET_ARN: dbSecretArn,
+        BETTER_AUTH_SECRET: secret,
+      })),
   });
 }

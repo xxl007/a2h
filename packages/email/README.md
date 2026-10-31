@@ -93,12 +93,14 @@ recipients, subjects, bodies and links never go to a log (design D10).
 
 ### Magic link (`renderMagicLink`)
 
-Inputs: `link` (https only), `expiresInMinutes` (whole, 1 to 15),
-`productName`, and `stage`, the non-prod label from `stageLabel()`
-("development", "preview pr-<n>"; `undefined` on prod, where no label shows).
-Returns `{ subject, html, text }`. It states the validity, that the link works
-once, and to ignore the email if not requested. It carries nothing else: no
-address, no name, no client, no image.
+Inputs: `link` (https only; http on a loopback host for a local server),
+`expiresInMinutes` (whole, 1 to 15), `productName`, and `stage`, the non-prod
+label from `stageLabel()` ("test stage dev", "test stage pr-<n>"; `undefined`
+on prod, where no label shows). Returns `{ subject, html, text }`. Copy from
+design.md "Email: magic link": it states that the link works once and for 15
+minutes, to open it in the browser where it was asked for, to ask for a new
+one if it has expired, and to ignore the email if not requested. It carries
+nothing else: no address, no name, no client, no image.
 
 No colour yet: `packages/ui` has no tokens until `m2-design-foundations`, and
 no colour value may be written outside it, so the link keeps the mail client's
