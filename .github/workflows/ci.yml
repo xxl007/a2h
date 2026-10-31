@@ -86,6 +86,7 @@ jobs:
         run: |
           shellcheck -x .github/scripts/*.sh tests/ci/*.sh tests/ci/lib/fixtures.sh tests/ci/lib/bin/aws
           bash tests/ci/pr-schema.test.sh
+          bash tests/ci/allowlist.test.sh
           bash tests/ci/infra-consistency.test.sh
           node --test tests/ci/*.test.mjs
 
