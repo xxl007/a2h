@@ -49,3 +49,45 @@ Then ask the PM agent to call one read tool per server (list issues; take a scre
 ## Rotation
 
 Rotate `GITHUB_MCP_PAT`, `STRIPE_AGENT_API_KEY_TEST` and the AWS keys behind the `a2h` profile whenever they have been pasted into a chat, a ticket or a terminal shared with an agent. The repo never needs to change for a rotation.
+
+## Connecting hosted clients to a stage with sign-in (m1-hosted-connector, task 9.3)
+
+Since m1-hosted-connector the MCP endpoint of every stage is an OAuth 2.1 resource server: a client without a token gets `401` with `WWW-Authenticate: Bearer resource_metadata="https://mcp.dev.a2h-protocol.org/.well-known/oauth-protected-resource/<path>", scope="a2h"`, discovers the stage's authorization server (`https://<web host>/api/auth`, RFC 8414 metadata at `https://<web host>/.well-known/oauth-authorization-server/api/auth`), registers (Client ID Metadata Document when it has one, dynamic registration otherwise), sends the person to `https://<web host>/sign-in`, and exchanges the code for a one-hour token bound to that stage's MCP URL. Nothing is served on a token meant for another stage. On dev and previews `ping`, the tool list and the handshake stay open (`PING_OPEN`), so a tokenless Inspector still lists the tools; every A2H tool needs the token.
+
+Before any client can sign in, the address must be on the stage's allow-list (runbook `aws-bootstrap.md` §15; previews have their own parameter `/a2h/pr-<n>/principal-allowlist`, the line is in the preview comment), and on a non-production stage the magic link is read from the stage's mail sink (`tests/lib/mail-sink.ts`, or `aws s3 ls s3://<uploads bucket>/tmp/<stage>/mail/`), never from a mailbox.
+
+### MCP Inspector (modern era, CIMD)
+
+Inspector 2.x needs Node 22.19 or later (`nvm install 22`). Without a token the CLI still lists the tools of dev and previews:
+
+```sh
+npx -y @modelcontextprotocol/inspector@latest --cli https://mcp.dev.a2h-protocol.org/pr-<n>/mcp --method tools/list
+```
+
+With sign-in: `npx -y @modelcontextprotocol/inspector@latest`, transport Streamable HTTP, URL `https://mcp.dev.a2h-protocol.org/pr-<n>/mcp`, open **Authentication** and start the OAuth flow (or call `find_humans` and follow the 401). Inspector presents its own Client ID Metadata Document when the server advertises `client_id_metadata_document_supported` (it does), else it registers dynamically; the browser lands on the stage's sign-in page; read the link from the sink; consent names "MCP Inspector" and the two scopes; back in Inspector the four tools list and `find_humans` answers.
+
+### Claude Code
+
+```sh
+claude mcp add --transport http a2h-pr<n> https://mcp.dev.a2h-protocol.org/pr-<n>/mcp
+claude          # then, in the session:
+/mcp            # select a2h-pr<n>, "Authenticate"
+```
+
+Claude Code opens the stage's sign-in page in the browser with a loopback redirect (the consent screen shows "a program on this computer"); after the magic link and **Connect**, `/mcp` shows the server connected and `find_humans`, `request_human`, `check_requests`, `ping` are available. Claude Code negotiates the 2025 revision by default; the approval form needs `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto claude` (M1 note), which does not change the sign-in.
+
+### claude.ai
+
+Settings → Connectors → Add custom connector, URL `https://mcp.dev.a2h-protocol.org/mcp` (dev) or the preview's URL, authentication "Sign in now". claude.ai uses CIMD when advertised, else dynamic registration; its callback is `https://claude.ai/api/mcp/auth_callback`. Owner's step (Gate 2).
+
+### Hosted-client matrix (task 9.3)
+
+Recorded against the preview of PR #59 (stage `pr-59`, `https://mcp.dev.a2h-protocol.org/pr-59/mcp`, authorization server `https://pr-59.dev.a2h-protocol.org/api/auth`). "Registration path" is what the authorization server saw (`client_id` a URL = metadata document; a 32-character id = dynamic registration). A sign-in row needs an address on the preview's own allow-list (`/a2h/pr-59/principal-allowlist`) outside the verify job's window: the verify job admits the two QA addresses only for its own run and removes them, and QA makes no SSM write by hand, so the owner (or the PM) adds an address with the line in the preview comment before the row is run, and sets the value back to `none` afterwards.
+
+| Client | Version | Registration path | Result | Date / notes |
+|---|---|---|---|---|
+| MCP Inspector CLI (tokenless) | 2.13.0 (Node 22.23.4) | none | `tools/list` on pr-59 lists `ping`, `find_humans`, `request_human`, `check_requests` (PING_OPEN); `/.well-known/oauth-protected-resource/pr-59/mcp` names the preview's own issuer; the issuer's RFC 8414 document answers 200 | 2026-11-01, commit 2a9c629 |
+| The contract client (`tests/lib/obtain-token.ts`, the verify job) | @modelcontextprotocol/client 2.4.0, jose 6 | metadata document (`https://pr-59.dev.a2h-protocol.org/test-fixtures/cimd/match.json`, the preview's own) | the row the verify job proves on every push: sign-in through the sink, consent, code, token bound to the preview's MCP URL, the four tools over the official client (step "Sign in through the mail sink and obtain tokens", then "MCP contract tests") | see the Verification line of the preview comment |
+| MCP Inspector (sign-in) | 2.13.0 | pending | **Pending**: needs an allow-listed address on pr-59 outside the verify window (above). Procedure: `npx -y @modelcontextprotocol/inspector@2.13.0`, Streamable HTTP, the preview URL, **Authentication → Quick OAuth flow**; sign in with the address; read the link from the sink (`tests/lib/mail-sink.ts` with read access to the uploads bucket); consent; the four tools list | pending |
+| Claude Code (`claude mcp add --transport http`, `/mcp`) | 2.1.226 | pending | **Pending**: same allow-list need, plus an interactive terminal for `/mcp` → Authenticate (no non-interactive path in 2.1.226; `--client-id` and `--callback-port` exist, the consent still opens a browser) | pending |
+| claude.ai | - | - | owner's row (Gate 2) | owner, pending |
