@@ -65,7 +65,7 @@ From claude.ai, Pro or Team plan, in a browser:
 2. **Run the M1 loop** (the five steps of the previous Gate 2): find a human, send a question with the approval form, decline one, check an answer, see two refusals. Each request now shows your account as principal in `check_requests`.
 3. **Try without sign-in.** Open `https://mcp.dev.a2h-protocol.org/mcp` in MCP Inspector without a token: a `401` and a link to the metadata document, nothing else.
 4. **Second account.** Sign in with a second allow-listed email in another client (Claude Code with `claude mcp add --transport http a2h https://mcp.dev.<domain>/mcp`, then `/mcp` to authenticate): `check_requests` lists only that account's requests.
-5. **Limits.** Ask the agent to call `ping` thirty times in a row: after the configured per-minute limit the calls fail with a message that says when to retry. `http://mcp.dev.a2h-protocol.org/mcp` redirects to HTTPS.
+5. **Limits.** `http://mcp.dev.a2h-protocol.org/mcp` redirects to HTTPS. The per-principal limit is shown by QA's scripted burst on a preview (a `rate_limited` result naming the seconds to wait, nothing created), linked from the PR; `ping` is not counted and dev's limit is above what a hand-driven session reaches.
 
 What stays with QA: certificate and header checks, the held-`ping` cap under load, the adversarial token cases.
 

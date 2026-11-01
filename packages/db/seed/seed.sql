@@ -452,3 +452,11 @@ SELECT id, 'knowledge', true, 3000, 'EUR'
 FROM participants WHERE handle = 'sim-bk-2e6f'
 ON CONFLICT (participant_id, intent) DO UPDATE SET accepted = EXCLUDED.accepted,
   reserve_net_minor = EXCLUDED.reserve_net_minor, currency = EXCLUDED.currency
+--> statement-breakpoint
+INSERT INTO principals (principal_id, identity_mode, verified)
+VALUES ('dev-principal-' || current_setting('a2h.stage'), 'verified_organisation', true)
+ON CONFLICT (principal_id) DO NOTHING
+--> statement-breakpoint
+INSERT INTO principal_policies (principal_id, currency, monthly_budget_minor, per_request_cap_minor, ask_first_above_minor, daily_request_limit, throttled_daily_limit)
+VALUES ('dev-principal-' || current_setting('a2h.stage'), 'EUR', CASE WHEN current_setting('a2h.stage') = 'dev' THEN 500000 ELSE 50000 END, 6000, NULL, 50, 5)
+ON CONFLICT (principal_id) DO NOTHING

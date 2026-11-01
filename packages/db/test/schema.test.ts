@@ -29,6 +29,12 @@ describe("task 3.1: tables", () => {
     }
   });
 
+  test("m1-hosted-connector group 3: principals, principal_policies, rate_limit_windows exist (design D4, D5)", () => {
+    for (const name of ["principals", "principal_policies", "rate_limit_windows"]) {
+      assert.ok(byName.has(name), `table ${name}`);
+    }
+  });
+
   test("tables are not pinned to a schema: the stage's search_path places them (public on dev, pr_<n> on previews)", () => {
     for (const [name, t] of byName) assert.equal(t.schema, undefined, name);
     assert.doesNotMatch(allSql, /"public"\./, "migration SQL names no schema");
@@ -69,12 +75,26 @@ describe("money columns: integers in minor units next to a currency", () => {
       assert.match(currency.getSQLType(), /^(char|character)\(3\)$/, `${name}.currency`);
       assert.equal(currency.notNull, true, `${name}.currency not null`);
     }
-    assert.ok(seen >= 3, "requests.bid_minor, requests.cleared_minor, rule_types.reserve_net_minor");
+    assert.ok(seen >= 6, "requests.bid_minor, requests.cleared_minor, rule_types.reserve_net_minor, principal_policies.*_minor");
   });
   test("no float or numeric column holds money", () => {
     for (const [name, t] of byName)
       for (const c of t.columns)
         if (/real|double|numeric/.test(c.getSQLType())) assert.doesNotMatch(c.name, /minor|amount|price|bid|reserve/, `${name}.${c.name}`);
+  });
+});
+
+describe("principal policies hold exactly the policy fields of @a2h/protocol (spec request-approval \"Principal's own policy applies\")", () => {
+  test("every ValidationPolicy field but the platform's fee rate is a column; nothing else but the key and updated_at", () => {
+    const t = byName.get("principal_policies")!;
+    const policyFields = Object.keys(protocol.ValidationPolicySchema.shape).filter((k) => k !== "fee_rate");
+    assert.deepEqual(t.columns.map((c) => c.name).sort(), [...policyFields, "principal_id", "updated_at"].sort());
+    assert.equal(t.columns.find((c) => c.name === "ask_first_above_minor")?.notNull, false, "ask_first_above_minor nullable");
+    for (const c of t.columns) if (c.name !== "ask_first_above_minor") assert.equal(c.notNull, true, c.name);
+  });
+  test("principals hold the protocol Principal fields and a creation time", () => {
+    const t = byName.get("principals")!;
+    assert.deepEqual(t.columns.map((c) => c.name).sort(), [...Object.keys(protocol.PrincipalSchema.shape), "created_at"].sort());
   });
 });
 
@@ -87,6 +107,8 @@ describe("enums and codes come from @a2h/protocol", () => {
     ["actor", protocol.ActorSchema.options],
     ["lane", protocol.LaneSchema.options],
     ["delivery outcome", protocol.DELIVERY_OUTCOMES],
+    ["principal identity mode", protocol.PrincipalSchema.shape.identity_mode.options],
+    ["rate-limit window", protocol.RATE_LIMIT_WINDOWS],
   ];
   for (const [what, values] of cases) {
     test(`${what}: every value appears in a check constraint`, () => {
@@ -114,4 +136,21 @@ test("committed migrations are what drizzle-kit generates from src/schema.ts (no
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
+});
+
+describe("m1-hosted-connector task 3.1: packages/db holds no authorization server and nothing network-facing", () => {
+  const root = new URL("..", import.meta.url).pathname;
+  test("runtime dependencies are the protocol, Drizzle and the Postgres driver only (no Better Auth, no AWS SDK)", () => {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies: Record<string, string> };
+    assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["@a2h/protocol", "drizzle-orm", "pg"]);
+  });
+  test("no source file imports Better Auth, an AWS SDK, an HTTP module or calls fetch", () => {
+    const files = (readdirSync(join(root, "src"), { recursive: true }) as string[]).filter((f) => f.endsWith(".ts"));
+    assert.ok(files.length >= 3, files.join(","));
+    for (const f of files) {
+      const src = readFileSync(join(root, "src", f), "utf8");
+      assert.doesNotMatch(src, /from\s+["'](better-auth|@better-auth\/[^"']*|@aws-sdk\/[^"']*|node:https?|https?|undici)["']/, f);
+      assert.doesNotMatch(src, /\bfetch\s*\(/, f);
+    }
+  });
 });

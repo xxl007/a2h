@@ -4,6 +4,8 @@
 // seed), the real MCP HTTP app in-process at /pr-12/mcp, and the real worker
 // (deliver, simulate with the seed's persona delays, expire). QA tooling only:
 // nothing here is deployed, and it reuses the apps' own test harnesses.
+// The bearer gate is off (AUTH_REQUIRED=false, as on previews until task
+// 8.3): every call acts for the seeded fallback principal dev-principal-pr-12.
 //
 //   node tests/local/stage.ts                # prints A2H_MCP_URL, runs until Ctrl-C
 //   A2H_LOCAL_NOW=2026-10-29T23:00:00Z node tests/local/stage.ts
@@ -33,10 +35,20 @@ const app = createApp({
     mcpLogs.push(line);
     if (!quiet) process.stdout.write(`mcp ${JSON.stringify(line)}\n`);
   },
+  auth: {
+    required: false,
+    issuer: "http://127.0.0.1:1/api/auth",
+    jwksUrl: "http://127.0.0.1:1/api/auth/jwks",
+    resourceUrl: `http://127.0.0.1/${STAGE}/mcp`,
+    pingOpen: true,
+  },
+  fallbackPrincipalId: PRINCIPAL_ID,
+  pingMaxConcurrent: 4,
   a2h: {
     db: database.db,
-    principal: { principal_id: PRINCIPAL_ID, identity_mode: "verified_organisation", verified: true },
-    policy: config.policy,
+    feeRate: config.feeRate,
+    // A preview's limits (infra/config.ts limitsFor).
+    limits: { perMinute: 600, perDay: 20000 },
     clearingShare: config.clearingShare,
     approvalKey: Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + 3) & 0xff),
     ...(pinnedAt ? { now: () => new Date(pinnedAt.getTime() + (Date.now() - started)) } : {}),

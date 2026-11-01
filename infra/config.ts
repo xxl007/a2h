@@ -45,7 +45,7 @@ const ROLE_NAME_HASH_LENGTH = 8;
  * subscriber role comes out as `a-dev-…`, `prod-…`, `pr-12-…`), and the deploy
  * roles may only create `role/a2h-*`.
  *
- * - `<stage>` is kept whole (validated by `stageInfo`; `pr-48899` is the longest).
+ * - `<stage>` is kept whole (validated by `stageInfo`; `pr-19899` is the longest).
  * - `<readable>` is the logical name with non-alphanumerics removed, cut to fit.
  * - `<hash>` is the first 8 hex characters of SHA-256 over the full logical
  *   name: deterministic, and distinct for names that only differ past the
@@ -204,6 +204,79 @@ export function developmentPolicy(stage: StageInfo): typeof DEVELOPMENT_POLICY {
     : { ...DEVELOPMENT_POLICY };
 }
 
+/**
+ * Limits of a stage (m1-hosted-connector proposal decision 5, design D5):
+ * stage configuration, next to the development policy, not constants in the
+ * services. `perMinute` and `perDay`: tool calls per principal
+ * (RATE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_DAY of the mcp service);
+ * `pingMaxConcurrent`: held pings per instance (PING_MAX_CONCURRENT);
+ * `edgeRequestsPer5Minutes`: requests per source address per 5 minutes on the
+ * MCP and authorization paths, enforced by the WAF web ACLs (edge.ts, waf.ts),
+ * never by the services. Previews share dev's web ACLs, so dev's edge limit is
+ * theirs too.
+ *
+ * prod keeps the owner's defaults (60 a minute, 2,000 a day, 600 requests per
+ * 5 minutes per address at the edge). The test stages (dev and previews) run
+ * ten times the call limits: their verification suites act as one principal,
+ * well over 60 calls a minute (group 7, PR #56), as dev's budget is raised for
+ * the same reason (DEV_BUDGET_MULTIPLIER). Their edge limit is 3,000: dev's
+ * and every preview's verification runs come from one runner address each
+ * and all of them count against dev's web ACLs (previews create none, so
+ * their value is dev's, never applied on its own).
+ */
+export interface StageLimits {
+  perMinute: number;
+  perDay: number;
+  pingMaxConcurrent: number;
+  edgeRequestsPer5Minutes: number;
+}
+
+const OWNER_LIMITS: StageLimits = { perMinute: 60, perDay: 2000, pingMaxConcurrent: 4, edgeRequestsPer5Minutes: 600 };
+/** Multiplier of the per-principal call limits on the test stages (dev, previews). */
+export const TEST_STAGE_LIMIT_MULTIPLIER = 10;
+
+/** Edge limit of dev's web ACLs, which dev and every preview share. */
+export const TEST_STAGE_EDGE_REQUESTS_PER_5_MINUTES = 3000;
+
+export function limitsFor(stage: StageInfo): StageLimits {
+  if (stage.kind === "prod") return { ...OWNER_LIMITS };
+  return {
+    ...OWNER_LIMITS,
+    perMinute: OWNER_LIMITS.perMinute * TEST_STAGE_LIMIT_MULTIPLIER,
+    perDay: OWNER_LIMITS.perDay * TEST_STAGE_LIMIT_MULTIPLIER,
+    edgeRequestsPer5Minutes: TEST_STAGE_EDGE_REQUESTS_PER_5_MINUTES,
+  };
+}
+
+/**
+ * The allow-list of addresses that may sign in (design D7): one SSM
+ * SecureString per environment. dev creates `/a2h/shared/principal-allowlist`,
+ * which every preview reads too; prod creates `/a2h/prod/principal-allowlist`.
+ * The deploy writes ALLOWLIST_NONE and never reverts the owner's value
+ * (allowlist.ts). Value format, read by apps/web (task 5.3): addresses
+ * separated by commas, or ALLOWLIST_NONE for nobody.
+ */
+export function allowlistParameterName(stage: StageInfo): string {
+  return stage.kind === "prod" ? "/a2h/prod/principal-allowlist" : sharedParameterName("principal-allowlist");
+}
+/** SSM rejects empty values, so "nobody yet" is written as this marker. */
+export const ALLOWLIST_NONE = "none";
+
+/**
+ * What the web server function needs to read the allow-list: `ssm:GetParameter`
+ * on that one parameter, in the shape of `sst.aws.Nextjs` `permissions`. No
+ * `kms:Decrypt`: the parameter uses the AWS-managed `aws/ssm` key, whose key
+ * policy admits callers of this account through SSM, and the workload
+ * boundary allows it (infra/bootstrap/a2h-workload-boundary.json).
+ */
+export function allowlistReadPermission(stage: StageInfo, accountId: string): { actions: string[]; resources: string[] } {
+  assertAccountId(accountId);
+  return {
+    actions: ["ssm:GetParameter"],
+    resources: [`arn:aws:ssm:${REGION}:${accountId}:parameter${allowlistParameterName(stage)}`],
+  };
+}
+
 /** SSM parameters `dev` publishes and `pr-*` reads (contract, tasks.md §Step 4). */
 export const SHARED_PARAMETERS = {
   vpcId: "vpc-id",
@@ -214,6 +287,8 @@ export const SHARED_PARAMETERS = {
   auroraSecretArn: "aurora-secret-arn",
   uploadsBucket: "uploads-bucket",
   emailSender: "email-sender",
+  /** dev's CLOUDFRONT-scope web ACL (waf.ts), attached to every preview's web distribution. */
+  webAclCloudfrontArn: "web-acl-cloudfront-arn",
 } as const;
 export type SharedKey = keyof typeof SHARED_PARAMETERS;
 /**
@@ -229,6 +304,15 @@ export const PR_STAGE_READS: readonly SharedKey[] = [
   "uploadsBucket",
   "emailSender",
 ];
+/**
+ * What a pr-* stage reads when present and does without otherwise: dev
+ * publishes `web-acl-cloudfront-arn` only from its first deploy with
+ * m1-hosted-connector task 8.1 on, and previews of PRs opened before that
+ * deploy must still deploy. Without it the preview's web distribution has no
+ * web ACL (the deploy prints a warning); its MCP paths are on dev's ALB and
+ * limited there. TODO: move it to PR_STAGE_READS once dev has published it.
+ */
+export const PR_STAGE_OPTIONAL_READS: readonly SharedKey[] = ["webAclCloudfrontArn"];
 export const SHARED_PREFIX = "/a2h/shared/";
 export function sharedParameterName(param: string): string {
   return `${SHARED_PREFIX}${param}`;
@@ -265,13 +349,26 @@ export interface StageInfo {
   spot: boolean;
   mcpScaling: { min: number; max: number };
   logRetention: "1 month" | "1 year";
-  /** Listener rules on the ALB. Priorities: dev/prod 49000-49010, pr-<n> = 100 + n. */
+  /**
+   * Path-aware protected-resource metadata (RFC 9728, m1-hosted-connector D3):
+   * `/.well-known/oauth-protected-resource` + `mcpBasePath`, which the mcp
+   * service answers; the ALB must route it to that service (task 8.1).
+   */
+  metadataPath: string;
+  /**
+   * Listener rules on the ALB. Priorities: dev/prod 49000-49003; pr-<n>
+   * `/pr-<n>/*` at 100 + n and its metadata path at 20000 + n, two disjoint
+   * bands, so n <= 19899.
+   */
   mcpRules: McpRule[];
 }
 
 const SHARED_RULE_PRIORITY = 49000;
 const PR_RULE_PRIORITY_BASE = 100;
+/** Second band for previews: the metadata rule. Band 1 (100 + n) must stay below it. */
+const PR_METADATA_PRIORITY_BASE = 20000;
 const PR_STAGE = /^pr-([1-9][0-9]*)$/;
+const METADATA_PREFIX = "/.well-known/oauth-protected-resource";
 
 export function stageInfo(stage: string): StageInfo {
   if (stage === "dev" || stage === "prod") {
@@ -284,6 +381,7 @@ export function stageInfo(stage: string): StageInfo {
       simulatorEnabled: stage !== "prod",
       mcpBasePath: "/mcp",
       healthPath: healthPathFor("/mcp"),
+      metadataPath: `${METADATA_PREFIX}/mcp`,
       // Never "": a dev key at the area root such as `uploads/pr-12/x` would
       // fall inside a preview's `uploads/pr-12/*` grant.
       storagePrefix: `${stage}/`,
@@ -296,6 +394,7 @@ export function stageInfo(stage: string): StageInfo {
         { path: "/mcp", priority: SHARED_RULE_PRIORITY },
         { path: "/mcp/*", priority: SHARED_RULE_PRIORITY + 1 },
         { path: "/healthz", priority: SHARED_RULE_PRIORITY + 2 },
+        { path: `${METADATA_PREFIX}/mcp`, priority: SHARED_RULE_PRIORITY + 3 },
       ],
     };
   }
@@ -308,9 +407,10 @@ export function stageInfo(stage: string): StageInfo {
   }
   const n = Number(match[1]);
   const priority = PR_RULE_PRIORITY_BASE + n;
-  if (priority >= SHARED_RULE_PRIORITY) {
+  const metadataPriority = PR_METADATA_PRIORITY_BASE + n;
+  if (priority >= PR_METADATA_PRIORITY_BASE) {
     throw new Error(
-      `PR number ${n} would give listener priority ${priority}, which collides with the dev/prod range starting at ${SHARED_RULE_PRIORITY}.`,
+      `PR number ${n} would give listener priority ${priority}, which collides with the metadata band starting at ${PR_METADATA_PRIORITY_BASE} (and the dev/prod range at ${SHARED_RULE_PRIORITY}).`,
     );
   }
   return {
@@ -323,13 +423,17 @@ export function stageInfo(stage: string): StageInfo {
     simulatorEnabled: true,
     mcpBasePath: `/pr-${n}/mcp`,
     healthPath: healthPathFor(`/pr-${n}/mcp`),
+    metadataPath: `${METADATA_PREFIX}/pr-${n}/mcp`,
     storagePrefix: `pr-${n}/`,
     componentSuffix: `Pr${n}`,
     warm: 0,
     spot: true,
     mcpScaling: { min: 1, max: 1 },
     logRetention: "1 month",
-    mcpRules: [{ path: `/pr-${n}/*`, priority }],
+    mcpRules: [
+      { path: `/pr-${n}/*`, priority },
+      { path: `${METADATA_PREFIX}/pr-${n}/mcp`, priority: metadataPriority },
+    ],
   };
 }
 

@@ -1,0 +1,21 @@
+/*
+ * Base document styles for apps/web pages built from packages/ui (skill §7, §8).
+ * Imported once by the app after tokens.css. Never shipped into the MCP App card.
+ */
+html {
+  font-family: var(--font-sans);
+  font-size: 100%;
+  line-height: var(--leading-md);
+  background: var(--surface);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+
+body { margin: 0; }
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+h1, h2, h3 { text-wrap: balance; }

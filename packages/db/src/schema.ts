@@ -14,6 +14,9 @@
 //   are append-only, and
 //   `signing_keys` only moves forward (active → rotated → revoked); triggers in
 //   migrations/0001_append_only.sql refuse anything else.
+// - `principals`, `principal_policies` and `rate_limit_windows` (m1-hosted-
+//   connector D4, D5) are not append-only: a policy is edited in place by
+//   design and a window is a counter; neither is a money movement.
 import {
   CLOCK_TIME_PATTERN,
   CURRENCY_PATTERN,
@@ -26,6 +29,8 @@ import {
   OPAQUE_ID_PATTERN,
   PARTICIPANT_BLOCK_CODES,
   PUBLIC_KEY_PATTERN,
+  PrincipalSchema,
+  RATE_LIMIT_WINDOWS,
   QUESTION_MAX_LENGTH,
   REQUEST_ID_PATTERN,
   REQUEST_STATUSES,
@@ -460,6 +465,89 @@ export const answers = pgTable(
     check("answers_answered_personally", sql`${t.answered_personally} = true`),
     check("answers_signed_at_iso", sql`${t.signed_at} ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?(Z|[+-]\\d{2}:\\d{2})$'`),
     check("answers_signature_format", matches(t.signature, SIGNATURE_PATTERN)),
+  ],
+);
+
+// ---- principals, policies, limits (m1-hosted-connector design D4, D5) ------
+
+const IDENTITY_MODES = PrincipalSchema.shape.identity_mode.options;
+
+/**
+ * An accountable principal (protocol PrincipalSchema). The id is the
+ * authorization server's user id, an opaque id: never an e-mail address.
+ * Created in the consent step (`ensurePrincipal`).
+ */
+export const principals = pgTable(
+  "principals",
+  {
+    principal_id: id("principal_id").primaryKey(),
+    identity_mode: code("identity_mode", IDENTITY_MODES).notNull().default("real_name"),
+    verified: boolean("verified").notNull().default(false),
+    created_at: createdAt(),
+  },
+  (t) => [
+    check("principals_id_opaque", matches(t.principal_id, OPAQUE_ID_PATTERN)),
+    check("principals_identity_mode_known", oneOf(t.identity_mode, IDENTITY_MODES)),
+  ],
+);
+
+/**
+ * One policy per principal: the fields of protocol ValidationPolicySchema but
+ * the platform's fee rate, copied from the stage default on first consent.
+ * Edited in place (no screen until M5). Money in minor units.
+ */
+export const principalPolicies = pgTable(
+  "principal_policies",
+  {
+    principal_id: id("principal_id")
+      .primaryKey()
+      .references(() => principals.principal_id),
+    currency: currency(),
+    monthly_budget_minor: integer("monthly_budget_minor").notNull(),
+    per_request_cap_minor: integer("per_request_cap_minor").notNull(),
+    /** Bids above this need a recorded approval; null: every request does. */
+    ask_first_above_minor: integer("ask_first_above_minor"),
+    daily_request_limit: integer("daily_request_limit").notNull(),
+    /** The lower daily limit of a principal with a low internal rating. */
+    throttled_daily_limit: integer("throttled_daily_limit").notNull(),
+    updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("principal_policies_currency_format", matches(t.currency, CURRENCY_PATTERN)),
+    check(
+      "principal_policies_money_non_negative",
+      sql`${t.monthly_budget_minor} >= 0 AND ${t.per_request_cap_minor} >= 0 AND (${t.ask_first_above_minor} IS NULL OR ${t.ask_first_above_minor} >= 0)`,
+    ),
+    check("principal_policies_limits_non_negative", sql`${t.daily_request_limit} >= 0 AND ${t.throttled_daily_limit} >= 0`),
+  ],
+);
+
+/**
+ * Per-principal tool-call counters, one row per window (design D5). One
+ * upsert per call (`bumpRateLimit`); shared by every instance of a stage
+ * because it is in Postgres. A window starts on its UTC boundary
+ * (`rateLimitWindowStart` in @a2h/protocol), so all instances meet in one row.
+ * Windows older than a day are pruned by the worker.
+ */
+export const rateLimitWindows = pgTable(
+  "rate_limit_windows",
+  {
+    principal_id: id("principal_id")
+      .notNull()
+      .references(() => principals.principal_id),
+    window_kind: code("window_kind", RATE_LIMIT_WINDOWS).notNull(),
+    window_start: timestamp("window_start", { withTimezone: true }).notNull(),
+    count: integer("count").notNull(),
+  },
+  (t) => [
+    primaryKey({ name: "rate_limit_windows_pkey", columns: [t.principal_id, t.window_kind, t.window_start] }),
+    check("rate_limit_windows_kind_known", oneOf(t.window_kind, RATE_LIMIT_WINDOWS)),
+    check(
+      "rate_limit_windows_start_aligned",
+      sql`date_trunc(${t.window_kind}, ${t.window_start} AT TIME ZONE 'UTC') = ${t.window_start} AT TIME ZONE 'UTC'`,
+    ),
+    check("rate_limit_windows_count_non_negative", sql`${t.count} >= 0`),
+    index("rate_limit_windows_start_idx").on(t.window_start),
   ],
 );
 

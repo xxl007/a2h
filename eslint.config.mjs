@@ -16,6 +16,7 @@ export default defineConfig([
     "**/node_modules/",
     "**/coverage/",
     "**/.turbo/",
+    "**/storybook-static/",
   ]),
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
@@ -111,6 +112,45 @@ export default defineConfig([
         { selector: "MemberExpression[property.name=/^(getRandomValues|randomUUID)$/]", message: "No randomness in packages/protocol: pass the bytes in." },
         { selector: "MemberExpression[property.name=/^(generateKey|deriveKey|exportKey|wrapKey|unwrapKey)$/]", message: "packages/protocol never creates or exports keys: keys are arguments." },
         { selector: "ImportExpression", message: "No dynamic import in packages/protocol." },
+      ],
+    },
+  },
+  {
+    // packages/email keeps business logic provider-neutral (CLAUDE.md): only
+    // src/ses.ts, the email counterpart of apps/*/infra, may import an AWS SDK.
+    // The core entry and the sink take injected clients.
+    files: ["packages/email/src/**/*.ts"],
+    ignores: ["packages/email/src/ses.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@aws-sdk/*", "aws-sdk", "@smithy/*"],
+              message: "Only packages/email/src/ses.ts may import an AWS SDK; inject a client interface instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // apps/web: only apps/web/infra, the deployment adapters, may import an
+    // AWS SDK (CLAUDE.md, provider-neutral business logic; m1-hosted-connector
+    // design D2). apps/web/test/boundaries.test.ts checks the same.
+    files: ["apps/web/app/**/*.{ts,tsx}", "apps/web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@aws-sdk/*", "aws-sdk", "@smithy/*"],
+              message: "Only apps/web/infra may import an AWS SDK; inject an adapter instead.",
+            },
+          ],
+        },
       ],
     },
   },
