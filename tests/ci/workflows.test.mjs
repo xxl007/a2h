@@ -377,10 +377,13 @@ function assertVerifyJob(f) {
 }
 
 // --- m1-hosted-connector task 8.3: sign-in before the suites -------------------
-// The verify job admits two synthetic principals on the stage's allow-list,
-// reads the stage's mail sink, obtains tokens (A2H_TOKEN, A2H_TOKEN_2 through
-// GITHUB_ENV, masked) before the contract run, runs the web app's own flows
-// after the e2e, and removes the principals whatever happened.
+// The verify job reads the stage's mail sink, obtains tokens (A2H_TOKEN,
+// A2H_TOKEN_2 through GITHUB_ENV, masked) before the contract run and runs the
+// web app's own flows after the e2e. On a preview it first admits the two
+// synthetic principals on the preview's own allow-list parameter and removes
+// them whatever happened (design D7). On dev the allow-list is the owner's
+// (/a2h/shared/principal-allowlist): CI never writes it; the owner puts the
+// two QA addresses there once (runbook aws-bootstrap.md §15).
 const ALLOWLIST = ".github/scripts/allowlist.sh";
 const QA_EMAILS = ["qa-principal-a@a2h-protocol.org", "qa-principal-b@a2h-protocol.org"];
 
@@ -392,20 +395,28 @@ function assertSignIn(f, j, creds, at) {
   assert.deepEqual([env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2], QA_EMAILS, `${f} verify: the two synthetic QA addresses`);
   for (const e of QA_EMAILS) assert.match(e, /^qa-principal-[ab]@a2h-protocol\.org$/, "synthetic addresses under the product domain only");
 
-  const add = indexOf(j, (s) => runs(s, `${ALLOWLIST} add`), `${f} verify allow-list add`);
   const sink = indexOf(j, (s) => runs(s, "A2H_MAIL_SINK_BUCKET=") && runs(s, "GITHUB_ENV"), `${f} verify mail sink location`);
   const tokens = indexOf(j, (s) => runs(s, "@a2h/tests obtain-token"), `${f} verify obtain-token`);
-  const remove = indexOf(j, (s) => runs(s, `${ALLOWLIST} remove`), `${f} verify allow-list remove`);
   const webE2e = indexOf(j, (s) => runs(s, "@a2h/web e2e"), `${f} verify web e2e`);
-  assert.ok(creds < add && add < sink && sink < tokens && tokens < at[0], `${f} verify: credentials, allow-list add, sink, tokens, then the suites`);
-  assert.ok(at[E2E] < webE2e && webE2e < remove, `${f} verify: web e2e after the e2e, the allow-list removal after everything`);
-  assert.equal(steps(j)[add].id, "allowlist");
+  assert.ok(creds < sink && sink < tokens && tokens < at[0], `${f} verify: credentials, sink, tokens, then the suites`);
+  assert.ok(at[E2E] < webE2e, `${f} verify: web e2e after the e2e`);
   assert.equal(steps(j)[tokens].id, "tokens");
   assert.equal(steps(j)[webE2e].id, "web-e2e");
-  assert.match(steps(j)[add].run, /allowlist\.sh add "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: add both addresses of the job's stage`);
-  assert.match(steps(j)[remove].run, /allowlist\.sh remove "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: remove the same`);
-  assert.match(String(steps(j)[remove].if ?? ""), /always\(\)/, `${f}: the removal runs whatever the outcome`);
-  assert.match(String(steps(j)[remove].if ?? ""), /steps\.allowlist\.outcome == 'success'/, `${f}: nothing to remove when nothing was added`);
+  if (f === "preview.yml") {
+    const add = indexOf(j, (s) => runs(s, `${ALLOWLIST} add`), `${f} verify allow-list add`);
+    const remove = indexOf(j, (s) => runs(s, `${ALLOWLIST} remove`), `${f} verify allow-list remove`);
+    assert.ok(creds < add && add < sink, `${f} verify: the allow-list add runs with the deploy role, before the sink and the tokens`);
+    assert.ok(webE2e < remove, `${f} verify: the allow-list removal after everything`);
+    assert.equal(steps(j)[add].id, "allowlist");
+    assert.match(steps(j)[add].run, /allowlist\.sh add "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: add both addresses of the job's stage`);
+    assert.match(steps(j)[remove].run, /allowlist\.sh remove "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: remove the same`);
+    assert.match(String(steps(j)[remove].if ?? ""), /always\(\)/, `${f}: the removal runs whatever the outcome`);
+    assert.match(String(steps(j)[remove].if ?? ""), /steps\.allowlist\.outcome == 'success'/, `${f}: nothing to remove when nothing was added`);
+  } else {
+    // dev's list is the owner's: no step of the dev verify job touches allowlist.sh or writes a parameter.
+    assert.ok(!steps(j).some((s) => runs(s, "allowlist")), `${f} verify: CI never writes dev's allow-list (the owner's; runbook §15)`);
+    assert.ok(!steps(j).some((s) => runs(s, "ssm put-parameter")), `${f} verify: no SSM write`);
+  }
   // The bucket parameter is the one dev publishes (infra/config.ts).
   assert.match(steps(j)[sink].run, /aws ssm get-parameter --name \/a2h\/shared\/uploads-bucket /, `${f}: the sink is in the shared uploads bucket`);
   // The token step gets the URLs through env and writes GITHUB_ENV itself (masked); the suites read A2H_TOKEN from there.
@@ -437,6 +448,12 @@ test("allowlist.sh names the same parameter per stage as infra/config.ts allowli
   }
   const prod = spawnSync("bash", [script, "name", "prod"], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
   assert.equal(prod.status, 64, "prod must be a usage error: QA never signs in on prod");
+  // add and remove act on a preview's own parameter only; dev's and prod's are the owner's (no aws on PATH: refused before any call).
+  for (const [command, stage] of [["add", "dev"], ["remove", "dev"], ["add", "prod"]]) {
+    const r = spawnSync("bash", [script, command, stage, QA_EMAILS.join(",")], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+    assert.equal(r.status, 64, `${command} ${stage} must be refused: ${r.stderr}`);
+    assert.doesNotMatch(r.stdout + r.stderr, /@/, "no address in the output");
+  }
 });
 
 test("the uploads-bucket parameter the verify jobs read is the one infra publishes", async () => {

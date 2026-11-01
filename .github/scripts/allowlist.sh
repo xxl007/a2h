@@ -5,9 +5,13 @@
 # principals in on a preview (or dev) and take them out again when it ends.
 #
 # Usage: allowlist.sh name <stage>
-#        allowlist.sh add    <stage> <address>[,<address>...]
-#        allowlist.sh remove <stage> <address>[,<address>...]
-#   <stage> is dev or pr-<n>; prod is refused (QA never signs in on prod).
+#        allowlist.sh add    pr-<n> <address>[,<address>...]
+#        allowlist.sh remove pr-<n> <address>[,<address>...]
+#   `name` answers for dev and pr-<n>; prod is refused (QA never signs in on
+#   prod). `add` and `remove` act on a preview's own parameter only: dev's
+#   /a2h/shared/principal-allowlist and prod's are the owner's lists, which CI
+#   reads and never writes (runbook aws-bootstrap.md §15; the dev verify job
+#   signs in with the QA addresses the owner put there once).
 #   The parameter is /a2h/shared/principal-allowlist for dev and
 #   /a2h/pr-<n>/principal-allowlist for a preview (infra/config.ts
 #   allowlistParameterName; tests/ci/workflows.test.mjs checks they agree).
@@ -24,7 +28,7 @@ set -euo pipefail
 NONE="none"
 
 usage() {
-  echo "usage: $0 name <dev|pr-<n>> | $0 add|remove <dev|pr-<n>> <address>[,<address>...]" >&2
+  echo "usage: $0 name <dev|pr-<n>> | $0 add|remove pr-<n> <address>[,<address>...]" >&2
   exit 64
 }
 
@@ -59,6 +63,10 @@ case "$command" in
     exit 0 ;;
   add | remove)
     [ "$#" -eq 3 ] || usage
+    case "$stage" in
+      pr-*) ;;
+      *) echo "allowlist: $command on $stage refused: CI writes a preview's own parameter only; $name is the owner's list (runbook aws-bootstrap.md §15)" >&2; exit 64 ;;
+    esac
     ;;
   *) usage ;;
 esac

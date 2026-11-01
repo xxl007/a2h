@@ -84,8 +84,13 @@ run SEED=none ok add pr-51 "not-an-address"
 check "a value without @ is refused before any aws call" [ "$RC" -eq 64 ] && [ -z "$SSM" ]
 
 run SEED=none ok add dev "$A,$B"
-dev_shared() { [ "$RC" -eq 0 ] && [ "$VALUE" = "$A,$B" ] && [[ "$SSM" == *"/a2h/shared/principal-allowlist"* ]]; }
-check "dev's shared list may receive the test addresses (verify dev)" dev_shared
+dev_refused() { [ "$RC" -eq 64 ] && [ "$VALUE" = "none" ] && [ -z "$SSM" ] && [[ "$OUT" == *owner* ]]; }
+check "dev's shared list is the owner's: add is refused before any aws call (CI never writes it)" dev_refused
+run SEED="$OWNER,$A" ok remove dev "$A"
+dev_remove_refused() { [ "$RC" -eq 64 ] && [ "$VALUE" = "$OWNER,$A" ] && [ -z "$SSM" ]; }
+check "dev's shared list: remove is refused too" dev_remove_refused
+run SEED=none ok add prod "$A"
+check "prod: add is refused" prod_refused
 
 # --- remove -------------------------------------------------------------------
 run SEED="$OWNER,$A,$B" ok remove pr-51 "$A,$B"

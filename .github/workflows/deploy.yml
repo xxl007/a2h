@@ -131,16 +131,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      # id-token: the stage's deploy role, for two things only: the sign-in
-      # allow-list parameter and the stage's mail sink (m1-hosted-connector
-      # task 8.3). Nothing is deployed from here.
+      # id-token: the stage's deploy role, for the stage's mail sink only
+      # (m1-hosted-connector task 8.3). Nothing is deployed from here, and
+      # dev's sign-in allow-list is never written from here.
       id-token: write
       contents: read
     env:
       STAGE: dev
       A2H_STAGE: dev
-      # Synthetic QA principals (no mailbox exists; non-prod stages send nothing):
-      # admitted on the stage's allow-list for the run, removed at the end.
+      # Synthetic QA principals (no mailbox exists; non-prod stages send nothing).
+      # dev's allow-list (/a2h/shared/principal-allowlist) is the owner's and
+      # read-only for CI: the owner puts these two addresses on it once
+      # (runbook aws-bootstrap.md §15); without them the sign-in step fails
+      # and the summary says so.
       A2H_TEST_EMAIL: qa-principal-a@a2h-protocol.org
       A2H_TEST_EMAIL_2: qa-principal-b@a2h-protocol.org
     steps:
@@ -166,22 +169,15 @@ jobs:
       - name: Build the packages the suites import
         run: pnpm --filter "@a2h/tests^..." build
 
-      - name: Configure AWS credentials (OIDC; allow-list and mail sink only)
+      - name: Configure AWS credentials (OIDC; mail sink only)
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           role-to-assume: ${{ vars.AWS_DEV_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: a2h-verify-${{ env.STAGE }}
 
-      # Design D7 (group 8.3 fact): the stage's own SecureString; the two
-      # synthetic addresses are added for this run and removed at the end,
-      # other addresses untouched. The script prints counts, never an address.
-      - name: Admit the QA principals on the stage's sign-in allow-list
-        id: allowlist
-        run: .github/scripts/allowlist.sh add "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
-
-      # The uploads bucket (dev's, shared by previews) holds the stage's mail
-      # sink under tmp/<stage>/mail/ (design D6).
+      # The uploads bucket holds the stage's mail sink under tmp/dev/mail/
+      # (design D6).
       - name: Locate the stage's mail sink
         run: |
           bucket=$(aws ssm get-parameter --name /a2h/shared/uploads-bucket --query Parameter.Value --output text)
@@ -189,8 +185,7 @@ jobs:
 
       # Sign-in by magic link through the sink, consent, code, token (tests/lib/
       # obtain-token.ts): A2H_TOKEN and A2H_TOKEN_2 reach the suites through
-      # GITHUB_ENV, masked. The Allowlist refreshes within five minutes: the
-      # script retries the sign-in until then.
+      # GITHUB_ENV, masked. Needs the two QA addresses on the owner's dev list.
       - name: Sign in through the mail sink and obtain tokens
         id: tokens
         env:
@@ -250,10 +245,6 @@ jobs:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: pnpm --filter @a2h/web e2e
 
-      - name: Remove the QA principals from the sign-in allow-list
-        if: always() && steps.allowlist.outcome == 'success'
-        run: .github/scripts/allowlist.sh remove "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
-
       - name: Upload the Playwright report
         if: failure() && (steps.e2e.outcome == 'failure' || steps.web-e2e.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -269,7 +260,6 @@ jobs:
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
-          ALLOWLIST: ${{ steps.allowlist.outcome }}
           TOKENS: ${{ steps.tokens.outcome }}
           SMOKE: ${{ steps.smoke.outcome }}
           CONTRACT: ${{ steps.contract.outcome }}
@@ -290,8 +280,7 @@ jobs:
             echo
             echo "| Suite | Outcome |"
             echo "|---|---|"
-            echo "| allow-list | ${ALLOWLIST:-not run} |"
-            echo "| sign-in (tokens) | ${TOKENS:-not run} |"
+            echo "| sign-in (tokens; the QA addresses must be on dev's allow-list, runbook §15) | ${TOKENS:-not run} |"
             echo "| smoke | ${SMOKE:-not run} |"
             echo "| contract | ${CONTRACT:-not run} |"
             echo "| adversarial | ${ADVERSARIAL:-not run} |"
