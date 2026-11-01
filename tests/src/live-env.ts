@@ -74,8 +74,10 @@ export async function webUrl(stage: string = expectedStage()): Promise<string> {
   return publicUrls(stageInfo(stage), domain).web;
 }
 
-/** The stage's authorization server (design D1): `<web URL>/api/auth`. */
+/** The stage's authorization server (design D1): `<web URL>/api/auth`; A2H_ISSUER overrides it (local stage with the test authorization server). */
 export async function issuer(stage: string = expectedStage()): Promise<string> {
+  const explicit = process.env["A2H_ISSUER"]?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
   return `${await webUrl(stage)}/api/auth`;
 }
 
@@ -84,6 +86,23 @@ export async function devMcpUrl(): Promise<URL> {
   const { domain, publicUrls, stageInfo } = await import("../../infra/config.ts");
   if (!domain) throw new Error("infra/config.ts has no domain");
   return new URL(publicUrls(stageInfo("dev"), domain).mcp);
+}
+
+/**
+ * Whether the development stage runs the gate: it serves its protected-resource
+ * metadata (RFC 9728). dev deploys from `main`; until this change is on `main`,
+ * a preview's token cannot be refused there, and the scenarios that need the
+ * refusal are skipped with this as the reason, never passed or failed.
+ */
+export async function devGate(): Promise<{ on: true } | { on: false; reason: string }> {
+  const dev = await devMcpUrl();
+  try {
+    const res = await fetch(metadataUrl(dev), { signal: AbortSignal.timeout(10_000) });
+    if (res.status === 200) return { on: true };
+    return { on: false, reason: `dev serves no protected-resource metadata (HTTP ${res.status}): the gate is not deployed on dev (main) yet; in-process: apps/mcp/test/authorization.test.ts (issuer and audience)` };
+  } catch (e) {
+    return { on: false, reason: `dev's protected-resource metadata is unreachable (${(e as Error).name}); in-process: apps/mcp/test/authorization.test.ts` };
+  }
 }
 
 /** `<origin>/.well-known/oauth-protected-resource<mcp path>` (RFC 9728, path-aware). */
@@ -101,10 +120,16 @@ export interface GateExpectation {
   pingOpen: boolean;
 }
 
-/** What infra configures for the stage's gate (infra/service-env.ts), so the live tests assert the deployed state, not a wish. */
+/**
+ * What infra configures for the stage's gate (infra/service-env.ts), so the
+ * live tests assert the deployed state, not a wish. A2H_AUTH_REQUIRED and
+ * A2H_PING_OPEN (true/false) override it for the local stage
+ * (tests/local/stage.ts with A2H_LOCAL_AUTH=1), never for a deployed one.
+ */
 export async function gateExpectation(stage: string = expectedStage()): Promise<GateExpectation> {
   const { stageInfo } = await import("../../infra/config.ts");
   const { plainEnvironment } = await import("../../infra/service-env.ts");
   const env = plainEnvironment("mcp", stageInfo(stage));
-  return { authRequired: env["AUTH_REQUIRED"] === "true", pingOpen: env["PING_OPEN"] === "true" };
+  const flag = (name: string, fallback: string | undefined) => (process.env[name]?.trim() || fallback) === "true";
+  return { authRequired: flag("A2H_AUTH_REQUIRED", env["AUTH_REQUIRED"]), pingOpen: flag("A2H_PING_OPEN", env["PING_OPEN"]) };
 }
