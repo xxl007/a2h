@@ -606,7 +606,7 @@ Suites: **contract** = `tests/contract`, live; **adversarial** = `tests/adversar
 
 ### Adversarial additions (task 9.2)
 
-`adversarial/authorization.live.test.ts` (live, the verify jobs) and `authorization.local.test.ts` (in-process, `pnpm test`). Each case was first shown red against a weakened verifier on the local stage with the gate on (`A2H_LOCAL_AUTH=1 pnpm --filter @a2h/tests local-stage`, the printed token lines exported), with a one-line patch applied to the source, run, then reverted with `git checkout` (never committed); the red-run log is kept outside the repository and its summary is quoted in PR #59. Then green unpatched locally and on the preview.
+`adversarial/authorization.live.test.ts` (live, the verify jobs) and `authorization.local.test.ts` (in-process, `pnpm test`). Each case (A8 excepted, see its row) was first shown red against a weakened verifier on the local stage with the gate on (`A2H_LOCAL_AUTH=1 pnpm --filter @a2h/tests local-stage`, the printed token lines exported), with a one-line patch applied to the source, run, then reverted with `git checkout` (never committed); the red-run log is kept outside the repository and its summary is quoted in PR #59. Then green unpatched locally (79 pass, 0 fail over every contract file and the live adversarial suite, 2026-11-01); the preview run is pending the sign-in fix recorded in PR #59.
 
 | Case | Test | Weakening for the red run |
 |---|---|---|
@@ -617,7 +617,7 @@ Suites: **contract** = `tests/contract`, live; **adversarial** = `tests/adversar
 | A5 forged state across accounts | "case A5" (B redeems A's approval, with A's and with other arguments; A redeems B's; declines leave nothing) | `apps/mcp/src/session.ts`: the codec bound to a constant instead of the principal |
 | A6 token passthrough attempt | "case A6" live (a token as topic, inside the question, as a request id: never echoed); "case A6 (in-process)" (no log line, no outbound call of either service) | `apps/mcp/src/app.ts`: the access log line given the `Authorization` header |
 | A7 a second principal reading another's requests | "case A7" (by id, every status filter, both lists disjoint; A still sees its own) | `apps/mcp/src/tools/check-requests.ts`: the principal filter dropped |
-| A8 DCR flood | "case A8" (ten rapid registrations from one address: a 429 with a retry hint, at most five successes) | Better Auth's rate limiter is the web app's (`apps/web/src/auth/auth.ts` `rateLimit`); red run against a local `next start` with it disabled |
+| A8 DCR flood | "case A8" (ten rapid registrations from one address: a 429 with a retry hint, at most five successes) | Better Auth's rate limiter is the web app's (`apps/web/src/auth/auth.ts` `rateLimit`); the red run needs a local `next start` with it disabled and has **not been run yet**; the case is skipped on the local stage (no registration endpoint) and runs on a deployed stage |
 
 ### Running the sign-in step and the live suites by hand
 
