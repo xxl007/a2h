@@ -46,8 +46,6 @@ function ownResources(stage: StageInfo): Base {
   const db = masterAccess(stage, database);
   // Edge rate limit (m1-hosted-connector D5): REGIONAL on this ALB, CLOUDFRONT for the web.
   const edge = createEdgeAcls(stage, alb);
-  // The sign-in allow-list (D7): dev's is shared with previews.
-  createAllowlist(stage);
   return {
     cluster,
     alb,
@@ -109,6 +107,10 @@ export async function deploy(stageName: string, command: string) {
 
   // a2h/<stage>/signing and a2h/<stage>/approval: every stage creates its own.
   const secrets = createStageSecrets(stage);
+  // The sign-in allow-list (D7, group 8.3 fact): every stage creates its own
+  // parameter too (dev the shared name, a preview /a2h/pr-<n>/…), read by
+  // its web Lambda; a preview without it fails closed for everyone.
+  createAllowlist(stage);
   const deps = { stage, cluster, db, storage, email, secrets };
 
   const albUrl = albBaseUrl(stage, alb);
