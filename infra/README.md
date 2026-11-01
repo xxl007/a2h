@@ -9,7 +9,7 @@
 | Stage | Creates | Borrows from dev | removal / protect |
 |---|---|---|---|
 | `dev` | VPC (2 AZ, no NAT), ECS cluster, ALB, Aurora (pg 17, 0-4 ACU, pauses after 10 min, Data API on), `Uploads` bucket, SES domain identity for `a2h-protocol.org` (DKIM and DMARC records in the zone), 9 shared SSM parameters, the allow-list parameter `/a2h/shared/principal-allowlist`, web ACLs (REGIONAL on the ALB, CLOUDFRONT in us-east-1 for the web), MCP + worker services, Web | nothing | `retain` / `true` |
-| `pr-<n>` | MCP + worker services (`McpPr<n>`, `WorkerPr<n>`, Fargate Spot), two listener rules, Web | VPC, cluster, ALB (with dev's REGIONAL web ACL), dev's CLOUDFRONT web ACL on its distribution, dev's allow-list parameter, SES identity via `static get`; Aurora endpoint via the `aws.rds.getCluster` data source (not `Aurora.get`, see below); bucket by name only (not linked) | `remove` / `false` |
+| `pr-<n>` | MCP + worker services (`McpPr<n>`, `WorkerPr<n>`, Fargate Spot), two listener rules, Web, its own allow-list parameter `/a2h/pr-<n>/principal-allowlist` | VPC, cluster, ALB (with dev's REGIONAL web ACL), dev's CLOUDFRONT web ACL on its distribution, SES identity via `static get`; Aurora endpoint via the `aws.rds.getCluster` data source (not `Aurora.get`, see below); bucket by name only (not linked) | `remove` / `false` |
 | `prod` | everything of its own (Aurora min 0.5 ACU, no pause, Data API on since m1-hosted-connector D2, not yet deployed), its own web ACLs and `/a2h/prod/principal-allowlist`; publishes nothing | nothing | `retain` / `true` |
 
 Any other stage name is refused by `stageInfo()` so that a personal stage cannot create a second Aurora cluster by accident.
@@ -35,7 +35,7 @@ The mcp service receives the first three as `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT
 
 ## Sign-in allow-list (m1-hosted-connector D7)
 
-An SSM SecureString per environment (`allowlist.ts`): dev creates `/a2h/shared/principal-allowlist` (dev and every preview read it), prod creates `/a2h/prod/principal-allowlist`; previews create none. The deploy writes `none` (SSM refuses empty values; `ALLOWLIST_NONE`) and `ignoreChanges: ["value"]`, so the owner's value is never reverted by a later deploy. Value: addresses separated by commas, or `none`. The owner sets it with one line (`docs/runbooks/aws-bootstrap.md` §15).
+An SSM SecureString per stage (`allowlist.ts`): dev creates `/a2h/shared/principal-allowlist`, prod `/a2h/prod/principal-allowlist`, and every preview its own `/a2h/pr-<n>/principal-allowlist` (task 8.3 fact: a preview exists before the dev deploy of the change, and its parameter is removed with the stage by `sst remove`). The deploy writes `none` (SSM refuses empty values; `ALLOWLIST_NONE`) and `ignoreChanges: ["value"]`, so a value set afterwards is never reverted by a later deploy. Value: addresses separated by commas, or `none`. The owner sets dev's and prod's with one line (`docs/runbooks/aws-bootstrap.md` §15); on a preview the verify job adds the two QA test addresses before signing in and removes them when it ends (`.github/scripts/allowlist.sh`), and the preview comment prints the line the owner uses to add their own address.
 
 The web server function reads it. These are `web.ts` changes (Web-dev, group 5), with the names and the permission from `config.ts`:
 

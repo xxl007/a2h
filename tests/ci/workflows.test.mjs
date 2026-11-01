@@ -77,8 +77,9 @@ test("deploy.yml assumes vars.AWS_DEV_ROLE_ARN; preview and teardown assume vars
     jobs(f).flatMap(([, j]) =>
       steps(j).filter((s) => s.uses?.startsWith("aws-actions/configure-aws-credentials@")).map((s) => s.with?.["role-to-assume"]),
     );
-  assert.deepEqual(roles("deploy.yml"), ["${{ vars.AWS_DEV_ROLE_ARN }}"]);
-  assert.deepEqual(roles("preview.yml"), ["${{ vars.AWS_PREVIEW_ROLE_ARN }}"]);
+  // Two per workflow since m1-hosted-connector task 8.3: the deploy job and the verify job (allow-list, mail sink).
+  assert.deepEqual(roles("deploy.yml"), ["${{ vars.AWS_DEV_ROLE_ARN }}", "${{ vars.AWS_DEV_ROLE_ARN }}"]);
+  assert.deepEqual(roles("preview.yml"), ["${{ vars.AWS_PREVIEW_ROLE_ARN }}", "${{ vars.AWS_PREVIEW_ROLE_ARN }}"]);
   assert.deepEqual(roles("preview-teardown.yml"), ["${{ vars.AWS_PREVIEW_ROLE_ARN }}"]);
   // teardown.yml gets its credentials only through preview-teardown.yml.
   assert.deepEqual(roles("teardown.yml"), []);
@@ -334,10 +335,14 @@ function assertVerifyJob(f) {
   const j = verifyJob(f);
   assert.ok(j, `${f} has no verify job`);
   assert.ok(needsOf(j).includes("deploy"), `${f} verify does not need deploy`);
-  // Reads public URLs only: no AWS role, no OIDC token.
-  assert.equal(j.permissions?.["id-token"], undefined, `${f} verify must not hold id-token`);
+  // m1-hosted-connector task 8.3: the stage's deploy role, for the sign-in
+  // allow-list and the mail sink; still nothing deployed from here.
+  assert.equal(j.permissions?.["id-token"], "write", `${f} verify needs id-token for the deploy role`);
   assert.equal(j.permissions?.contents, "read", `${f} verify contents permission`);
-  assert.ok(!steps(j).some((s) => s.uses?.startsWith("aws-actions/")), `${f} verify configures AWS credentials`);
+  assert.equal(j["timeout-minutes"] <= 10, true, `${f} verify must stay under ten minutes (task 8.3)`);
+  const creds = indexOf(j, isCreds, `${f} verify AWS credentials`);
+  assert.equal(steps(j).filter(isCreds).length, 1, `${f} verify: one credentials step`);
+  assert.ok(!steps(j).some((s) => runs(s, "sst deploy") || runs(s, "sst remove") || runs(s, "db-migrate")), `${f} verify must not deploy, remove or migrate`);
   // Suites in order: smoke, contract, adversarial, e2e; each one a step of its own, so a failure turns the job red.
   const at = VERIFY_SUITES.map(([label, needle]) => indexOf(j, (s) => runs(s, needle), `${f} verify ${label}`));
   assert.deepEqual([...at].sort((a, b) => a - b), at, `${f} verify must run smoke, contract, adversarial, e2e in that order`);
@@ -348,6 +353,7 @@ function assertVerifyJob(f) {
     const s = steps(j)[i];
     assert.equal(s["continue-on-error"], undefined, `${f} verify ${s.name}: a failing suite must fail the job`);
   }
+  assertSignIn(f, j, creds, at);
   // Chromium with its system dependencies, before the e2e.
   const pw = indexOf(j, (s) => runs(s, "playwright install") && runs(s, "--with-deps") && runs(s, "chromium"), "playwright install");
   assert.ok(pw < at[E2E], `${f} verify installs Playwright after the e2e`);
@@ -370,6 +376,130 @@ function assertVerifyJob(f) {
   return j;
 }
 
+// --- m1-hosted-connector task 8.3: sign-in before the suites -------------------
+// The verify job reads the stage's mail sink, obtains tokens (A2H_TOKEN,
+// A2H_TOKEN_2 through GITHUB_ENV, masked) before the contract run and runs the
+// web app's own flows after the e2e. On a preview it first admits the two
+// synthetic principals on the preview's own allow-list parameter and removes
+// them whatever happened (design D7). On dev the allow-list is the owner's
+// (/a2h/shared/principal-allowlist): CI never writes it; the owner puts the
+// two QA addresses there once (runbook aws-bootstrap.md §15).
+const ALLOWLIST = ".github/scripts/allowlist.sh";
+const QA_EMAILS = ["qa-principal-a@a2h-protocol.org", "qa-principal-b@a2h-protocol.org"];
+
+function assertSignIn(f, j, creds, at) {
+  const env = { ...(wf[f].env ?? {}), ...(j.env ?? {}) };
+  const stage = f === "deploy.yml" ? "dev" : "pr-${{ github.event.pull_request.number }}";
+  assert.equal(env.STAGE, stage, `${f} verify STAGE`);
+  assert.equal(env.A2H_STAGE, stage, `${f} verify A2H_STAGE (the suites' expected stage)`);
+  assert.deepEqual([env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2], QA_EMAILS, `${f} verify: the two synthetic QA addresses`);
+  for (const e of QA_EMAILS) assert.match(e, /^qa-principal-[ab]@a2h-protocol\.org$/, "synthetic addresses under the product domain only");
+
+  const sink = indexOf(j, (s) => runs(s, "A2H_MAIL_SINK_BUCKET=") && runs(s, "GITHUB_ENV"), `${f} verify mail sink location`);
+  const tokens = indexOf(j, (s) => runs(s, "@a2h/tests obtain-token"), `${f} verify obtain-token`);
+  const webE2e = indexOf(j, (s) => runs(s, "@a2h/web e2e"), `${f} verify web e2e`);
+  assert.ok(creds < sink && sink < tokens && tokens < at[0], `${f} verify: credentials, sink, tokens, then the suites`);
+  assert.ok(at[E2E] < webE2e, `${f} verify: web e2e after the e2e`);
+  assert.equal(steps(j)[tokens].id, "tokens");
+  assert.equal(steps(j)[webE2e].id, "web-e2e");
+  if (f === "preview.yml") {
+    const add = indexOf(j, (s) => runs(s, `${ALLOWLIST} add`), `${f} verify allow-list add`);
+    const remove = indexOf(j, (s) => runs(s, `${ALLOWLIST} remove`), `${f} verify allow-list remove`);
+    assert.ok(creds < add && add < sink, `${f} verify: the allow-list add runs with the deploy role, before the sink and the tokens`);
+    assert.ok(webE2e < remove, `${f} verify: the allow-list removal after everything`);
+    assert.equal(steps(j)[add].id, "allowlist");
+    assert.match(steps(j)[add].run, /allowlist\.sh add "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: add both addresses of the job's stage`);
+    assert.match(steps(j)[remove].run, /allowlist\.sh remove "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: remove the same`);
+    assert.match(String(steps(j)[remove].if ?? ""), /always\(\)/, `${f}: the removal runs whatever the outcome`);
+    assert.match(String(steps(j)[remove].if ?? ""), /steps\.allowlist\.outcome == 'success'/, `${f}: nothing to remove when nothing was added`);
+  } else {
+    // dev's list is the owner's: no step of the dev verify job touches allowlist.sh or writes a parameter.
+    assert.ok(!steps(j).some((s) => runs(s, "allowlist")), `${f} verify: CI never writes dev's allow-list (the owner's; runbook §15)`);
+    assert.ok(!steps(j).some((s) => runs(s, "ssm put-parameter")), `${f} verify: no SSM write`);
+  }
+  // The bucket parameter is the one dev publishes (infra/config.ts).
+  assert.match(steps(j)[sink].run, /aws ssm get-parameter --name \/a2h\/shared\/uploads-bucket /, `${f}: the sink is in the shared uploads bucket`);
+  // The token step gets the URLs through env and writes GITHUB_ENV itself (masked); the suites read A2H_TOKEN from there.
+  assert.match(String(steps(j)[tokens].env?.A2H_WEB_URL ?? ""), /needs\.deploy\.outputs\.web/, `${f} tokens A2H_WEB_URL`);
+  assert.match(String(steps(j)[tokens].env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} tokens A2H_MCP_URL`);
+  assert.match(String(steps(j)[webE2e].env?.A2H_WEB_URL ?? ""), /needs\.deploy\.outputs\.web/, `${f} web e2e A2H_WEB_URL`);
+  for (const s of steps(j)) {
+    assert.doesNotMatch(JSON.stringify(s), /A2H_TOKEN/, `${f} verify ${s.name}: tokens travel through GITHUB_ENV only, never named in the workflow`);
+    assert.doesNotMatch(JSON.stringify(s), /secrets\./, `${f} verify ${s.name}: no repository secret`);
+  }
+  // The Verification outcome names the sign-in and web e2e failures.
+  const writer = steps(j).find((s) => runs(s, "FAILED") && runs(s, "JOB_STATUS"));
+  assert.ok(writer, `${f}: no outcome writer`);
+  assert.match(String(writer.env?.TOKENS ?? ""), /steps\.tokens\.outcome/, `${f}: the outcome reads the token step`);
+  assert.match(String(writer.env?.WEB_E2E ?? ""), /steps\.web-e2e\.outcome/, `${f}: the outcome reads the web e2e step`);
+  // The report upload covers the web app's Playwright output too.
+  const upload = steps(j).find((s) => s.uses?.startsWith("actions/upload-artifact@"));
+  assert.match(String(upload.with?.path ?? ""), /apps\/web\/test-results/, `${f}: web e2e traces kept on failure`);
+  assert.match(String(upload.if ?? ""), /steps\.web-e2e\.outcome == 'failure'/, `${f}: upload on a web e2e failure`);
+  // obtain-token writes a screenshot of the page it failed on under tests/test-results (no address in it).
+  assert.match(String(upload.if ?? ""), /steps\.tokens\.outcome == 'failure'/, `${f}: upload on a sign-in failure too`);
+  assert.match(String(upload.with?.path ?? ""), /tests\/test-results/, `${f}: the sign-in screenshot folder is uploaded`);
+}
+
+test("allowlist.sh names the same parameter per stage as infra/config.ts allowlistParameterName, and refuses prod", async () => {
+  const { allowlistParameterName, stageInfo } = await import("../../infra/config.ts");
+  const script = join(ROOT, ALLOWLIST);
+  for (const stage of ["dev", "pr-12", "pr-19899"]) {
+    const r = spawnSync("bash", [script, "name", stage], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), allowlistParameterName(stageInfo(stage)), stage);
+  }
+  const prod = spawnSync("bash", [script, "name", "prod"], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+  assert.equal(prod.status, 64, "prod must be a usage error: QA never signs in on prod");
+  // add and remove act on a preview's own parameter only; dev's and prod's are the owner's (no aws on PATH: refused before any call).
+  for (const [command, stage] of [["add", "dev"], ["remove", "dev"], ["add", "prod"]]) {
+    const r = spawnSync("bash", [script, command, stage, QA_EMAILS.join(",")], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+    assert.equal(r.status, 64, `${command} ${stage} must be refused: ${r.stderr}`);
+    assert.doesNotMatch(r.stdout + r.stderr, /@/, "no address in the output");
+  }
+});
+
+test("the uploads-bucket parameter the verify jobs read is the one infra publishes", async () => {
+  const { SHARED_PARAMETERS, sharedParameterName } = await import("../../infra/config.ts");
+  const name = sharedParameterName(SHARED_PARAMETERS.uploadsBucket);
+  for (const f of ["preview.yml", "deploy.yml"]) {
+    const s = steps(verifyJob(f)).find((st) => runs(st, "A2H_MAIL_SINK_BUCKET="));
+    assert.ok(s, `${f}: no sink step`);
+    assert.ok(s.run.includes(`--name ${name} `), `${f}: reads ${name}`);
+  }
+});
+
+test("preview.yml: the preview comment carries the sign-in URL and the owner's allow-list line for the stage's own parameter", () => {
+  const deploy = wf["preview.yml"].jobs.deploy;
+  const s = steps(deploy).find((st) => runs(st, "preview-comment.md") && runs(st, "cat >"));
+  assert.ok(s, "no comment-writing step");
+  const dir = mkdtempSync(join(tmpdir(), "a2h-comment-"));
+  try {
+    const run = (web) =>
+      spawnSync("bash", ["-euo", "pipefail", "-c", s.run], {
+        encoding: "utf8",
+        env: {
+          PATH: process.env.PATH,
+          RUNNER_TEMP: dir,
+          OUT_STAGE: "pr-12",
+          OUT_WEB: web,
+          OUT_MCP: "https://mcp.dev.a2h-protocol.org/pr-12/mcp",
+          HEAD_SHA: "abc",
+          RUN_URL: "https://example/run",
+        },
+      });
+    assert.equal(run("https://pr-12.dev.a2h-protocol.org").status, 0);
+    const md = readFileSync(join(dir, "preview-comment.md"), "utf8");
+    assert.match(md, /\| Sign in \| https:\/\/pr-12\.dev\.a2h-protocol\.org\/sign-in \|/);
+    assert.match(md, /--name \/a2h\/pr-12\/principal-allowlist --type SecureString --overwrite/);
+    assert.match(md, /MCP endpoint \(connector URL\)/);
+    assert.equal(run("http://d111.cloudfront.net").status, 0);
+    assert.match(readFileSync(join(dir, "preview-comment.md"), "utf8"), /\| Sign in \| not deployed \|/, "no sign-in URL without https");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("preview.yml: a verify job needs deploy and runs only when deploy reports deployed == 'true'", () => {
   const deploy = wf["preview.yml"].jobs.deploy;
   const outs = deploy.outputs ?? {};
@@ -385,7 +515,7 @@ test("preview.yml: a verify job needs deploy and runs only when deploy reports d
   const j = assertVerifyJob("preview.yml");
   assert.equal(j.name, "verify pr-${{ github.event.pull_request.number }}");
   assert.match(String(j.if ?? ""), /needs\.deploy\.outputs\.deployed == 'true'/, "verify is not gated on deployed");
-  assert.deepEqual(j.permissions, { contents: "read", "pull-requests": "write" });
+  assert.deepEqual(j.permissions, { "id-token": "write", contents: "read", "pull-requests": "write" });
   const smoke = stepRunning(j, "tests/ci/preview-smoke.sh");
   assert.match(String(smoke.env?.MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, "smoke derives the ALB host from the mcp output");
   assertSmokeKeepsScheme(smoke);
@@ -427,6 +557,8 @@ test("preview.yml: verify appends a Verification line, with the run link, to the
   assert.match(writer.run, /passed/);
   assert.match(writer.run, /FAILED/);
   assert.match(writer.run, /FAILED \(adversarial\)/, "an adversarial failure is named in the Verification line");
+  assert.match(writer.run, /FAILED \(sign-in/, "a sign-in failure is named in the Verification line");
+  assert.match(writer.run, /FAILED \(web e2e\)/, "a web e2e failure is named in the Verification line");
   assert.match(String(writer.env?.ADVERSARIAL ?? ""), /steps\.adversarial\.outcome/);
   assert.match(String(writer.env?.RUN_URL ?? ""), /actions\/runs\/\$\{\{ github\.run_id \}\}/);
   assert.match(String(writer.if ?? ""), /always\(\)/);

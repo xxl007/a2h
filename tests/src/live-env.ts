@@ -45,3 +45,91 @@ export function healthUrl(url: URL = mcpUrl()): URL {
   health.search = "";
   return health;
 }
+
+// ---- m1-hosted-connector: tokens, hostnames and the gate's expected state ----
+// The expectations come from the same source as the deployment (infra/config.ts
+// publicUrls, infra/service-env.ts plainEnvironment), never from a copy here.
+
+/** The signed-in principal's access token (A2H_TOKEN, from tests/lib/obtain-token.ts). Undefined: the suites run tokenless (gate off). */
+export function bearerToken(): string | undefined {
+  return process.env["A2H_TOKEN"]?.trim() || undefined;
+}
+
+/** A second principal's token (A2H_TOKEN_2): the "another account" of the specs. */
+export function secondToken(): string | undefined {
+  return process.env["A2H_TOKEN_2"]?.trim() || undefined;
+}
+
+/** A token of the first principal without the `a2h` scope (A2H_TOKEN_NOSCOPE), when the sign-in step could mint one. */
+export function noScopeToken(): string | undefined {
+  return process.env["A2H_TOKEN_NOSCOPE"]?.trim() || undefined;
+}
+
+/** The web URL of the stage under test: A2H_WEB_URL, else derived from the product domain. */
+export async function webUrl(stage: string = expectedStage()): Promise<string> {
+  const explicit = process.env["A2H_WEB_URL"]?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+  const { domain, publicUrls, stageInfo } = await import("../../infra/config.ts");
+  if (!domain) throw new Error("A2H_WEB_URL is not set and infra/config.ts has no domain");
+  return publicUrls(stageInfo(stage), domain).web;
+}
+
+/** The stage's authorization server (design D1): `<web URL>/api/auth`; A2H_ISSUER overrides it (local stage with the test authorization server). */
+export async function issuer(stage: string = expectedStage()): Promise<string> {
+  const explicit = process.env["A2H_ISSUER"]?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+  return `${await webUrl(stage)}/api/auth`;
+}
+
+/** The development stage's MCP URL (the "other stage" of "Preview tokens stay on the preview"). */
+export async function devMcpUrl(): Promise<URL> {
+  const { domain, publicUrls, stageInfo } = await import("../../infra/config.ts");
+  if (!domain) throw new Error("infra/config.ts has no domain");
+  return new URL(publicUrls(stageInfo("dev"), domain).mcp);
+}
+
+/**
+ * Whether the development stage runs the gate: it serves its protected-resource
+ * metadata (RFC 9728). dev deploys from `main`; until this change is on `main`,
+ * a preview's token cannot be refused there, and the scenarios that need the
+ * refusal are skipped with this as the reason, never passed or failed.
+ */
+export async function devGate(): Promise<{ on: true } | { on: false; reason: string }> {
+  const dev = await devMcpUrl();
+  try {
+    const res = await fetch(metadataUrl(dev), { signal: AbortSignal.timeout(10_000) });
+    if (res.status === 200) return { on: true };
+    return { on: false, reason: `dev serves no protected-resource metadata (HTTP ${res.status}): the gate is not deployed on dev (main) yet; in-process: apps/mcp/test/authorization.test.ts (issuer and audience)` };
+  } catch (e) {
+    return { on: false, reason: `dev's protected-resource metadata is unreachable (${(e as Error).name}); in-process: apps/mcp/test/authorization.test.ts` };
+  }
+}
+
+/** `<origin>/.well-known/oauth-protected-resource<mcp path>` (RFC 9728, path-aware). */
+export function metadataUrl(url: URL = mcpUrl()): URL {
+  const out = new URL(url);
+  out.pathname = `/.well-known/oauth-protected-resource${url.pathname.replace(/\/$/, "")}`;
+  out.search = "";
+  return out;
+}
+
+export interface GateExpectation {
+  /** AUTH_REQUIRED on the mcp service of this stage. */
+  authRequired: boolean;
+  /** PING_OPEN: the handshake, tools/list and `ping` admitted without a token. */
+  pingOpen: boolean;
+}
+
+/**
+ * What infra configures for the stage's gate (infra/service-env.ts), so the
+ * live tests assert the deployed state, not a wish. A2H_AUTH_REQUIRED and
+ * A2H_PING_OPEN (true/false) override it for the local stage
+ * (tests/local/stage.ts with A2H_LOCAL_AUTH=1), never for a deployed one.
+ */
+export async function gateExpectation(stage: string = expectedStage()): Promise<GateExpectation> {
+  const { stageInfo } = await import("../../infra/config.ts");
+  const { plainEnvironment } = await import("../../infra/service-env.ts");
+  const env = plainEnvironment("mcp", stageInfo(stage));
+  const flag = (name: string, fallback: string | undefined) => (process.env[name]?.trim() || fallback) === "true";
+  return { authRequired: flag("A2H_AUTH_REQUIRED", env["AUTH_REQUIRED"]), pingOpen: flag("A2H_PING_OPEN", env["PING_OPEN"]) };
+}

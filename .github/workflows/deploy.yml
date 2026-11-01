@@ -120,17 +120,32 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # dev proves itself after each deploy: smoke (curl), MCP contract tests,
-  # the adversarial suite's live half and web e2e against dev's own URLs; the workflow is red when any fails. The
-  # 61-minute idle-stream test stays opt-in, by hand (tests/README.md).
-  # No AWS credentials: it only reads public URLs.
+  # dev proves itself after each deploy: sign-in through dev's mail sink (a
+  # token for the suites), smoke (curl), MCP contract tests, the adversarial
+  # suite's live half, web e2e and the web app's own flows against dev's URLs;
+  # the workflow is red when any fails. The 61-minute idle-stream test stays
+  # opt-in, by hand (tests/README.md). Under ten minutes (task 8.3).
   verify:
     name: verify dev
     needs: deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
+      # id-token: the stage's deploy role, for the stage's mail sink only
+      # (m1-hosted-connector task 8.3). Nothing is deployed from here, and
+      # dev's sign-in allow-list is never written from here.
+      id-token: write
       contents: read
+    env:
+      STAGE: dev
+      A2H_STAGE: dev
+      # Synthetic QA principals (no mailbox exists; non-prod stages send nothing).
+      # dev's allow-list (/a2h/shared/principal-allowlist) is the owner's and
+      # read-only for CI: the owner puts these two addresses on it once
+      # (runbook aws-bootstrap.md §15); without them the sign-in step fails
+      # and the summary says so.
+      A2H_TEST_EMAIL: qa-principal-a@a2h-protocol.org
+      A2H_TEST_EMAIL_2: qa-principal-b@a2h-protocol.org
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -154,6 +169,30 @@ jobs:
       - name: Build the packages the suites import
         run: pnpm --filter "@a2h/tests^..." build
 
+      - name: Configure AWS credentials (OIDC; mail sink only)
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: a2h-verify-${{ env.STAGE }}
+
+      # The uploads bucket holds the stage's mail sink under tmp/dev/mail/
+      # (design D6).
+      - name: Locate the stage's mail sink
+        run: |
+          bucket=$(aws ssm get-parameter --name /a2h/shared/uploads-bucket --query Parameter.Value --output text)
+          echo "A2H_MAIL_SINK_BUCKET=$bucket" >> "$GITHUB_ENV"
+
+      # Sign-in by magic link through the sink, consent, code, token (tests/lib/
+      # obtain-token.ts): A2H_TOKEN and A2H_TOKEN_2 reach the suites through
+      # GITHUB_ENV, masked. Needs the two QA addresses on the owner's dev list.
+      - name: Sign in through the mail sink and obtain tokens
+        id: tokens
+        env:
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: pnpm --filter @a2h/tests obtain-token
+
       - name: Smoke (dev health)
         id: smoke
         env:
@@ -168,7 +207,6 @@ jobs:
         id: contract
         env:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
-          A2H_STAGE: dev
         run: pnpm --filter @a2h/tests contract
 
       # Adversarial suite, live half (m1-protocol-connector task 7.2).
@@ -176,7 +214,6 @@ jobs:
         id: adversarial
         env:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
-          A2H_STAGE: dev
         run: pnpm --filter @a2h/tests adversarial
 
       - name: Wait for the web URL
@@ -197,28 +234,39 @@ jobs:
         env:
           A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
-          A2H_STAGE: dev
         run: pnpm --filter @a2h/tests e2e
 
+      # The sign-in, consent, client-registration and accessibility flows of
+      # apps/web against this stage, through the sink (group 5, wired in 8.3).
+      - name: Web e2e (sign-in, consent, clients)
+        id: web-e2e
+        env:
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: pnpm --filter @a2h/web e2e
+
       - name: Upload the Playwright report
-        if: failure() && steps.e2e.outcome == 'failure'
+        if: failure() && (steps.tokens.outcome == 'failure' || steps.e2e.outcome == 'failure' || steps.web-e2e.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-dev
           path: |
             tests/playwright-report
             tests/test-results
+            apps/web/test-results
           retention-days: 14
 
       - name: Summary
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
+          TOKENS: ${{ steps.tokens.outcome }}
           SMOKE: ${{ steps.smoke.outcome }}
           CONTRACT: ${{ steps.contract.outcome }}
           ADVERSARIAL: ${{ steps.adversarial.outcome }}
           WEB: ${{ steps.web.outcome }}
           E2E: ${{ steps.e2e.outcome }}
+          WEB_E2E: ${{ steps.web-e2e.outcome }}
           WEB_URL: ${{ needs.deploy.outputs.web }}
           MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: |
@@ -232,11 +280,13 @@ jobs:
             echo
             echo "| Suite | Outcome |"
             echo "|---|---|"
+            echo "| sign-in (tokens; the QA addresses must be on dev's allow-list, runbook §15) | ${TOKENS:-not run} |"
             echo "| smoke | ${SMOKE:-not run} |"
             echo "| contract | ${CONTRACT:-not run} |"
             echo "| adversarial | ${ADVERSARIAL:-not run} |"
             echo "| web reachable | ${WEB:-not run} |"
             echo "| e2e | ${E2E:-not run} |"
+            echo "| web e2e | ${WEB_E2E:-not run} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   disabled:
