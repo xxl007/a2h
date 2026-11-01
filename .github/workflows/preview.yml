@@ -411,7 +411,7 @@ jobs:
         run: .github/scripts/allowlist.sh remove "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
 
       - name: Upload the Playwright report
-        if: failure() && (steps.e2e.outcome == 'failure' || steps.web-e2e.outcome == 'failure')
+        if: failure() && (steps.tokens.outcome == 'failure' || steps.e2e.outcome == 'failure' || steps.web-e2e.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report-pr-${{ github.event.pull_request.number }}

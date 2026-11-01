@@ -436,6 +436,9 @@ function assertSignIn(f, j, creds, at) {
   const upload = steps(j).find((s) => s.uses?.startsWith("actions/upload-artifact@"));
   assert.match(String(upload.with?.path ?? ""), /apps\/web\/test-results/, `${f}: web e2e traces kept on failure`);
   assert.match(String(upload.if ?? ""), /steps\.web-e2e\.outcome == 'failure'/, `${f}: upload on a web e2e failure`);
+  // obtain-token writes a screenshot of the page it failed on under tests/test-results (no address in it).
+  assert.match(String(upload.if ?? ""), /steps\.tokens\.outcome == 'failure'/, `${f}: upload on a sign-in failure too`);
+  assert.match(String(upload.with?.path ?? ""), /tests\/test-results/, `${f}: the sign-in screenshot folder is uploaded`);
 }
 
 test("allowlist.sh names the same parameter per stage as infra/config.ts allowlistParameterName, and refuses prod", async () => {

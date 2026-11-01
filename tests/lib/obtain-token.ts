@@ -22,8 +22,9 @@
 // path), A2H_TEST_EMAIL (principal A), A2H_TEST_EMAIL_2 (principal B,
 // optional), A2H_MAIL_SINK_BUCKET or A2H_MAIL_SINK_DIR.
 // Run: pnpm --filter @a2h/tests obtain-token -- --out /path/tokens.env
-import { appendFileSync, writeFileSync } from "node:fs";
-import { pathToFileURL } from "node:url";
+import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, type Browser, type BrowserContext } from "@playwright/test";
 import { expectedStage, mcpUrl, requireEnv } from "../src/live-env.ts";
 import { sinkClientFromEnv, waitForMagicLink, type SinkObjectClient } from "./mail-sink.ts";
@@ -124,7 +125,7 @@ export async function obtainToken(
   browser: Browser,
   target: SignInTarget,
   email: string,
-  options: { clientId: string; scope?: string; context?: BrowserContext; retry?: RetryOptions },
+  options: { clientId: string; scope?: string; context?: BrowserContext; retry?: RetryOptions; diagnosticsLabel?: string },
 ): Promise<Grant> {
   const issuer = issuerOf(target.webUrl);
   const context = options.context ?? (await browser.newContext());
@@ -135,6 +136,17 @@ export async function obtainToken(
     await route.fulfill({ status: 200, contentType: "text/plain", body: "A2H QA client callback" });
   });
   try {
+    return await drive();
+  } catch (e) {
+    // What the browser showed when it failed: path, headings and button names (never a field's value), and a screenshot
+    // under tests/test-results/ (the verify jobs upload that folder on failure). Nothing here names an address.
+    throw new Error(`${(e as Error).message.split("\n")[0]} ${await describePage(page, options.diagnosticsLabel ?? "obtain-token")}`, { cause: e });
+  } finally {
+    await page.close().catch(() => undefined);
+    if (!options.context) await context.close().catch(() => undefined);
+  }
+
+  async function drive(): Promise<Grant> {
     const { verifier, challenge } = pkce();
     const state = pkce().verifier.slice(0, 16);
     const authorize = authorizeUrl(issuer, { clientId: options.clientId, resource: target.mcpUrl, challenge, state, scope: options.scope ?? ALL_SCOPES });
@@ -189,9 +201,23 @@ export async function obtainToken(
       scopes: scopesOf(claims),
       expiresAt: claims.exp ?? 0,
     };
-  } finally {
-    await page.close().catch(() => undefined);
-    if (!options.context) await context.close().catch(() => undefined);
+  }
+}
+
+/** The failing page, for the job log: path, headings, button names and their disabled state; a screenshot file. No field values. */
+export async function describePage(page: import("@playwright/test").Page, label: string): Promise<string> {
+  try {
+    const path = new URL(page.url()).pathname;
+    const headings = await page.getByRole("heading").allTextContents().catch(() => [] as string[]);
+    const buttons = await page.getByRole("button").evaluateAll((els) => els.map((el) => `${el.textContent?.trim() ?? ""}${(el as HTMLButtonElement).disabled ? " (disabled)" : ""}`)).catch(() => [] as string[]);
+    const alerts = await page.getByRole("alert").allTextContents().catch(() => [] as string[]);
+    const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "test-results");
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, `${label}-${Date.now()}.png`);
+    await page.screenshot({ path: file, fullPage: true }).catch(() => undefined);
+    return `[page ${path}; headings ${JSON.stringify(headings)}; buttons ${JSON.stringify(buttons)}; alerts ${JSON.stringify(alerts.filter((a) => a.trim() !== ""))}; screenshot ${file}]`;
+  } catch {
+    return "[page state unavailable]";
   }
 }
 
@@ -205,12 +231,12 @@ export interface Obtained {
 export async function obtainAll(browser: Browser, target: SignInTarget, emails: { a: string; b?: string }, log: (line: string) => void): Promise<Obtained> {
   const { clientId, registration } = await clientIdFor(target.webUrl);
   log(`client: ${registration} (${clientId})`);
-  const a = await obtainToken(browser, target, emails.a, { clientId, retry: { log } });
+  const a = await obtainToken(browser, target, emails.a, { clientId, retry: { log }, diagnosticsLabel: "obtain-token-a" });
   log(`principal A: sub ${a.principalId}, scopes [${a.scopes.join(" ")}], expires in ${a.expiresAt - Math.floor(Date.now() / 1000)} s`);
   if (!a.scopes.includes("a2h")) throw new Error("principal A's token lacks the a2h scope");
   const out: Obtained = { A2H_TOKEN: a.accessToken };
   if (emails.b) {
-    const b = await obtainToken(browser, target, emails.b, { clientId, retry: { log } });
+    const b = await obtainToken(browser, target, emails.b, { clientId, retry: { log }, diagnosticsLabel: "obtain-token-b" });
     log(`principal B: sub ${b.principalId}, scopes [${b.scopes.join(" ")}]`);
     if (b.principalId === a.principalId) throw new Error("the two addresses map to one principal");
     out.A2H_TOKEN_2 = b.accessToken;
