@@ -4,15 +4,38 @@ Owners: **PD** protocol-dev (apps/mcp, apps/worker, packages/protocol, packages/
 
 ## 1. Domain, TLS and email identity (Owner, then PD; gates everything else)
 
-- [ ] 1.1 Owner: register the chosen domain or delegate it to a Route 53 hosted zone in the A2H account (runbook §8) and request SES production access on it (§9); verify `dig NS <domain>` returns the Route 53 name servers and the SES request is filed (case id noted in this file). Domain `a2h-protocol.org` registered with its hosted zone on 2026-10-30 (Route 53 email); the SES production-access request is still to file (after task 1.2 creates the identity)
+- [x] 1.1 Owner: register the chosen domain or delegate it to a Route 53 hosted zone in the A2H account (runbook §8) and request SES production access on it (§9); verify `dig NS <domain>` returns the Route 53 name servers and the SES request is filed (case id noted in this file). Domain `a2h-protocol.org` registered with its hosted zone on 2026-10-30 (Route 53 email); SES production access requested from the CLI on 2026-10-31 22:35 UTC (identity verified, DKIM SUCCESS; review status PENDING; website given as https://dev.a2h-protocol.org because the apex is not served; case id to add from the confirmation email)
 - [x] 1.2 PD: set `domain` in `infra/config.ts`, add the SES identity for the domain (`infra/email.ts`, `emailSender`), enable the Data API on the prod cluster definition (D2) without deploying prod; verify `infra/test` asserts the hostnames of `platform/hosted-endpoint` "Stage hostnames…", that the listener is `443/https` with the 80 redirect, and that the SES identity's DNS records are created by the deploy — done in PR #52 (merged to main 2026-10-31): `domain`, SES identity, Data API on prod, `infra/test/domain.test.ts`
 - [x] 1.3 PD: merge and deploy to dev; verify `https://mcp.dev.<domain>/mcp` answers `tools/list`, `http://…` returns 301 to HTTPS ("HTTP redirected"), the certificate is valid for the name, and the preview URL in the PR comment is under the domain ("Development hostnames resolve"); update `tests/contract` URL handling only if the deploy outputs changed shape — done 2026-10-31: dev deploy run 41100640613 green; `https://mcp.dev.a2h-protocol.org/mcp` answers over TLS, `http://` → 301, certificate valid, PR comments print domain URLs
 
 ## 2. Spike: claude.ai custom connector and the approval form (Owner with PD; decision 6 before group 5 is designed around it)
 
 - [ ] 2.1 PD: confirm dev at head serves `request_human` with the form over HTTPS from MCP Inspector in modern era with no token (the gate does not exist yet); verify the `input_required` round trip completes and record the Inspector version
-- [ ] 2.2 Owner: in claude.ai add a custom connector to `https://mcp.dev.<domain>/mcp` with "No sign-in"; ask for a human who can judge a leaflet, then ask to send a short question to `sim-mv-7f3c`; report whether an approval dialog with the pre-filled question appeared and what happened on accept (request id) or what the client showed instead; PD pastes the dev log lines (methods, protocol version, no bodies) under "Spike result" in this file
-- [ ] 2.3 PM: record the outcome and the owner's decision 6 in this file and in design.md D9; if the form did not render, write the spec delta for the chosen fallback as an amendment of this change before group 5 starts
+- [x] 2.2 Owner: in claude.ai add a custom connector to `https://mcp.dev.<domain>/mcp` with "No sign-in"; ask for a human who can judge a leaflet, then ask to send a short question to `sim-mv-7f3c`; report whether an approval dialog with the pre-filled question appeared and what happened on accept (request id) or what the client showed instead; PD pastes the dev log lines (methods, protocol version, no bodies) under "Spike result" in this file — done 2026-10-31 23:20 UTC: the approval form rendered in claude.ai (web, Max plan, Opus 5.5, tool permissions "Manual"); see Spike result
+- [x] 2.3 PM: record the outcome and the owner's decision 6 in this file and in design.md D9; if the form did not render, write the spec delta for the chosen fallback as an amendment of this change before group 5 starts — done: decision 6 = keep the MCP `input_required` approval form, no fallback (recorded in design.md D9); readability follow-up is 2.4
+
+- [~] 2.4 Withdrawn (owner decision 7, 2026-11-01): the approval form is replaced by a hosted approval page in the next change, so no copy or schema work on the `input_required` form; M1 ships the form as it is. Design's section in design.md and the spec delta "Approval shows the exact wording" of 8115c94 are withdrawn (delta removed, section kept as a record).
+
+### Spike result (2026-10-31, dev at main 1b9e86b, no gate)
+
+Client: claude.ai web, Max plan, model Opus 5.5, custom connector "A2H dev" at `https://mcp.dev.a2h-protocol.org/mcp`, no sign-in, tool permissions "Manual" (claude.ai asks before each tool call; that prompt shows the raw tool arguments and is not our form).
+
+Dev log (methods and outcomes only, UTC):
+- 23:09:36 `find_humans` ok, 1 result (sim-mv-7f3c).
+- 23:11:36 `request_human` → `outside_participant_rules` (1 h expiry; the persona promises 6 h: `latency_mismatch`).
+- 23:18:55 `request_human` → `outside_participant_rules` (6 h expiry set on the client's clock, still short of 6 h at the server).
+- 23:20:47 `request_human` → `input_required` (12 h expiry). claude.ai rendered the form: message, the `question` field pre-filled and editable, buttons "Decline" and "Submit".
+- 23:25:08 accept on the form → `request_human` ok, request `A2H-7aa6`, state `sent`, hold €35.00; worker: delivered 23:25:11, simulated answer stored 23:25:32 (`answered`).
+- 2026-11-01 ~07:10 UTC `check_requests` from claude.ai: `A2H-7aa6` answered, verdict yes, confidence 4/5, marked simulated ("Margaret Vale (simulated)", no person asked), cleared €33.13 of the €35.00 hold, €1.87 released. claude.ai summarised it correctly and warned the answer was simulated.
+- Decision 2 (owner, 2026-11-01): principal time zone comes with the principal dashboard in M2; M1 prints the expiry with its UTC offset.
+- Two POST `/mcp` held about 66 s each with no tool call inside (the client keeping a stream open).
+
+Decision 6: the form renders; keep the approval form, no fallback. Findings:
+1. Rendering (task 2.4): claude.ai collapses newlines, so the bulleted message became one paragraph; newlines inside the `question` default show as replacement characters; the client names its buttons itself ("Submit"), so "Accept = Send" in our text is wrong there; the expiry is a raw ISO timestamp.
+2. Error detail (follow-up, protocol): the three refusals told the client only "outside the participant's published rules". The latency promise is public (shown by `find_humans`), so a specific `latency_mismatch` detail would not leak a private rule and would have saved two attempts. Candidate for M3's error-detail review; recorded here, not changed in this change.
+3. The PR #26 validation text ("one-hour expiry" to sim-mv-7f3c) is wrong since the latency check landed; the Gate 2 script of this change says 12 hours.
+
+Decision 7 (owner, 2026-11-01, after the readable-form prototype): the host-rendered form stays unreadable by construction (the client owns layout and buttons), so approval moves to a **hosted approval page** in `apps/web`: `request_human` stores a draft and returns a link (MCP URL elicitation where the host supports it, a plain link in the result elsewhere); the signed-in principal edits the question, sees the facts and the attachments, and only "Send · hold €N" on that page creates the request and the hold; the agent learns the outcome through `check_requests` or the elicitation completing. Reasons: the same surface serves every host, Claude Code included, and it is the only one with room for attachments the participant must consult and for later answer formats (voice, video, interactive forms). Placement: M1 closes with the form it has; the page is the next change, before `m2-design-foundations`, since it is the first screen the design system must serve. Consequences for the paperwork of that change: PRD §4 request-card paragraph and ADR 0003 item 6 (the MCP App card is no longer the plan); task 2.4 withdrawn here.
 
 ## 3. Database (PD writes, QA tests the scripts)
 
@@ -59,7 +82,7 @@ Owners: **PD** protocol-dev (apps/mcp, apps/worker, packages/protocol, packages/
 
 ## 10. Review and gate (PM)
 
-- [ ] 10.1 ADR 0004 "Principal identity and connector authorization" (D1, D2, D8 and the token format) and ADR 0001 amendment 4 (Data API for the web app; WAF CloudFront scope in us-east-1); verify both are linked from design.md and `docs/decisions/` lists them
+- [x] 10.1 ADR 0004 "Principal identity and connector authorization" (D1, D2, D8 and the token format) and ADR 0001 amendment 4 (Data API for the web app; WAF CloudFront scope in us-east-1); verify both are linked from design.md and `docs/decisions/` lists them — done 2026-11-01: `docs/decisions/0004-principal-identity-and-connector-authorization.md` (status proposed until Gate 2) and ADR 0001 amendment 2 (items 7 Data API, 8 CloudFront ACL in us-east-1, 9 domain); linked from design.md D1 and D2
 - [ ] 10.2 Cold review by the reviewer agent on the change PR (missing tests, spec drift, the one rule: a token's principal is the only principal; nothing served on a wrong-audience token); verify findings are resolved or recorded in this file
 - [ ] 10.3 Gate 2 post: what shipped, the connector URL, the sign-in URL and the allow-list line for the owner, the hosted-client matrix, issues closed, deliberately not done; verify the owner's validation from claude.ai is recorded before archive
 
