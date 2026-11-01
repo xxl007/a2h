@@ -6,7 +6,7 @@
 // passed since it began. Nothing it prints names an address.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { signInUntilLink, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
+import { signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
 
 const ADDRESS = "qa-principal-a@a2h-protocol.org";
 
@@ -83,5 +83,26 @@ describe("signInUntilLink", () => {
       ),
     );
     assert.deepEqual(given, [LINK_ATTEMPT_MS, LINK_ATTEMPT_MS, LINK_ATTEMPT_MS / 2]);
+  });
+});
+
+describe("startCallbackListener", () => {
+  test("answers the client's loopback redirect URI for real (a 302 from the authorization server lands here) and hands the URL over", async () => {
+    const listener = await startCallbackListener("http://127.0.0.1:43110/callback");
+    try {
+      const pending = listener.next();
+      const res = await fetch("http://127.0.0.1:43110/callback?code=abc&state=xyz&iss=https%3A%2F%2Fexample.org%2Fapi%2Fauth");
+      assert.equal(res.status, 200);
+      const url = await pending;
+      assert.equal(url.searchParams.get("code"), "abc");
+      assert.equal(url.searchParams.get("state"), "xyz");
+      // Another path on the port is not the callback.
+      assert.equal((await fetch("http://127.0.0.1:43110/other")).status, 404);
+      // A callback that arrives before anyone waits is kept.
+      await fetch("http://127.0.0.1:43110/callback?error=access_denied&state=s2");
+      assert.equal((await listener.next()).searchParams.get("error"), "access_denied");
+    } finally {
+      await listener.stop();
+    }
   });
 });

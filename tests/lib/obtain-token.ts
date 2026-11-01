@@ -23,6 +23,7 @@
 // optional), A2H_MAIL_SINK_BUCKET or A2H_MAIL_SINK_DIR.
 // Run: pnpm --filter @a2h/tests obtain-token -- --out /path/tokens.env
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium, type Browser, type BrowserContext } from "@playwright/test";
@@ -117,6 +118,49 @@ export async function signInUntilLink(attempt: (timeoutMs: number) => Promise<st
   throw new Error(`no magic link after ${attempts} sign-in attempts over ${Math.round(retryForMs / 1000)} s: is the address on the stage's allow-list (runbook §15)?`);
 }
 
+export interface CallbackListener {
+  /** Resolves with the next callback URL the client receives (code or error, state, iss). */
+  next: () => Promise<URL>;
+  stop: () => Promise<void>;
+}
+
+/**
+ * A real listener on the client's loopback redirect URI. Playwright's
+ * `page.route()` does not see a request the browser reaches through a server
+ * redirect (the authorization server answers 302 to the redirect URI when
+ * the consent is already recorded), so a routed callback ends in
+ * ERR_CONNECTION_REFUSED; a socket that answers does not.
+ */
+export async function startCallbackListener(redirectUri: string = LOOPBACK_REDIRECT): Promise<CallbackListener> {
+  const target = new URL(redirectUri);
+  let waiting: ((u: URL) => void) | undefined;
+  const queue: URL[] = [];
+  const server: Server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", `${target.protocol}//${target.host}`);
+    res.writeHead(url.pathname === target.pathname ? 200 : 404, { "content-type": "text/plain" });
+    res.end(url.pathname === target.pathname ? "A2H QA client callback: you can close this tab" : "not the callback path");
+    if (url.pathname !== target.pathname) return;
+    if (waiting) {
+      const w = waiting;
+      waiting = undefined;
+      w(url);
+    } else queue.push(url);
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(Number(target.port), target.hostname, resolve);
+  });
+  return {
+    next: () =>
+      new Promise<URL>((resolve) => {
+        const queued = queue.shift();
+        if (queued) resolve(queued);
+        else waiting = resolve;
+      }),
+    stop: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
 /**
  * One authorization in a fresh browser context: sign-in (when the context
  * holds no session), consent (when not yet given for the client), code, token.
@@ -131,19 +175,22 @@ export async function obtainToken(
   const context = options.context ?? (await browser.newContext());
   const page = await context.newPage();
   let callback: URL | undefined;
-  await page.route(`${LOOPBACK_REDIRECT}**`, async (route) => {
-    callback = new URL(route.request().url());
-    await route.fulfill({ status: 200, contentType: "text/plain", body: "A2H QA client callback" });
-  });
+  // The client's redirect URI answers for real (see startCallbackListener); the browser may reach it by a 302.
+  const listener = await startCallbackListener();
+  void listener.next().then((u) => (callback = u));
   try {
     return await drive();
   } catch (e) {
     // What the browser showed when it failed: path, headings and button names (never a field's value), and a screenshot
     // under tests/test-results/ (the verify jobs upload that folder on failure). Nothing here names an address.
-    throw new Error(`${(e as Error).message.split("\n")[0]} ${await describePage(page, options.diagnosticsLabel ?? "obtain-token")}`, { cause: e });
+    // Playwright's message may carry a URL with a query (a magic link's token): keep the path only.
+    const first = (e as Error).message.split("\n")[0] ?? "";
+    const scrubbed = first.replace(/(https?:\/\/[^\s?#"']+)[?#][^\s"']*/g, "$1?<query removed>");
+    throw new Error(`${scrubbed} ${await describePage(page, options.diagnosticsLabel ?? "obtain-token")}`, { cause: e });
   } finally {
     await page.close().catch(() => undefined);
     if (!options.context) await context.close().catch(() => undefined);
+    await listener.stop().catch(() => undefined);
   }
 
   async function drive(): Promise<Grant> {
