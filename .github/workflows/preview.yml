@@ -341,8 +341,9 @@ jobs:
 
       # Sign-in by magic link through the sink, consent, code, token (tests/lib/
       # obtain-token.ts): A2H_TOKEN and A2H_TOKEN_2 reach the suites through
-      # GITHUB_ENV, masked. The Allowlist refreshes within five minutes: the
-      # script retries the sign-in until then.
+      # GITHUB_ENV, masked. The web app re-reads the allow-list within five
+      # minutes (D7): the script asks for a link again every 30 s for up to
+      # 5.5 minutes (tests/lib/obtain-token.ts signInUntilLink).
       - name: Sign in through the mail sink and obtain tokens
         id: tokens
         env:

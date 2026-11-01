@@ -7,7 +7,9 @@
 // Client ID Metadata Document on https stages (no registration, spec
 // "Metadata-document client"), dynamic registration elsewhere; PKCE S256;
 // the authorize URL lands on /sign-in; the address is typed; the link is
-// read from the sink (tests/lib/mail-sink.ts); following it resumes the
+// read from the sink (tests/lib/mail-sink.ts), asking again every 30 s for up
+// to 5.5 minutes while the stage re-reads its allow-list (D7, the verify job
+// added the addresses just before); following it resumes the
 // authorization; the consent is accepted; the code comes back on the
 // loopback redirect, which Playwright answers; the code is exchanged; the
 // token is verified against the stage's JWKS before anything is written.
@@ -68,6 +70,51 @@ export async function clientIdFor(webUrl: string): Promise<{ clientId: string; r
 }
 
 const STEP_TIMEOUT_MS = 30_000;
+/** One sign-in attempt waits this long for the link in the sink. */
+export const LINK_ATTEMPT_MS = 30_000;
+/**
+ * The web app re-reads the stage's allow-list within five minutes (design D7),
+ * and an address not yet on its copy gets the neutral page and no sink
+ * message: a sign-in that finds no link asks again, from the start of the
+ * authorization, until this long after the first attempt (the verify job adds
+ * the QA addresses just before running this script).
+ */
+export const SIGN_IN_RETRY_MS = 5.5 * 60_000;
+
+export interface RetryOptions {
+  retryForMs?: number;
+  attemptMs?: number;
+  now?: () => number;
+  log?: (line: string) => void;
+  /** Only so the log lines can be checked never to carry it; never printed. */
+  address?: string;
+}
+
+/**
+ * Runs `attempt(timeoutMs)` (one sign-in: ask for a link, wait for it in the
+ * sink; undefined when none arrived in time) until it returns a link or the
+ * retry window closes. Log lines and the error name counts and durations, never
+ * an address.
+ */
+export async function signInUntilLink(attempt: (timeoutMs: number) => Promise<string | undefined>, options: RetryOptions = {}): Promise<string> {
+  const now = options.now ?? Date.now;
+  const log = options.log ?? (() => undefined);
+  const retryForMs = options.retryForMs ?? SIGN_IN_RETRY_MS;
+  const attemptMs = options.attemptMs ?? LINK_ATTEMPT_MS;
+  const started = now();
+  const deadline = started + retryForMs;
+  let attempts = 0;
+  for (;;) {
+    const remaining = deadline - now();
+    if (remaining <= 0) break;
+    attempts += 1;
+    const link = await attempt(Math.min(attemptMs, remaining));
+    if (link) return link;
+    const elapsed = Math.round((now() - started) / 1000);
+    if (now() < deadline) log(`sign-in attempt ${attempts}: no magic link within ${Math.min(attemptMs, remaining) / 1000} s (${elapsed} s so far); the stage may not have re-read its allow-list yet (up to five minutes): asking again`);
+  }
+  throw new Error(`no magic link after ${attempts} sign-in attempts over ${Math.round(retryForMs / 1000)} s: is the address on the stage's allow-list (runbook §15)?`);
+}
 
 /**
  * One authorization in a fresh browser context: sign-in (when the context
@@ -77,7 +124,7 @@ export async function obtainToken(
   browser: Browser,
   target: SignInTarget,
   email: string,
-  options: { clientId: string; scope?: string; context?: BrowserContext },
+  options: { clientId: string; scope?: string; context?: BrowserContext; retry?: RetryOptions },
 ): Promise<Grant> {
   const issuer = issuerOf(target.webUrl);
   const context = options.context ?? (await browser.newContext());
@@ -90,21 +137,29 @@ export async function obtainToken(
   try {
     const { verifier, challenge } = pkce();
     const state = pkce().verifier.slice(0, 16);
-    await page.goto(authorizeUrl(issuer, { clientId: options.clientId, resource: target.mcpUrl, challenge, state, scope: options.scope ?? ALL_SCOPES }), {
-      waitUntil: "load",
-      timeout: STEP_TIMEOUT_MS,
-    });
-    const deadline = Date.now() + 3 * STEP_TIMEOUT_MS;
+    const authorize = authorizeUrl(issuer, { clientId: options.clientId, resource: target.mcpUrl, challenge, state, scope: options.scope ?? ALL_SCOPES });
+    await page.goto(authorize, { waitUntil: "load", timeout: STEP_TIMEOUT_MS });
+    // The sign-in may retry for SIGN_IN_RETRY_MS; the other steps get 3 x STEP_TIMEOUT_MS between them.
+    let deadline = Date.now() + 3 * STEP_TIMEOUT_MS;
     while (!callback) {
       if (Date.now() > deadline) throw new Error(`authorization did not reach the client callback; last page: ${new URL(page.url()).pathname}`);
       const path = new URL(page.url()).pathname;
       if (path === "/sign-in") {
-        const since = new Date();
-        await page.getByLabel("Email address").fill(email);
-        await page.getByRole("button", { name: "Email me a sign-in link" }).click();
-        await page.waitForURL(/\/sign-in\/sent/, { timeout: STEP_TIMEOUT_MS });
-        const link = await waitForMagicLink(target.sink, target.stage, email, since, { timeoutMs: STEP_TIMEOUT_MS });
+        // One attempt: ask for a link, wait for it in the sink; none in time: back to the start of the authorization.
+        const link = await signInUntilLink(async (timeoutMs) => {
+          if (new URL(page.url()).pathname !== "/sign-in") await page.goto(authorize, { waitUntil: "load", timeout: STEP_TIMEOUT_MS });
+          const since = new Date();
+          await page.getByLabel("Email address").fill(email);
+          await page.getByRole("button", { name: "Email me a sign-in link" }).click();
+          await page.waitForURL(/\/sign-in\/sent/, { timeout: STEP_TIMEOUT_MS });
+          try {
+            return await waitForMagicLink(target.sink, target.stage, email, since, { timeoutMs });
+          } catch {
+            return undefined;
+          }
+        }, options.retry ?? {});
         await page.goto(link, { waitUntil: "load", timeout: STEP_TIMEOUT_MS });
+        deadline = Date.now() + 3 * STEP_TIMEOUT_MS;
         continue;
       }
       if (path === "/sign-in/expired") throw new Error("the magic link was refused as expired or used");
@@ -150,12 +205,12 @@ export interface Obtained {
 export async function obtainAll(browser: Browser, target: SignInTarget, emails: { a: string; b?: string }, log: (line: string) => void): Promise<Obtained> {
   const { clientId, registration } = await clientIdFor(target.webUrl);
   log(`client: ${registration} (${clientId})`);
-  const a = await obtainToken(browser, target, emails.a, { clientId });
+  const a = await obtainToken(browser, target, emails.a, { clientId, retry: { log } });
   log(`principal A: sub ${a.principalId}, scopes [${a.scopes.join(" ")}], expires in ${a.expiresAt - Math.floor(Date.now() / 1000)} s`);
   if (!a.scopes.includes("a2h")) throw new Error("principal A's token lacks the a2h scope");
   const out: Obtained = { A2H_TOKEN: a.accessToken };
   if (emails.b) {
-    const b = await obtainToken(browser, target, emails.b, { clientId });
+    const b = await obtainToken(browser, target, emails.b, { clientId, retry: { log } });
     log(`principal B: sub ${b.principalId}, scopes [${b.scopes.join(" ")}]`);
     if (b.principalId === a.principalId) throw new Error("the two addresses map to one principal");
     out.A2H_TOKEN_2 = b.accessToken;
