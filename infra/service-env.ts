@@ -9,13 +9,28 @@ import { secretsEnvironment, STAGE_SECRET_KINDS, type SecretRef, type Service, t
 export type { Service } from "./stage-secrets.ts";
 
 /**
- * The gate per stage kind (m1-hosted-connector design D3, Migration Plan):
- * prod never ships without it. Previews run with it off until the verify job
- * signs in through the mail sink:
- * TODO(m1-hosted-connector task 8.3): set `pr` to true once the preview
- * verify job obtains a token (A2H_TOKEN) before the contract run.
+ * The gate per stage kind (m1-hosted-connector design D3, D5, Migration
+ * Plan): on everywhere. prod never ships without it. Previews ran with it off
+ * until task 8.3 gave the verify jobs a token: they now sign in through the
+ * mail sink and hand A2H_TOKEN to the suites (preview.yml, deploy.yml), so a
+ * preview rehearses dev's and prod's gate. `false` on dev or a preview is the
+ * Migration Plan rollback; the mcp env adapter refuses it on prod.
  */
-export const AUTH_REQUIRED_BY_STAGE_KIND: Record<StageInfo["kind"], boolean> = { dev: true, pr: false, prod: true };
+export const AUTH_REQUIRED_BY_STAGE_KIND: Record<StageInfo["kind"], boolean> = { dev: true, pr: true, prod: true };
+
+/**
+ * PING_OPEN per stage kind (design D3, D5, D7: stage configuration). `true`
+ * admits the handshake, tools/list and `ping` without a token, which QA used
+ * on dev and previews while the verify jobs had no token. Since task 8.3 every
+ * suite carries A2H_TOKEN (the idle-stream proof included: `ping` with a token
+ * needs no scope), and the hosted-client matrix (task 9.3) needs the 401 on
+ * the handshake for claude.ai, Claude Code and Inspector to start sign-in, so
+ * it is off on every kind: the spec scenario "Handshake without a token" is
+ * then verified live on a preview before the change reaches `main`, not only
+ * on dev afterwards. Flip a kind to `true` only for a tokenless debugging
+ * session, never prod (the health path and the metadata stay open regardless).
+ */
+export const PING_OPEN_BY_STAGE_KIND: Record<StageInfo["kind"], boolean> = { dev: false, pr: false, prod: false };
 
 /**
  * Plain (non-secret) environment of a service. Both services: the stage, the
@@ -38,8 +53,7 @@ export function plainEnvironment(service: Service, stage: StageInfo): Record<str
   if (service === "worker") env["SIMULATOR_ENABLED"] = String(stage.simulatorEnabled);
   if (service === "mcp") {
     env["AUTH_REQUIRED"] = String(AUTH_REQUIRED_BY_STAGE_KIND[stage.kind]);
-    // dev and previews: QA reaches ping and the handshake without a token.
-    env["PING_OPEN"] = String(stage.kind !== "prod");
+    env["PING_OPEN"] = String(PING_OPEN_BY_STAGE_KIND[stage.kind]);
     // Stage configuration (config.ts limitsFor, design D5); the edge limit is the WAF's.
     const limits = limitsFor(stage);
     env["RATE_LIMIT_PER_MINUTE"] = String(limits.perMinute);
