@@ -9,7 +9,7 @@
 | Stage | Creates | Borrows from dev | removal / protect |
 |---|---|---|---|
 | `dev` | VPC (2 AZ, no NAT), ECS cluster, ALB, Aurora (pg 17, 0-4 ACU, pauses after 10 min, Data API on), `Uploads` bucket, SES domain identity for `a2h-protocol.org` (DKIM and DMARC records in the zone), 9 shared SSM parameters, the allow-list parameter `/a2h/shared/principal-allowlist`, web ACLs (REGIONAL on the ALB, CLOUDFRONT in us-east-1 for the web), MCP + worker services, Web | nothing | `retain` / `true` |
-| `pr-<n>` | MCP + worker services (`McpPr<n>`, `WorkerPr<n>`, Fargate Spot), two listener rules, Web | VPC, cluster, ALB (with dev's REGIONAL web ACL), dev's CLOUDFRONT web ACL on its distribution, dev's allow-list parameter, SES identity via `static get`; Aurora endpoint via the `aws.rds.getCluster` data source (not `Aurora.get`, see below); bucket by name only (not linked) | `remove` / `false` |
+| `pr-<n>` | MCP + worker services (`McpPr<n>`, `WorkerPr<n>`, Fargate Spot), two listener rules, Web, its own allow-list parameter `/a2h/pr-<n>/principal-allowlist` | VPC, cluster, ALB (with dev's REGIONAL web ACL), dev's CLOUDFRONT web ACL on its distribution, SES identity via `static get`; Aurora endpoint via the `aws.rds.getCluster` data source (not `Aurora.get`, see below); bucket by name only (not linked) | `remove` / `false` |
 | `prod` | everything of its own (Aurora min 0.5 ACU, no pause, Data API on since m1-hosted-connector D2, not yet deployed), its own web ACLs and `/a2h/prod/principal-allowlist`; publishes nothing | nothing | `retain` / `true` |
 
 Any other stage name is refused by `stageInfo()` so that a personal stage cannot create a second Aurora cluster by accident.

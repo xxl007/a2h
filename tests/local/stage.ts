@@ -4,14 +4,17 @@
 // seed), the real MCP HTTP app in-process at /pr-12/mcp, and the real worker
 // (deliver, simulate with the seed's persona delays, expire). QA tooling only:
 // nothing here is deployed, and it reuses the apps' own test harnesses.
-// The bearer gate is off by default (AUTH_REQUIRED=false): every call acts
-// for the seeded fallback principal dev-principal-pr-12. With A2H_LOCAL_AUTH=1
+// The bearer gate is off by default here (AUTH_REQUIRED=false, the Migration
+// Plan rollback path; every deployed stage runs it on since PR #60): every
+// call acts for the seeded fallback principal dev-principal-pr-12. With A2H_LOCAL_AUTH=1
 // (m1-hosted-connector task 9.2) the gate is on: a test authorization server
 // (apps/mcp/test/lib/auth-server.ts) publishes the keys, two principals
 // user-a and user-b exist, and the stage prints the environment the live
 // suites take: A2H_TOKEN, A2H_TOKEN_2, A2H_TOKEN_NOSCOPE, A2H_EXPIRED_TOKEN,
 // A2H_ISSUER, A2H_AUTH_REQUIRED=true, A2H_PING_OPEN (A2H_LOCAL_PING_OPEN,
-// default true). Local tokens only: nothing here reaches a deployed stage.
+// default true here; deployed stages run PING_OPEN=false since PR #60, so set
+// A2H_LOCAL_PING_OPEN=false to rehearse them). Local tokens only: nothing here
+// reaches a deployed stage.
 //
 //   node tests/local/stage.ts                # prints A2H_MCP_URL, runs until Ctrl-C
 //   A2H_LOCAL_NOW=2026-10-29T23:00:00Z node tests/local/stage.ts

@@ -30,7 +30,7 @@ export function webPlainEnvironment(stage: StageInfo, inputs: WebEnvInputs): Rec
   const env: Record<string, string> = {
     DB_NAME,
     DB_SCHEMA: stage.dbSchema,
-    // The SecureString created by infra/allowlist.ts (D7); dev and previews share dev's.
+    // The SecureString created by infra/allowlist.ts (D7): every stage reads its own (dev the shared name, a preview /a2h/pr-<n>/…).
     ALLOWLIST_PARAMETER: allowlistParameterName(stage),
     PRINCIPAL_CURRENCY: p.currency,
     PRINCIPAL_MONTHLY_BUDGET_MINOR: String(p.monthly_budget_minor),
