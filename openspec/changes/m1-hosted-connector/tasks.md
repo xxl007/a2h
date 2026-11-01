@@ -82,7 +82,7 @@ Decision 7 (owner, 2026-11-01, after the readable-form prototype): the host-rend
 
 ## 10. Review and gate (PM)
 
-- [ ] 10.1 ADR 0004 "Principal identity and connector authorization" (D1, D2, D8 and the token format) and ADR 0001 amendment 4 (Data API for the web app; WAF CloudFront scope in us-east-1); verify both are linked from design.md and `docs/decisions/` lists them
+- [x] 10.1 ADR 0004 "Principal identity and connector authorization" (D1, D2, D8 and the token format) and ADR 0001 amendment 4 (Data API for the web app; WAF CloudFront scope in us-east-1); verify both are linked from design.md and `docs/decisions/` lists them — done 2026-11-01: `docs/decisions/0004-principal-identity-and-connector-authorization.md` (status proposed until Gate 2) and ADR 0001 amendment 2 (items 7 Data API, 8 CloudFront ACL in us-east-1, 9 domain); linked from design.md D1 and D2
 - [ ] 10.2 Cold review by the reviewer agent on the change PR (missing tests, spec drift, the one rule: a token's principal is the only principal; nothing served on a wrong-audience token); verify findings are resolved or recorded in this file
 - [ ] 10.3 Gate 2 post: what shipped, the connector URL, the sign-in URL and the allow-list line for the owner, the hosted-client matrix, issues closed, deliberately not done; verify the owner's validation from claude.ai is recorded before archive
 
