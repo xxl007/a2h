@@ -53,7 +53,8 @@ export function edgeWebAclArgs(stage: StageInfo, scope: EdgeScope) {
   const name = `${APP_NAME}-${stage.name}-${scope === "REGIONAL" ? "mcp" : "web"}-edge`;
   return {
     name,
-    description: `A2H ${stage.name}: rate limit per source address on the MCP and authorization paths (m1-hosted-connector D5).`,
+    // AWS allows letters, digits, whitespace and _+=:#@/-,. only: no parentheses (infra/test/edge.test.ts).
+    description: `A2H ${stage.name}: rate limit per source address on the MCP and authorization paths, m1-hosted-connector D5.`,
     scope,
     defaultAction: { allow: {} },
     rules: [
