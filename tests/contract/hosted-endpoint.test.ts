@@ -1,5 +1,5 @@
 // Contract tests against a live stage for
-// openspec/changes/m1-hosted-connector/specs/platform/hosted-endpoint/spec.md:
+// openspec/changes/archive/2026-11-02-m1-hosted-connector/specs/platform/hosted-endpoint/spec.md:
 // hostnames and certificates, HTTPS only, the edge limit, the per-principal
 // limit and the held-ping cap. The two floods are opt-in (A2H_EDGE_FLOOD=1,
 // A2H_RATE_FLOOD=1): they block the caller's address or principal for the

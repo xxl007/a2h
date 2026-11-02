@@ -1,6 +1,6 @@
 /**
  * All user-facing copy of the m1-hosted-connector screens, English.
- * Source: openspec/changes/m1-hosted-connector/design.md, "Screens". Change both together.
+ * Source: openspec/changes/archive/2026-11-02-m1-hosted-connector/design.md, "Screens". Change both together.
  * Placeholders in braces are filled by the helpers below, never by string concatenation in apps.
  */
 export const copy = {

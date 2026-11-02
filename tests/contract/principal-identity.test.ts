@@ -1,5 +1,5 @@
 // Contract tests against a live stage for
-// openspec/changes/m1-hosted-connector/specs/platform/principal-identity/spec.md:
+// openspec/changes/archive/2026-11-02-m1-hosted-connector/specs/platform/principal-identity/spec.md:
 // what the stage's authorization server does for a client without a browser
 // (metadata, registration, PKCE, metadata-document clients, the token's
 // claims). The scenarios that need a person (sign-in, consent, revoke,

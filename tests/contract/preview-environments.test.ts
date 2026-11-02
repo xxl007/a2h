@@ -1,5 +1,5 @@
 // Contract tests against a live preview for the modified scenarios of
-// openspec/changes/m1-hosted-connector/specs/platform/preview-environments/spec.md:
+// openspec/changes/archive/2026-11-02-m1-hosted-connector/specs/platform/preview-environments/spec.md:
 // the hostnames of a preview under the domain and its own authorization
 // server ("PR opened"), and "Preview tokens stay on the preview". "PR
 // updated" and "PR closed" are workflow behaviour (tests/ci/workflows.test.mjs,

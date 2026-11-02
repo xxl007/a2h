@@ -6,15 +6,19 @@ Every pull request gets its own isolated preview (web URL, MCP endpoint, Postgre
 ## Requirements
 
 ### Requirement: A PR gets a preview stage
-Opening or updating a pull request SHALL deploy a stage named after the PR number, and the PR SHALL carry a comment with the web URL and the MCP endpoint URL.
+Opening or updating a pull request SHALL deploy a stage named after the PR number, reachable at `pr-<n>.dev.<domain>` and `mcp.dev.<domain>/pr-<n>/mcp` with its own authorization server at `pr-<n>.dev.<domain>/api/auth`, and the PR SHALL carry a comment with the web URL and the MCP endpoint URL.
 
 #### Scenario: PR opened
 - **WHEN** a pull request is opened against `main` and CI passes
-- **THEN** a stage `pr-<n>` is deployed and the PR has a comment listing the web URL and the MCP endpoint
+- **THEN** a stage `pr-<n>` is deployed and the PR has a comment listing the web URL and the MCP endpoint, both under the domain over HTTPS
 
 #### Scenario: PR updated
 - **WHEN** new commits are pushed to an open pull request
 - **THEN** the same stage is redeployed and the URLs do not change
+
+#### Scenario: Preview tokens stay on the preview
+- **WHEN** a token issued by a preview's authorization server is presented to the development stage's MCP endpoint
+- **THEN** it is refused, because its issuer and audience are the preview's
 
 ### Requirement: Preview isolation of data
 Each preview stage SHALL use its own Postgres schema on the shared development cluster; one stage MUST NOT read or write another stage's schema.
@@ -24,11 +28,11 @@ Each preview stage SHALL use its own Postgres schema on the shared development c
 - **THEN** each connects with a search path limited to its own schema and a table created in one is absent from the other
 
 ### Requirement: Teardown on close
-Closing or merging a pull request SHALL remove its stage and drop its schema.
+Closing or merging a pull request SHALL remove its stage, including its hostname records, and drop its schema.
 
 #### Scenario: PR closed
 - **WHEN** a pull request is closed or merged
-- **THEN** its stage resources are removed and its schema no longer exists on the development cluster
+- **THEN** its stage resources are removed, `pr-<n>.dev.<domain>` no longer resolves, and its schema no longer exists on the development cluster
 
 ### Requirement: CI gates every PR
 Every pull request SHALL run lint, typecheck and tests, and the preview deploy SHALL NOT run when any of them fails.

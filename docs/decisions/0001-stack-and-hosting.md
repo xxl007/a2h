@@ -56,7 +56,7 @@ Writing the stacks (PR #6) and its cold review showed where the implementation d
 
 ## Amendment 2 (proposed with `m1-hosted-connector`, 2026-11-01; takes effect at its Gate 2)
 
-Numbering continues amendment 1. Detail in `openspec/changes/m1-hosted-connector/design.md` (D2, D5) and ADR 0004.
+Numbering continues amendment 1. Detail in `openspec/changes/archive/2026-11-02-m1-hosted-connector/design.md` (D2, D5) and ADR 0004.
 
 7. **Web reaches Aurora through the RDS Data API.** Resolves item 3: the owner chose neither a NAT instance nor access through the services. `apps/web/infra` builds its Drizzle database on the Data API driver, authorised by the Lambda's role on the cluster ARN and the stage's database secret; the stage's schema is fixed by the database login (`pr_<n>` for previews, the master user for dev). The production cluster has the Data API enabled in `infra/database.ts` (a cluster setting, no production service deployed), so its first deploy migrates from CI as dev does. The web Lambda stays outside the VPC; no NAT gateway exists. Trade-off: Data API latency on sign-in, consent and token paths only.
 8. **A second us-east-1 exception: the CloudFront web ACL.** The AWS WAF web ACL that rate-limits the web distribution's `/api/auth` paths must be created in the CloudFront scope, which AWS places in us-east-1, like the ACM certificate for CloudFront. It holds no data. The ALB's web ACL is regional in eu-west-3. Previews inherit dev's ACLs.
