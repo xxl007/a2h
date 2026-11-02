@@ -213,15 +213,21 @@ describe("Requirement: Open paths stay open", () => {
     assert.deepEqual(await res.json(), { ok: true });
   });
 
-  test(`ping without a token: ${GATE.pingOpen ? "admitted (PING_OPEN=true)" : "challenged (PING_OPEN=false)"} as infra configures ${STAGE}`, { skip: gateOff }, async () => {
+  // Every deployed stage gates ping (infra/service-env.ts PING_OPEN_BY_STAGE_KIND, all false since PR #60):
+  // exactly 401 with the challenge, never "either way" (cold review of #51, B2). The only stage that may open
+  // it is the local one (A2H_PING_OPEN=true); there the scenario does not apply and is skipped, with the reason.
+  const pingOpenSkip = GATE.pingOpen ? `PING_OPEN=true on ${STAGE} (A2H_PING_OPEN override, local stage only): ping is open by configuration; in-process: apps/mcp/test/authorization.test.ts` : false;
+  test("Scenario: ping on a gated stage: ping without a token gets 401 with the challenge, empty body", { skip: gateOff || pingOpenSkip }, async () => {
+    assert.equal(GATE.pingOpen, false, `${STAGE}: infra must gate ping for this scenario`);
     const res = await post(RPC("tools/call", { name: "ping" }));
-    if (GATE.pingOpen) {
-      assert.equal(res.status, 200, `ping must stay open on ${STAGE}`);
-      assert.match(await res.text(), /pong from stage/);
-    } else {
-      assert.equal(res.status, 401, `ping must be challenged on ${STAGE} (PING_OPEN=false)`);
-      assert.equal(res.headers.get("www-authenticate"), CHALLENGE);
-    }
+    assert.equal(res.status, 401, `ping without a token on ${STAGE}: HTTP ${res.status}`);
+    assert.equal(res.headers.get("www-authenticate"), CHALLENGE);
+    assert.equal(await res.text(), "", "the challenge carries no body");
+  });
+
+  test("Scenario: Production refuses an open ping", { skip: "a start-up refusal is not observable on a running stage; in-process: apps/mcp/test/env.test.ts \"Scenario: Production refuses an open ping\" (task 10.6)" }, () => {});
+
+  test("ping with a forged token: 401 invalid_token, whatever the stage's PING_OPEN", { skip: gateOff }, async () => {
     // A presented token is always verified, open path or not.
     assertInvalidToken(await post(RPC("tools/call", { name: "ping" }), await forged()), "ping with a forged token");
   });
