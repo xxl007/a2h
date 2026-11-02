@@ -12,6 +12,11 @@ import { magicLinkOf, messagesTo, sinkClientFromEnv, waitForMagicLink, type Sink
 const STAGE = expectedStage();
 const EMAIL = process.env["A2H_TEST_EMAIL"]?.trim();
 const SINK = process.env["A2H_MAIL_SINK_BUCKET"] || process.env["A2H_MAIL_SINK_DIR"] ? sinkClientFromEnv() : undefined;
+// The wait for the link, and a test timeout that covers it plus the pages before and after, so a
+// missing link fails with the sink's own message ("is the address on the allow-list?") and not with
+// Playwright's bare "Test timeout of 30000ms exceeded" (run 41501855008: both were 30 s).
+const SINK_WAIT_MS = 45_000;
+const SIGN_IN_TEST_TIMEOUT_MS = SINK_WAIT_MS + 45_000;
 
 test.describe("principal sign-in through the mail sink", () => {
   test.skip(!EMAIL || !SINK, "needs A2H_TEST_EMAIL (allow-listed) and A2H_MAIL_SINK_BUCKET or A2H_MAIL_SINK_DIR");
@@ -26,6 +31,7 @@ test.describe("principal sign-in through the mail sink", () => {
   }
 
   test("Scenario: Allow-listed address, Preview sign-in, Expired or reused link: one link in the sink, signs in once, refused the second time", async ({ page, browser }) => {
+    test.setTimeout(SIGN_IN_TEST_TIMEOUT_MS);
     await page.goto("/sign-in");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in to A2H");
     const since = await askForLink(page, EMAIL!);
@@ -34,7 +40,7 @@ test.describe("principal sign-in through the mail sink", () => {
     await expect(page.getByText(`Test stage ${STAGE}. Not the live service.`)).toBeVisible();
     await expect(page.getByText("On this test stage, links are not emailed")).toBeVisible();
 
-    const link = await waitForMagicLink(sink(), STAGE, EMAIL!, since);
+    const link = await waitForMagicLink(sink(), STAGE, EMAIL!, since, { timeoutMs: SINK_WAIT_MS });
     const messages = await messagesTo(sink(), STAGE, EMAIL!, since);
     expect(messages, "exactly one message for this request").toHaveLength(1);
     expect(messages[0]!.subject).toBe(`[test stage ${STAGE}] Your A2H sign-in link`);
