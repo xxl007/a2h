@@ -256,16 +256,9 @@ jobs:
           A2H_DCR_FLOOD: "1"
         run: pnpm --filter @a2h/tests exec node --test --test-reporter=spec --test-name-pattern="case A8" adversarial/authorization.live.test.ts
 
-      - name: Upload the Playwright report
-        if: failure() && (steps.tokens.outcome == 'failure' || steps.e2e.outcome == 'failure' || steps.web-e2e.outcome == 'failure')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: playwright-report-dev
-          path: |
-            tests/playwright-report
-            tests/test-results
-            apps/web/test-results
-          retention-days: 14
+      # No artifact (task 10.7, cold review of #51 B4): a Playwright trace, screenshot or report of
+      # the sign-in and consent flows can hold a magic link, a session cookie or a code, and the
+      # repository is public. The job log, with tokens masked, is the failure evidence.
 
       - name: Summary
         if: always()

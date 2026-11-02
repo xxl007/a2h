@@ -6,7 +6,7 @@
 // passed since it began. Nothing it prints names an address.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
+import { describePage, signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
 
 const ADDRESS = "qa-principal-a@a2h-protocol.org";
 
@@ -104,5 +104,46 @@ describe("startCallbackListener", () => {
     } finally {
       await listener.stop();
     }
+  });
+});
+
+// Task 10.7 (cold review of #51, B4): a failing sign-in or consent page can show the
+// signed-in address, a client name or a code in its URL. In CI (public repository)
+// describePage writes no screenshot; the job log gets the path, headings and buttons only.
+describe("describePage", () => {
+  function fakePage(shots: string[]): import("@playwright/test").Page {
+    const none = { allTextContents: () => Promise.resolve(["Allow access?"]), evaluateAll: () => Promise.resolve(["Allow"]) };
+    return {
+      url: () => "https://pr-12.dev.example/consent?code=SECRET-CODE&state=s",
+      getByRole: () => none,
+      screenshot: (o: { path: string }) => (shots.push(o.path), Promise.resolve(Buffer.alloc(0))),
+    } as unknown as import("@playwright/test").Page;
+  }
+  async function withCi<T>(value: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const before = process.env["CI"];
+    if (value === undefined) delete process.env["CI"];
+    else process.env["CI"] = value;
+    try {
+      return await fn();
+    } finally {
+      if (before === undefined) delete process.env["CI"];
+      else process.env["CI"] = before;
+    }
+  }
+
+  test("in CI: no screenshot is written, and the description holds the path without its query", async () => {
+    for (const ci of ["true", "1"]) {
+      const shots: string[] = [];
+      const out = await withCi(ci, () => describePage(fakePage(shots), "unit"));
+      assert.deepEqual(shots, [], `CI=${ci}: a screenshot was written`);
+      assert.match(out, /screenshot none \(CI\)/);
+      assert.ok(out.includes("/consent") && !out.includes("SECRET-CODE"), out);
+    }
+  });
+
+  test("outside CI: a screenshot is written for the developer", async () => {
+    const shots: string[] = [];
+    await withCi(undefined, () => describePage(fakePage(shots), "unit"));
+    assert.equal(shots.length, 1);
   });
 });

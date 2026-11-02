@@ -181,8 +181,8 @@ export async function obtainToken(
   try {
     return await drive();
   } catch (e) {
-    // What the browser showed when it failed: path, headings and button names (never a field's value), and a screenshot
-    // under tests/test-results/ (the verify jobs upload that folder on failure). Nothing here names an address.
+    // What the browser showed when it failed: path, headings and button names (never a field's value), and, outside CI
+    // only, a screenshot under tests/test-results/ (CI uploads nothing: task 10.7). Nothing here names an address.
     // Playwright's message may carry a URL with a query (a magic link's token): keep the path only.
     const first = (e as Error).message.split("\n")[0] ?? "";
     const scrubbed = first.replace(/(https?:\/\/[^\s?#"']+)[?#][^\s"']*/g, "$1?<query removed>");
@@ -259,18 +259,28 @@ export async function obtainToken(
   }
 }
 
-/** The failing page, for the job log: path, headings, button names and their disabled state; a screenshot file. No field values. */
+/** Set by GitHub Actions (and most CI): any non-empty value other than "false" or "0". */
+function inCi(): boolean {
+  const v = process.env["CI"]?.trim().toLowerCase();
+  return v !== undefined && v !== "" && v !== "false" && v !== "0";
+}
+
+/** The failing page, for the job log: path, headings, button names and their disabled state; a screenshot file outside CI only. No field values. */
 export async function describePage(page: import("@playwright/test").Page, label: string): Promise<string> {
   try {
     const path = new URL(page.url()).pathname;
     const headings = await page.getByRole("heading").allTextContents().catch(() => [] as string[]);
     const buttons = await page.getByRole("button").evaluateAll((els) => els.map((el) => `${el.textContent?.trim() ?? ""}${(el as HTMLButtonElement).disabled ? " (disabled)" : ""}`)).catch(() => [] as string[]);
     const alerts = await page.getByRole("alert").allTextContents().catch(() => [] as string[]);
-    const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "test-results");
-    mkdirSync(dir, { recursive: true });
-    const file = join(dir, `${label}-${Date.now()}.png`);
-    await page.screenshot({ path: file, fullPage: true }).catch(() => undefined);
-    return `[page ${path}; headings ${JSON.stringify(headings)}; buttons ${JSON.stringify(buttons)}; alerts ${JSON.stringify(alerts.filter((a) => a.trim() !== ""))}; screenshot ${file}]`;
+    // In CI no screenshot (task 10.7): the page may show the signed-in address, a client or a code, and the repo is public.
+    let shot = "none (CI)";
+    if (!inCi()) {
+      const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "test-results");
+      mkdirSync(dir, { recursive: true });
+      shot = join(dir, `${label}-${Date.now()}.png`);
+      await page.screenshot({ path: shot, fullPage: true }).catch(() => undefined);
+    }
+    return `[page ${path}; headings ${JSON.stringify(headings)}; buttons ${JSON.stringify(buttons)}; alerts ${JSON.stringify(alerts.filter((a) => a.trim() !== ""))}; screenshot ${shot}]`;
   } catch {
     return "[page state unavailable]";
   }
