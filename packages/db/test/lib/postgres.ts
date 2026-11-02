@@ -90,10 +90,14 @@ export function statementsOf(path: string): string[] {
     .filter((s) => s.length > 0);
 }
 
-/** Applies every migration in `schema` (created if absent), one transaction per file. */
-export async function migrate(client: pg.Client, schema: string): Promise<void> {
+/**
+ * Applies the migrations in `schema` (created if absent), one transaction per
+ * file: every file, or only those `which` keeps (a data migration's test
+ * applies the files before it, writes rows, then applies the rest).
+ */
+export async function migrate(client: pg.Client, schema: string, which: (file: string) => boolean = () => true): Promise<void> {
   await client.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
-  for (const file of migrationFiles()) {
+  for (const file of migrationFiles().filter(which)) {
     await client.query("BEGIN");
     try {
       await client.query(`SET LOCAL search_path = ${schema}`);
