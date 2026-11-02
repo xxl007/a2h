@@ -12,7 +12,7 @@ import { ProtocolError, type CallToolResult } from "@modelcontextprotocol/client
 import type { DbConfig } from "../src/config.ts";
 import type { AuthConfig } from "../src/auth.ts";
 import { freshSchema, skipWithoutDocker, sqlIn, startPostgres, writeCounts, type PgContainer } from "./lib/db.ts";
-import { TEST_POLICY, callRaw, ensurePrincipalRows, isInputRequired, modernClient, retry, startA2h, texts, type A2hOptions, type RunningA2h } from "./lib/a2h.ts";
+import { TEST_POLICY, callRaw, consentPrincipal, ensurePrincipalRows, isInputRequired, modernClient, retry, startA2h, texts, type A2hOptions, type RunningA2h } from "./lib/a2h.ts";
 import { startAuthServer, TEST_CLIENT_ID, TEST_RESOURCE, withToken, type TestAuthServer } from "./lib/auth-server.ts";
 import { BASE, ORIGINAL } from "./lib/fixtures.ts";
 
@@ -142,6 +142,42 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
       await a.close();
       await b.close();
     }
+  });
+
+  // principal-identity: the signed-in principal is created by consent
+  // (`@a2h/db` ensurePrincipal, as apps/web calls it, with the stage's default
+  // policy and no identity mode of its own), and it can send.
+  describe("Requirement: A principal created by consent is verified by the allow-list", () => {
+    test("Scenario: Signed-in principal can send: request_human reaches input_required (the approval), not a principal-stage refusal", async () => {
+      const db = await freshSchema(pgc);
+      const id = "user-consented";
+      const created = await consentPrincipal(db, id);
+      const [row] = await sqlIn<{ verified: boolean; verification_method: string | null }>(
+        db,
+        "SELECT verified, verification_method FROM principals WHERE principal_id = $1",
+        [id],
+      );
+      assert.deepEqual(row, { verified: true, verification_method: "owner_allowlist" });
+      const { server } = await fresh({}, db);
+      const client = await clientFor(server.url, created.principal_id);
+      try {
+        const raw = await callRaw(client, "request_human", BASE);
+        if (!isInputRequired(raw)) {
+          const error = errorOf(raw);
+          assert.notEqual(error.stage, "principal", `refused at the principal stage: ${JSON.stringify(error)}`);
+          assert.fail(`expected input_required, got ${JSON.stringify(raw)}`);
+        }
+        assert.equal(raw.inputRequests?.["approval"]?.method, "elicitation/create", "the approval is asked of the principal");
+        // The approval follows: accepting it sends the request under this principal.
+        const sent = await retry(client, "request_human", BASE, raw.requestState, ACCEPT);
+        assert.equal(sent.isError, undefined, JSON.stringify(sent));
+        const requestId = (sent.structuredContent as { request_id: string }).request_id;
+        const [stored] = await sqlIn<{ principal_id: string }>(db, "SELECT principal_id FROM requests WHERE id = $1", [requestId]);
+        assert.equal(stored?.principal_id, id);
+      } finally {
+        await client.close();
+      }
+    });
   });
 
   describe("Requirement: Per-principal tool-call limit", () => {

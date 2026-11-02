@@ -3,6 +3,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult, FetchLike } from "@modelcontextprotocol/client";
 import type { Principal, ValidationPolicy } from "@a2h/protocol";
+import { ensurePrincipal } from "@a2h/db";
 import type { DbConfig } from "../../src/config.ts";
 import { openDatabase } from "../../src/db.ts";
 import type { AuthConfig } from "../../src/auth.ts";
@@ -10,7 +11,8 @@ import type { RateLimits } from "../../src/session.ts";
 import { start, type Running } from "../helpers.ts";
 import { sqlIn } from "./db.ts";
 
-export const TEST_PRINCIPAL: Principal = { principal_id: "dev-principal-test", identity_mode: "verified_organisation", verified: true };
+/** The default signed-in principal, as consent creates it (`consentPrincipal`): real name, verified by the owner's allow-list. Not the seeded fallback `dev-principal-test`, so consent, not the seed, writes its rows. */
+export const TEST_PRINCIPAL: Principal = { principal_id: "user-test-principal", identity_mode: "real_name", verified: true };
 export const TEST_POLICY: ValidationPolicy = {
   fee_rate: 0.2,
   currency: "EUR",
@@ -35,11 +37,44 @@ export interface A2hOptions {
   auth?: AuthConfig;
   limits?: RateLimits;
   pingMaxConcurrent?: number;
-  /** false: do not create the principal's rows (a token whose account never consented). */
+  /**
+   * false: do not create the principal's rows (a token whose account never
+   * consented). Otherwise the default principal is created by consent
+   * (`consentPrincipal`); an explicit `principal` is written as given
+   * (`ensurePrincipalRows`), for states consent never produces.
+   */
   ensurePrincipal?: boolean;
 }
 
-/** The principal's rows, as the web app's consent step creates them (test setup; the mcp service never writes them). */
+/**
+ * Create a principal and its policy exactly as the web app's consent step
+ * does: `@a2h/db` ensurePrincipal with the stage's default policy and no
+ * identity mode of its own. Idempotent, like consent. Returns the principal
+ * as stored. (Test setup; the mcp service never writes these rows.)
+ */
+export async function consentPrincipal(db: DbConfig, principalId: string, policy: ValidationPolicy = TEST_POLICY): Promise<Principal> {
+  // The principal's own policy: the fee rate is the stage's, not stored with the principal.
+  const own = {
+    currency: policy.currency,
+    monthly_budget_minor: policy.monthly_budget_minor,
+    per_request_cap_minor: policy.per_request_cap_minor,
+    ask_first_above_minor: policy.ask_first_above_minor,
+    daily_request_limit: policy.daily_request_limit,
+    throttled_daily_limit: policy.throttled_daily_limit,
+  };
+  const database = openDatabase(db);
+  try {
+    return (await ensurePrincipal(database.db, principalId, { policy: own })).principal;
+  } finally {
+    await database.close();
+  }
+}
+
+/**
+ * Write a principal's rows as given (upsert), for states consent never
+ * produces (unverified, another identity mode, no verification method).
+ * The signed-in principal of a test is created with `consentPrincipal`.
+ */
 export async function ensurePrincipalRows(db: DbConfig, principal: Principal, policy: ValidationPolicy): Promise<void> {
   await sqlIn(
     db,
@@ -65,7 +100,10 @@ export interface RunningA2h extends Running {
 export async function startA2h(db: DbConfig, options: A2hOptions = {}): Promise<RunningA2h> {
   const principal = options.principal ?? TEST_PRINCIPAL;
   const policy = options.policy ?? TEST_POLICY;
-  if (options.ensurePrincipal !== false) await ensurePrincipalRows(db, principal, policy);
+  if (options.ensurePrincipal !== false) {
+    if (options.principal) await ensurePrincipalRows(db, principal, policy);
+    else await consentPrincipal(db, principal.principal_id, policy);
+  }
   const database = openDatabase(db);
   const running = await start({
     stage: options.stage ?? "test",
