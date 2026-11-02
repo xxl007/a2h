@@ -59,8 +59,11 @@ const externalIssuer = process.env["A2H_LOCAL_ISSUER"]?.trim().replace(/\/$/, ""
 let authServer: TestAuthServer | undefined;
 if (authOn && !externalIssuer) {
   authServer = await startAuthServer();
-  await addPrincipal(stage.admin, "user-a", "verified_organisation");
-  await addPrincipal(stage.admin, "user-b", "verified_organisation");
+  // As consent creates them on a deployed stage (packages/db ensurePrincipal):
+  // people, verified by the owner's allow-list. Not organisations, or the local
+  // run would pass where a preview refuses (organisation-only personas, PR #60).
+  await addPrincipal(stage.admin, "user-a", "real_name");
+  await addPrincipal(stage.admin, "user-b", "real_name");
 }
 const issuer = externalIssuer ?? authServer?.issuer;
 const jwksUrl = externalIssuer ? `${externalIssuer}/jwks` : authServer?.jwksUrl;

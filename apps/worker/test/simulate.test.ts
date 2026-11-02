@@ -169,7 +169,7 @@ describe("simulate queue", { skip }, () => {
   });
 
   test("Scenario: Silent until expiry", async () => {
-    // sim-hb-1f7d is silent; organisations only (the development principal is one).
+    // sim-hb-1f7d is silent and takes anyone verified (seed.test.ts "who may ask").
     const r = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400, expires_in: 90 });
     await runSimulateStep(ctx(), { request_id: r.id, step: "act" });
     assert.equal(await statusOf(stage.admin, r.id), "sent", "the silent persona never responds");

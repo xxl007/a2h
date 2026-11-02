@@ -39,7 +39,12 @@ export interface AuthConfig {
   jwksUrl: string;
   /** The stage's MCP URL: the only audience accepted (MCP_RESOURCE_URL). */
   resourceUrl: string;
-  /** true (dev, previews): the handshake, tools/list and `ping` are admitted without a token (PING_OPEN). */
+  /**
+   * true: the handshake, tools/list and `ping` are admitted without a token
+   * (PING_OPEN). Off on every deployed stage since m1-hosted-connector task
+   * 8.3 (infra/service-env.ts PING_OPEN_BY_STAGE_KIND): the verify jobs carry
+   * a token and hosted clients must meet the 401 on the handshake.
+   */
   pingOpen: boolean;
 }
 

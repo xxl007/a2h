@@ -36,6 +36,21 @@ describe("the simulated set", () => {
     assert.ok(SEED_PERSONAS.find((p) => p.persona === "decline")?.decline_reason_code, "decline carries a reason code");
   });
 
+  test("who may ask: one persona takes organisations only, sim-rc-8d14, which no live flow sends to; the silent persona takes anyone verified", () => {
+    // Since m1-hosted-connector the live suites call as a signed-in principal, a
+    // person (identity_mode real_name): an organisation-only persona refuses them
+    // (validate.ts "asker_not_allowed"). The silent persona must take them, or
+    // "Silent until expiry" cannot run live (pr-60); the organisation-only rule
+    // stays proved live by a refusal to sim-rc-8d14 (tests/contract
+    // request-approval.test.ts "Blocked row") and at delivery (apps/worker
+    // deliver.test.ts), and discovery only ever reads sim-rc-8d14.
+    const orgOnly = SEED_PARTICIPANTS.filter((p) => p.rules.who_may_ask === "organisations_only").map((p) => p.handle);
+    assert.deepEqual(orgOnly, ["sim-rc-8d14"]);
+    const silent = SEED_PARTICIPANTS.find((p) => p.handle === "sim-hb-1f7d");
+    assert.equal(silent?.persona, "silent");
+    assert.equal(silent?.rules.who_may_ask, "anyone_verified");
+  });
+
   test("published terms and rules are valid protocol values", () => {
     for (const p of SEED_PARTICIPANTS) {
       assert.ok(protocol.RulesOfEngagementSchema.safeParse(p.rules).success, `${p.handle} rules`);

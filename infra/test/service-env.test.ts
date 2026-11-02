@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { SEED_DEV_BUDGET_MULTIPLIER, SEED_PRINCIPAL, SEED_PRINCIPAL_POLICY } from "../../packages/db/seed/simulated.ts";
 import { CLEARING_SHARE, DEV_BUDGET_MULTIPLIER, developmentPolicy, developmentPrincipal, FEE_RATE, limitsFor, publicUrls, stageInfo } from "../config.ts";
-import { AUTH_REQUIRED_BY_STAGE_KIND, authEnvironment, databaseEnvironment, plainEnvironment, serviceEnvNames, webBaseUrl } from "../service-env.ts";
+import { AUTH_REQUIRED_BY_STAGE_KIND, authEnvironment, databaseEnvironment, PING_OPEN_BY_STAGE_KIND, plainEnvironment, serviceEnvNames, webBaseUrl } from "../service-env.ts";
 
 const STAGES = ["dev", "prod", "pr-12"];
 
@@ -34,15 +34,25 @@ test("the seed's fallback principal dev-principal-<stage> has the development pr
 
 test("mcp: resource-server switches and limits per stage (D3, D5); the worker gets none of them", () => {
   const env = (s: string) => plainEnvironment("mcp", stageInfo(s));
-  // TODO(m1-hosted-connector task 8.3): previews run with the gate off until the verify job signs in through the mail sink.
+  // Task 8.3 flip (design D5): the verify jobs sign in through the mail sink
+  // and hand A2H_TOKEN to the suites, so every stage kind runs the gate and
+  // no stage opens the handshake, tools/list or `ping` to a tokenless client:
+  // hosted clients meet the 401 on the handshake and start sign-in (D3).
   assert.deepEqual(
     ["dev", "pr-12", "prod"].map((s) => [env(s)["AUTH_REQUIRED"], env(s)["PING_OPEN"]]),
     [
-      ["true", "true"],
-      ["false", "true"],
+      ["true", "false"],
+      ["true", "false"],
       ["true", "false"],
     ],
   );
+  // Both are stage configuration (D7), one table per switch, every kind listed.
+  assert.deepEqual(AUTH_REQUIRED_BY_STAGE_KIND, { dev: true, pr: true, prod: true });
+  assert.deepEqual(PING_OPEN_BY_STAGE_KIND, { dev: false, pr: false, prod: false });
+  for (const s of STAGES) {
+    assert.equal(env(s)["AUTH_REQUIRED"], String(AUTH_REQUIRED_BY_STAGE_KIND[stageInfo(s).kind]), s);
+    assert.equal(env(s)["PING_OPEN"], String(PING_OPEN_BY_STAGE_KIND[stageInfo(s).kind]), s);
+  }
   // design D5 (group 7): prod the owner's defaults; the test stages (dev and
   // previews) ten times the call limits, since their verify suites run as one principal.
   assert.deepEqual(
@@ -68,6 +78,7 @@ test("mcp: resource-server switches and limits per stage (D3, D5); the worker ge
     for (const n of AUTH_NAMES) assert.ok(mcp.includes(n), `mcp ${s} ${n}`);
   }
   assert.equal(AUTH_REQUIRED_BY_STAGE_KIND.prod, true, "prod never ships without the gate");
+  assert.equal(PING_OPEN_BY_STAGE_KIND.prod, false, "prod never opens the handshake to a tokenless client");
 });
 
 test("mcp: issuer, JWKS and resource URL derived from the stage's hostnames (domain set)", () => {
