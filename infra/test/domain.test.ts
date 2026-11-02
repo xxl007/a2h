@@ -61,6 +61,31 @@ function stubSst(): Recorded {
   return rec;
 }
 
+/**
+ * Synchronous stand-ins for the Pulumi globals createWeb uses: `$util.output`
+ * and `$util.all` (values carried by an object with `apply`), `random` and
+ * `aws` (only the outputs createWeb reads).
+ */
+interface FakeOutput {
+  __value: unknown;
+  apply(fn: (v: unknown) => unknown): FakeOutput;
+}
+function out(value: unknown): FakeOutput {
+  return { __value: value, apply: (fn) => out(settle(fn(value))) };
+}
+function settle(v: unknown): unknown {
+  return v && typeof v === "object" && "__value" in v ? (v as FakeOutput).__value : v;
+}
+function stubOutputs(): void {
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.$util = {
+    output: (v: unknown) => out(settle(v)),
+    all: (vs: unknown[]) => out(vs.map(settle)),
+  };
+  g.random = { RandomBytes: class { base64 = out("c2VjcmV0LXNlY3JldC1zZWNyZXQtc2VjcmV0LXNlY3JldA=="); } };
+  g.aws = { getCallerIdentityOutput: () => ({ accountId: out("123456789012") }) };
+}
+
 const fakeVpc = {} as unknown as sst.aws.Vpc;
 const fakeAlb = {} as unknown as sst.aws.Alb;
 
@@ -140,11 +165,24 @@ test("web domain: pr-12.dev.<domain> on pr-12, dev.<domain> on dev", () => {
     ["dev", `dev.${APEX}`],
   ] as const) {
     const rec = stubSst();
+    stubOutputs();
     createWeb(stageInfo(name), {
       storage: { mode: "link", bucket: { name: "bucket" } as unknown as sst.aws.Bucket },
-      mcpUrl: "https://example.invalid/mcp",
+      mcpUrl: `https://mcp.dev.${APEX}/${name === "dev" ? "" : `${name}/`}mcp`,
+      // Group 5 (Data API, D2): the cluster and the ECS valueFrom of the stage's database secret.
+      database: {
+        clusterArn: "arn:aws:rds:eu-west-3:123456789012:cluster:a2h-dev-databasecluster-abc",
+        secretValueFrom:
+          name === "dev"
+            ? "arn:aws:secretsmanager:eu-west-3:123456789012:secret:a2h-dev-DatabaseSecret-AbC123:password::"
+            : "arn:aws:secretsmanager:eu-west-3:123456789012:secret:a2h/pr-12/db-XyZ789:password::",
+      },
+      emailSender: APEX,
     });
     assert.equal(rec.web?.domain, host);
+    // The authorization server's issuer is on the same hostname (design D1).
+    const env = settle(rec.web?.environment) as Record<string, string>;
+    assert.equal(env["AUTH_ISSUER"], `https://${host}/api/auth`);
   }
 });
 

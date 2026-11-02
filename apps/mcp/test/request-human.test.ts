@@ -632,7 +632,9 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
   // ---- other refusals ---------------------------------------------------------
 
   test("The development principal cannot send an authorisation request (design D7)", async () => {
-    const { db, server } = await fresh();
+    // The stage's seeded fallback principal (verified_organisation), not the
+    // consent-created default (real_name), which may.
+    const { db, server } = await fresh({ principal: { principal_id: "dev-principal-test", identity_mode: "verified_organisation", verified: true } });
     const client = await modernClient(server.url);
     try {
       const raw = await callRaw(client, "request_human", { ...BASE, intent: "authorisation" });

@@ -148,7 +148,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
 FROM participants WHERE handle = 'sim-rc-8d14'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -250,7 +250,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 300
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 300
 FROM participants WHERE handle = 'sim-hb-1f7d'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -452,3 +452,11 @@ SELECT id, 'knowledge', true, 3000, 'EUR'
 FROM participants WHERE handle = 'sim-bk-2e6f'
 ON CONFLICT (participant_id, intent) DO UPDATE SET accepted = EXCLUDED.accepted,
   reserve_net_minor = EXCLUDED.reserve_net_minor, currency = EXCLUDED.currency
+--> statement-breakpoint
+INSERT INTO principals (principal_id, identity_mode, verified)
+VALUES ('dev-principal-' || current_setting('a2h.stage'), 'verified_organisation', true)
+ON CONFLICT (principal_id) DO NOTHING
+--> statement-breakpoint
+INSERT INTO principal_policies (principal_id, currency, monthly_budget_minor, per_request_cap_minor, ask_first_above_minor, daily_request_limit, throttled_daily_limit)
+VALUES ('dev-principal-' || current_setting('a2h.stage'), 'EUR', CASE WHEN current_setting('a2h.stage') = 'dev' THEN 500000 ELSE 50000 END, 6000, NULL, 50, 5)
+ON CONFLICT (principal_id) DO NOTHING

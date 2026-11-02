@@ -1,6 +1,7 @@
 // Shared-resource contract between `dev` (publisher) and `pr-*` (readers).
 // Parameter names: config.ts SHARED_PARAMETERS, under /a2h/shared/.
 import {
+  PR_STAGE_OPTIONAL_READS,
   PR_STAGE_READS,
   SHARED_PARAMETERS,
   sharedParameterName,
@@ -8,7 +9,8 @@ import {
 } from "./config.ts";
 
 type PrReadKey = (typeof PR_STAGE_READS)[number];
-export type SharedIds = Record<PrReadKey, string>;
+type PrOptionalKey = (typeof PR_STAGE_OPTIONAL_READS)[number];
+export type SharedIds = Record<PrReadKey, string> & Partial<Record<PrOptionalKey, string>>;
 
 const entries = Object.entries(SHARED_PARAMETERS) as [SharedKey, string][];
 
@@ -46,5 +48,18 @@ export async function readShared(): Promise<SharedIds> {
       }
     }),
   );
-  return Object.fromEntries(values) as SharedIds;
+  // PR_STAGE_OPTIONAL_READS: absent until dev has published them (config.ts).
+  const optional = await Promise.all(
+    PR_STAGE_OPTIONAL_READS.map(async (key) => {
+      const name = sharedParameterName(SHARED_PARAMETERS[key]);
+      try {
+        const parameter = await aws.ssm.getParameter({ name });
+        return [key, parameter.value] as const;
+      } catch {
+        console.warn(`SSM parameter ${name} not found: deploying without it. Deploy the dev stage to publish it.`);
+        return undefined;
+      }
+    }),
+  );
+  return Object.fromEntries([...values, ...optional.filter((e) => e !== undefined)]) as SharedIds;
 }

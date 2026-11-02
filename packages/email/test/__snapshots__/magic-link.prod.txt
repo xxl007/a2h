@@ -1,0 +1,13 @@
+Sign in to A2H
+
+Use this link to sign in. It works once and for 15 minutes. Open it in the browser where you asked for it.
+
+Sign in to A2H https://dev.a2h-protocol.org/api/auth/magic-link/verify?token=abc123XYZ&callbackURL=%2Fconsent
+
+If the link does not open, copy this address into your browser:
+
+https://dev.a2h-protocol.org/api/auth/magic-link/verify?token=abc123XYZ&callbackURL=%2Fconsent
+
+If it has expired, ask for a new one on the sign-in page.
+
+If you did not ask to sign in, ignore this email. Nobody can sign in without this link.

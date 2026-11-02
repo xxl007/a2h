@@ -124,7 +124,7 @@ test("one JSON log line per request: method, path, status, duration, request id;
       const raw = JSON.stringify(line);
       assert.doesNotMatch(raw, /example\.com|holdSeconds|tools\/call|jsonrpc/, raw);
       assert.deepEqual(
-        Object.keys(line).filter((k) => !["level", "msg", "method", "path", "status", "duration_ms", "http_request_id", "stage"].includes(k)),
+        Object.keys(line).filter((k) => !["level", "msg", "method", "path", "status", "duration_ms", "http_request_id", "stage", "principal_id", "client_id"].includes(k)),
         [],
         raw,
       );

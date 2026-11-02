@@ -6,8 +6,37 @@
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./src/tokens/tokens.css",
+    "./base.css": "./src/tokens/base.css"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "vitest run",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build -o storybook-static"
+  },
+  "dependencies": {
+    "react-aria-components": "1.22.1"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "10.6.5",
+    "@storybook/react-vite": "10.6.5",
+    "@types/node": "22.20.5",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "storybook": "10.6.5",
+    "typescript": "^5.9.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
   }
 }

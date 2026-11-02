@@ -98,7 +98,10 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     "sim-rc-8d14", "Rupert Cole", "decline",
     [{ topic: "commercial kitchen equipment repair", evidence: "self_declared" }],
     [4.2, 9, 10 * HOUR],
-    rules([eur("knowledge", 2500), eur("estimate", 3000)]),
+    // The one organisation-only persona (who may ask): no live flow sends to it,
+    // so a signed-in person meets the refusal there and nowhere else
+    // (tests/contract request-approval.test.ts "Blocked row"); discovery reads it.
+    rules([eur("knowledge", 2500), eur("estimate", 3000)], { who_may_ask: "organisations_only" }),
     false,
   ),
   participant(
@@ -121,7 +124,7 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     // the schema floor is 0 s), so a 10-minute expiry passes and "Silent until
     // expiry" can be observed live on a preview (QA finding).
     [4.7, 40, 5 * MINUTE],
-    rules([eur("verification", 4000), eur("judgment", 3500)], { who_may_ask: "organisations_only", latency_promise_seconds: 5 * MINUTE }),
+    rules([eur("verification", 4000), eur("judgment", 3500)], { latency_promise_seconds: 5 * MINUTE }),
   ),
   participant(
     "sim-ol-6a23", "Oliver Lang", "prompt",
@@ -155,3 +158,23 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     rules([eur("estimate", 3500), eur("knowledge", 3000)], { max_interruptions_per_day: 2, latency_promise_seconds: 24 * HOUR }),
   ),
 ];
+
+/**
+ * The stage's fallback principal `dev-principal-<stage>` (m1-hosted-connector,
+ * Migration Plan): with AUTH_REQUIRED=false on dev or a preview, every MCP
+ * call acts for it, and the mcp service reads principals from the database
+ * only. Same values as infra/config.ts developmentPrincipal and
+ * DEVELOPMENT_POLICY (without the fee rate); infra/test/service-env.test.ts
+ * checks they agree.
+ */
+export const SEED_PRINCIPAL = { identity_mode: "verified_organisation", verified: true } as const;
+export const SEED_PRINCIPAL_POLICY = {
+  currency: "EUR",
+  monthly_budget_minor: 50_000,
+  per_request_cap_minor: 6_000,
+  ask_first_above_minor: null,
+  daily_request_limit: 50,
+  throttled_daily_limit: 5,
+} as const;
+/** dev's budget is ten times the others' (infra/config.ts DEV_BUDGET_MULTIPLIER). */
+export const SEED_DEV_BUDGET_MULTIPLIER = 10;

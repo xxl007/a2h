@@ -1,0 +1,7 @@
+.identity { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.eyebrow { font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--text-muted); margin: 0; }
+.name { margin: 0; color: var(--accent); font-weight: var(--weight-strong); font-size: var(--text-lg); line-height: var(--leading-lg); overflow-wrap: anywhere; }
+.origin { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text); overflow-wrap: anywhere; }
+.provenance { margin: var(--space-1) 0 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); }
+.unverified { color: var(--text); }
+.local { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text); }

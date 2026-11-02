@@ -36,6 +36,34 @@
       "when": 1793275407001,
       "tag": "0004_requests_approval_nonce",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793376063141,
+      "tag": "0005_principals_policies_rate_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793382001800,
+      "tag": "0006_better_auth",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793627612956,
+      "tag": "0007_principals_verification_method",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793628429408,
+      "tag": "0008_principals_owner_allowlist_backfill",
+      "breakpoints": true
     }
   ]
 }

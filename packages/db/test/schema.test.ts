@@ -2,9 +2,8 @@
 // behaviour of the same constraints is in constraints.test.ts.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import * as protocol from "@a2h/protocol";
@@ -25,6 +24,12 @@ const allSql = migrationFiles().map((f) => readFileSync(join(MIGRATIONS_DIR, f),
 describe("task 3.1: tables", () => {
   test("the tables the change names exist", () => {
     for (const name of ["participants", "profiles", "rules", "requests", "request_events", "blocked_manifests", "answers", "signing_keys", "schema_migrations"]) {
+      assert.ok(byName.has(name), `table ${name}`);
+    }
+  });
+
+  test("m1-hosted-connector group 3: principals, principal_policies, rate_limit_windows exist (design D4, D5)", () => {
+    for (const name of ["principals", "principal_policies", "rate_limit_windows"]) {
       assert.ok(byName.has(name), `table ${name}`);
     }
   });
@@ -69,12 +74,28 @@ describe("money columns: integers in minor units next to a currency", () => {
       assert.match(currency.getSQLType(), /^(char|character)\(3\)$/, `${name}.currency`);
       assert.equal(currency.notNull, true, `${name}.currency not null`);
     }
-    assert.ok(seen >= 3, "requests.bid_minor, requests.cleared_minor, rule_types.reserve_net_minor");
+    assert.ok(seen >= 6, "requests.bid_minor, requests.cleared_minor, rule_types.reserve_net_minor, principal_policies.*_minor");
   });
   test("no float or numeric column holds money", () => {
     for (const [name, t] of byName)
       for (const c of t.columns)
         if (/real|double|numeric/.test(c.getSQLType())) assert.doesNotMatch(c.name, /minor|amount|price|bid|reserve/, `${name}.${c.name}`);
+  });
+});
+
+describe("principal policies hold exactly the policy fields of @a2h/protocol (spec request-approval \"Principal's own policy applies\")", () => {
+  test("every ValidationPolicy field but the platform's fee rate is a column; nothing else but the key and updated_at", () => {
+    const t = byName.get("principal_policies")!;
+    const policyFields = Object.keys(protocol.ValidationPolicySchema.shape).filter((k) => k !== "fee_rate");
+    assert.deepEqual(t.columns.map((c) => c.name).sort(), [...policyFields, "principal_id", "updated_at"].sort());
+    assert.equal(t.columns.find((c) => c.name === "ask_first_above_minor")?.notNull, false, "ask_first_above_minor nullable");
+    for (const c of t.columns) if (c.name !== "ask_first_above_minor") assert.equal(c.notNull, true, c.name);
+  });
+  test("principals hold the protocol Principal fields, a creation time and the verification method (decision 8)", () => {
+    const t = byName.get("principals")!;
+    assert.deepEqual(t.columns.map((c) => c.name).sort(), [...Object.keys(protocol.PrincipalSchema.shape), "created_at", "verification_method"].sort());
+    assert.equal(t.columns.find((c) => c.name === "verified")?.default, false, "verified defaults to false");
+    assert.equal(t.columns.find((c) => c.name === "verification_method")?.notNull, false, "verification_method nullable");
   });
 });
 
@@ -87,6 +108,8 @@ describe("enums and codes come from @a2h/protocol", () => {
     ["actor", protocol.ActorSchema.options],
     ["lane", protocol.LaneSchema.options],
     ["delivery outcome", protocol.DELIVERY_OUTCOMES],
+    ["principal identity mode", protocol.PrincipalSchema.shape.identity_mode.options],
+    ["rate-limit window", protocol.RATE_LIMIT_WINDOWS],
   ];
   for (const [what, values] of cases) {
     test(`${what}: every value appears in a check constraint`, () => {
@@ -100,18 +123,52 @@ describe("enums and codes come from @a2h/protocol", () => {
   });
 });
 
+// drizzle-kit 0.31 prefixes "./" to `out`, so an absolute path (a system temp
+// dir) becomes a missing relative one: it prints ENOENT, exits 0 and generates
+// nothing, and a no-drift check on it passes whatever the schema says. The
+// copy therefore lives under packages/db (a relative path, gitignored as
+// `.drizzle-check-*`), and the run must show it read the snapshots: no error
+// in its output, and its own "No schema changes" line.
 test("committed migrations are what drizzle-kit generates from src/schema.ts (no drift)", () => {
-  const out = mkdtempSync(join(tmpdir(), "a2h-db-gen-"));
+  const root = new URL("..", import.meta.url).pathname;
+  const name = mkdtempSync(join(root, ".drizzle-check-")).slice(root.length).replace(/^\//, "");
+  const out = join(root, name);
   try {
     cpSync(MIGRATIONS_DIR, out, { recursive: true });
-    const before = readdirSync(out, { recursive: true }).sort();
-    const log = execFileSync("pnpm", ["exec", "drizzle-kit", "generate"], {
-      cwd: new URL("..", import.meta.url).pathname,
-      env: { ...process.env, DRIZZLE_OUT: out },
+    const files = () => (readdirSync(out, { recursive: true, encoding: "utf8" })).sort();
+    const before = files();
+    assert.ok(before.some((f) => f.endsWith("_snapshot.json")), "the copy holds the committed snapshots");
+    const run = spawnSync("pnpm", ["exec", "drizzle-kit", "generate"], {
+      cwd: root,
+      env: { ...process.env, DRIZZLE_OUT: `./${name}` },
       encoding: "utf8",
+      timeout: 60_000,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    assert.deepEqual(readdirSync(out, { recursive: true }).sort(), before, `drizzle-kit generated new files:\n${log}`);
+    const log = `${run.stdout}\n${run.stderr}`;
+    assert.equal(run.status, 0, `drizzle-kit exited ${run.status}:\n${log}`);
+    assert.doesNotMatch(log, /error|ENOENT|not found/i, `drizzle-kit reported an error:\n${log}`);
+    const generated = files().filter((f) => !before.includes(f));
+    assert.deepEqual(generated, [], `src/schema.ts drifted from the committed migrations; drizzle-kit generated:\n${generated.join("\n")}\n${log}`);
+    assert.match(log, /No schema changes/, `drizzle-kit did not confirm the schema matches:\n${log}`);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
+});
+
+describe("m1-hosted-connector task 3.1: packages/db holds no authorization server and nothing network-facing", () => {
+  const root = new URL("..", import.meta.url).pathname;
+  test("runtime dependencies are the protocol, Drizzle and the Postgres driver only (no Better Auth, no AWS SDK)", () => {
+    const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as { dependencies: Record<string, string> };
+    assert.deepEqual(Object.keys(pkg.dependencies).sort(), ["@a2h/protocol", "drizzle-orm", "pg"]);
+  });
+  test("no source file imports Better Auth, an AWS SDK, an HTTP module or calls fetch", () => {
+    const files = (readdirSync(join(root, "src"), { recursive: true }) as string[]).filter((f) => f.endsWith(".ts"));
+    assert.ok(files.length >= 3, files.join(","));
+    for (const f of files) {
+      const src = readFileSync(join(root, "src", f), "utf8");
+      assert.doesNotMatch(src, /from\s+["'](better-auth|@better-auth\/[^"']*|@aws-sdk\/[^"']*|node:https?|https?|undici)["']/, f);
+      assert.doesNotMatch(src, /\bfetch\s*\(/, f);
+    }
+  });
 });

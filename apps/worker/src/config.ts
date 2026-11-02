@@ -1,7 +1,6 @@
 // Everything the worker is configured with, as business code sees it. Built
 // by the deployment adapter (infra/env.ts) from the environment infra gives
 // the worker (infra/service-env.ts); nothing here reads the environment.
-import type { Principal, ValidationPolicy } from "@a2h/protocol";
 import type { DbConfig } from "./db-config.ts";
 
 /** The stage's platform signing key (design D4): only the worker holds the private half. */
@@ -18,10 +17,12 @@ export interface WorkerConfig {
   db: DbConfig;
   /** False on prod whatever the environment says (task 5.6). */
   simulatorEnabled: boolean;
-  /** The stage's development principal (design D7). */
-  principal: Principal;
-  /** Its contact policy and the platform fee rate `f` (ADR 0002: configuration, not a constant). */
-  policy: ValidationPolicy;
+  /**
+   * The platform fee rate `f` (ADR 0002: configuration, not a constant).
+   * Principals and their policies are rows since m1-hosted-connector (D4),
+   * loaded per request at delivery.
+   */
+  feeRate: number;
   /** Clearing share `s` (ADR 0002). */
   clearingShare: number;
   signing: SigningKeyMaterial;

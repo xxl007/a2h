@@ -16,7 +16,7 @@ import { validateManifest, type SimulatedPersona } from "@a2h/protocol";
 import { blockedManifests, participants, requestDeliveries, requests, simulatedPersonas } from "@a2h/db";
 import type { JobContext } from "./context.ts";
 import { dbOf, inTransaction } from "./db.ts";
-import { currentRules, deliveriesToday, deliveryFacts, manifestOf } from "./manifest-facts.ts";
+import { currentRules, deliveriesToday, deliveryFacts, manifestOf, principalOf } from "./manifest-facts.ts";
 import { personaPlan } from "./persona.ts";
 import type { Jobs } from "./queues.ts";
 
@@ -68,8 +68,16 @@ export async function deliverRequest(ctx: DeliverContext, requestId: string): Pr
       ctx.log({ level: "info", msg: "deliver: no delivery channel for this participant yet", ...ids, state: request.status });
       return;
     }
-    const facts = deliveryFacts(ctx.config, participant, await currentRules(tx, participant.id), await deliveriesToday(tx, participant.id, now), now);
-    const result = validateManifest(manifestOf(request, participant.handle), facts, ctx.config.policy, { phase: "delivery" });
+    // The request's own principal and policy, as recorded now (m1-hosted-connector D4).
+    // Rows gone: fail closed, like the participant without rules below, but not counted for the participant.
+    const owner = await principalOf(tx, ctx.config, request.principal_id);
+    if (!owner) {
+      await tx.insert(requestDeliveries).values({ request_id: request.id, participant_id: participant.id, outcome: "blocked", at: now });
+      ctx.log({ level: "warn", msg: "delivery blocked", ...ids, state: request.status, stage: "principal", code: "principal_not_accountable" });
+      return;
+    }
+    const facts = deliveryFacts(owner.principal, owner.policy, participant, await currentRules(tx, participant.id), await deliveriesToday(tx, participant.id, now), now);
+    const result = validateManifest(manifestOf(request, participant.handle), facts, owner.policy, { phase: "delivery" });
 
     if (!result.ok) {
       // Counted for the participant when their rules refused it; any other

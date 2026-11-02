@@ -16,6 +16,7 @@ export default defineConfig([
     "**/node_modules/",
     "**/coverage/",
     "**/.turbo/",
+    "**/storybook-static/",
   ]),
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
@@ -56,6 +57,28 @@ export default defineConfig([
         project: ["./infra/tsconfig.json"],
         tsconfigRootDir: import.meta.dirname,
       },
+    },
+  },
+  {
+    // No package imports an AWS SDK (CLAUDE.md: AWS SDKs only inside
+    // apps/*/infra and infra/; cold review of PR #51, task 10.5). Packages take
+    // injected client interfaces; the SES mailer is apps/web/infra/ses-mailer.ts.
+    // packages/email/test/boundaries.test.ts checks the same for that package.
+    // Placed before the packages/protocol block, whose stricter rule (zod and
+    // siblings only) must keep overriding this one for its sources.
+    files: ["packages/**/*.{ts,tsx,js,mjs,cjs}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@aws-sdk/*", "aws-sdk", "@smithy/*"],
+              message: "No AWS SDK in packages/: AWS SDKs live in apps/*/infra and infra/ only; inject a client interface instead.",
+            },
+          ],
+        },
+      ],
     },
   },
   {
@@ -111,6 +134,25 @@ export default defineConfig([
         { selector: "MemberExpression[property.name=/^(getRandomValues|randomUUID)$/]", message: "No randomness in packages/protocol: pass the bytes in." },
         { selector: "MemberExpression[property.name=/^(generateKey|deriveKey|exportKey|wrapKey|unwrapKey)$/]", message: "packages/protocol never creates or exports keys: keys are arguments." },
         { selector: "ImportExpression", message: "No dynamic import in packages/protocol." },
+      ],
+    },
+  },
+  {
+    // apps/web: only apps/web/infra, the deployment adapters, may import an
+    // AWS SDK (CLAUDE.md, provider-neutral business logic; m1-hosted-connector
+    // design D2). apps/web/test/boundaries.test.ts checks the same.
+    files: ["apps/web/app/**/*.{ts,tsx}", "apps/web/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@aws-sdk/*", "aws-sdk", "@smithy/*"],
+              message: "Only apps/web/infra may import an AWS SDK; inject an adapter instead.",
+            },
+          ],
+        },
       ],
     },
   },

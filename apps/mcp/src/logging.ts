@@ -18,6 +18,8 @@ export interface ToolLogFields {
   http_request_id?: string | undefined;
   request_id?: string | undefined;
   principal_id?: string | undefined;
+  /** The OAuth client of the token (`azp`/`client_id`), an opaque id. */
+  client_id?: string | undefined;
   participant_id?: string | undefined;
   state?: string | undefined;
   code?: string | undefined;

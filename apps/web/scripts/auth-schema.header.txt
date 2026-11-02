@@ -1,0 +1,12 @@
+// Better Auth tables (m1-hosted-connector task 5.2; design D1, D8): GENERATED
+// by the Better Auth CLI from apps/web's server configuration (plugins jwt,
+// mcp, cimd, magicLink). Do not edit by hand: change apps/web/src/auth/auth.ts,
+// then run `pnpm --filter @a2h/web auth:schema` and `pnpm --filter @a2h/db generate`.
+//
+// Like every table in schema.ts, these carry no schema name: the stage's
+// search_path places them. Tokens: OAuth access and refresh tokens, codes and
+// magic-link tokens are stored hashed (Better Auth `storeTokens` and
+// `storeToken: "hashed"`), JWKS private keys encrypted with the stage secret;
+// `session.token` is Better Auth's session id (the cookie carries it with an
+// HMAC signature). `account` holds no provider token: no social sign-in.
+// Nothing at runtime in this package imports Better Auth.

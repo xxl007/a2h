@@ -1,7 +1,7 @@
 // Entry point of the A2H MCP service (ECS Fargate behind the shared ALB).
-// Env (infra/service-env.ts): PORT, STAGE, MCP_BASE_PATH, and what the
-// deployment adapter reads (infra/env.ts): the database, the approval key,
-// the development principal and its policy, FEE_RATE, CLEARING_SHARE.
+// Env (infra/service-env.ts): PORT, STAGE, and what the deployment adapter
+// reads (infra/env.ts): MCP_BASE_PATH, the database, the approval key,
+// FEE_RATE, CLEARING_SHARE, the resource server's settings and the limits.
 import { mcpConfigFromEnv } from "../infra/env.ts";
 import { createApp, type LogLine } from "./app.ts";
 import { openDatabase } from "./db.ts";
@@ -10,7 +10,6 @@ import { PACKAGE_VERSION } from "./version.ts";
 
 const port = Number(process.env.PORT ?? 3000);
 const stage = process.env.STAGE ?? "local";
-const mcpBasePath = process.env.MCP_BASE_PATH ?? "/mcp";
 
 const log = (line: LogLine) => console.log(JSON.stringify({ ...line, stage }));
 
@@ -23,17 +22,20 @@ try {
   process.exit(1);
 }
 
+const mcpBasePath = config.mcpBasePath;
 const database = openDatabase(config.db);
 const app = createApp({
   stage,
   mcpBasePath,
   log,
+  auth: config.auth,
+  pingMaxConcurrent: config.pingMaxConcurrent,
   a2h: {
     db: database.db,
-    principal: config.principal,
-    policy: config.policy,
+    feeRate: config.feeRate,
     clearingShare: config.clearingShare,
     approvalKey: config.approvalKey,
+    limits: config.limits,
   },
 });
 
@@ -44,6 +46,8 @@ app.server.listen(port, () => {
     port,
     mcp_path: mcpBasePath,
     health_path: healthPathFor(mcpBasePath),
+    auth_required: config.auth.required,
+    ping_open: config.auth.pingOpen,
     version: PACKAGE_VERSION,
   });
 });

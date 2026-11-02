@@ -1,0 +1,2 @@
+ALTER TABLE "principals" ADD COLUMN "verification_method" text;--> statement-breakpoint
+ALTER TABLE "principals" ADD CONSTRAINT "principals_verification_method_known" CHECK ("principals"."verification_method" IS NULL OR "principals"."verification_method" IN ('owner_allowlist'));

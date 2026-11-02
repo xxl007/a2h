@@ -1,8 +1,16 @@
 {
+  // Typecheck config (editor, ESLint, `pnpm typecheck`): src, test and
+  // scripts, no emit. `build` uses tsconfig.build.json (src only).
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": "src",
-    "outDir": "dist"
+    "noEmit": true,
+    "types": ["node"],
+    "lib": ["ES2023", "DOM"],
+    // Sources and tests import siblings as `./x.ts` so that `node --test`
+    // (type stripping) can load them; tsc rewrites to `./x.js` on emit.
+    // Templates use createElement, not JSX: Node's type stripping has no JSX.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "test", "scripts"]
 }

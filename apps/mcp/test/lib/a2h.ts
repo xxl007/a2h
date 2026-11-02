@@ -3,11 +3,16 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult, FetchLike } from "@modelcontextprotocol/client";
 import type { Principal, ValidationPolicy } from "@a2h/protocol";
+import { ensurePrincipal } from "@a2h/db";
 import type { DbConfig } from "../../src/config.ts";
 import { openDatabase } from "../../src/db.ts";
+import type { AuthConfig } from "../../src/auth.ts";
+import type { RateLimits } from "../../src/session.ts";
 import { start, type Running } from "../helpers.ts";
+import { sqlIn } from "./db.ts";
 
-export const TEST_PRINCIPAL: Principal = { principal_id: "dev-principal-test", identity_mode: "verified_organisation", verified: true };
+/** The default signed-in principal, as consent creates it (`consentPrincipal`): real name, verified by the owner's allow-list. Not the seeded fallback `dev-principal-test`, so consent, not the seed, writes its rows. */
+export const TEST_PRINCIPAL: Principal = { principal_id: "user-test-principal", identity_mode: "real_name", verified: true };
 export const TEST_POLICY: ValidationPolicy = {
   fee_rate: 0.2,
   currency: "EUR",
@@ -28,6 +33,64 @@ export interface A2hOptions {
   now?: () => Date;
   randomBytes?: (n: number) => Uint8Array;
   stage?: string;
+  /** The gate (default off: every call acts for `principal`). */
+  auth?: AuthConfig;
+  limits?: RateLimits;
+  pingMaxConcurrent?: number;
+  /**
+   * false: do not create the principal's rows (a token whose account never
+   * consented). Otherwise the default principal is created by consent
+   * (`consentPrincipal`); an explicit `principal` is written as given
+   * (`ensurePrincipalRows`), for states consent never produces.
+   */
+  ensurePrincipal?: boolean;
+}
+
+/**
+ * Create a principal and its policy exactly as the web app's consent step
+ * does: `@a2h/db` ensurePrincipal with the stage's default policy and no
+ * identity mode of its own. Idempotent, like consent. Returns the principal
+ * as stored. (Test setup; the mcp service never writes these rows.)
+ */
+export async function consentPrincipal(db: DbConfig, principalId: string, policy: ValidationPolicy = TEST_POLICY): Promise<Principal> {
+  // The principal's own policy: the fee rate is the stage's, not stored with the principal.
+  const own = {
+    currency: policy.currency,
+    monthly_budget_minor: policy.monthly_budget_minor,
+    per_request_cap_minor: policy.per_request_cap_minor,
+    ask_first_above_minor: policy.ask_first_above_minor,
+    daily_request_limit: policy.daily_request_limit,
+    throttled_daily_limit: policy.throttled_daily_limit,
+  };
+  const database = openDatabase(db);
+  try {
+    return (await ensurePrincipal(database.db, principalId, { policy: own })).principal;
+  } finally {
+    await database.close();
+  }
+}
+
+/**
+ * Write a principal's rows as given (upsert), for states consent never
+ * produces (unverified, another identity mode, no verification method).
+ * The signed-in principal of a test is created with `consentPrincipal`.
+ */
+export async function ensurePrincipalRows(db: DbConfig, principal: Principal, policy: ValidationPolicy): Promise<void> {
+  await sqlIn(
+    db,
+    `INSERT INTO principals (principal_id, identity_mode, verified) VALUES ($1, $2, $3)
+     ON CONFLICT (principal_id) DO UPDATE SET identity_mode = EXCLUDED.identity_mode, verified = EXCLUDED.verified`,
+    [principal.principal_id, principal.identity_mode, principal.verified],
+  );
+  await sqlIn(
+    db,
+    `INSERT INTO principal_policies (principal_id, currency, monthly_budget_minor, per_request_cap_minor, ask_first_above_minor, daily_request_limit, throttled_daily_limit)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (principal_id) DO UPDATE SET currency = EXCLUDED.currency, monthly_budget_minor = EXCLUDED.monthly_budget_minor,
+       per_request_cap_minor = EXCLUDED.per_request_cap_minor, ask_first_above_minor = EXCLUDED.ask_first_above_minor,
+       daily_request_limit = EXCLUDED.daily_request_limit, throttled_daily_limit = EXCLUDED.throttled_daily_limit`,
+    [principal.principal_id, policy.currency, policy.monthly_budget_minor, policy.per_request_cap_minor, policy.ask_first_above_minor, policy.daily_request_limit, policy.throttled_daily_limit],
+  );
 }
 
 export interface RunningA2h extends Running {
@@ -35,13 +98,22 @@ export interface RunningA2h extends Running {
 }
 
 export async function startA2h(db: DbConfig, options: A2hOptions = {}): Promise<RunningA2h> {
+  const principal = options.principal ?? TEST_PRINCIPAL;
+  const policy = options.policy ?? TEST_POLICY;
+  if (options.ensurePrincipal !== false) {
+    if (options.principal) await ensurePrincipalRows(db, principal, policy);
+    else await consentPrincipal(db, principal.principal_id, policy);
+  }
   const database = openDatabase(db);
   const running = await start({
     stage: options.stage ?? "test",
+    fallbackPrincipalId: principal.principal_id,
+    pingMaxConcurrent: options.pingMaxConcurrent ?? 4,
+    ...(options.auth ? { auth: options.auth } : {}),
     a2h: {
       db: database.db,
-      principal: options.principal ?? TEST_PRINCIPAL,
-      policy: options.policy ?? TEST_POLICY,
+      feeRate: policy.fee_rate,
+      limits: options.limits ?? { perMinute: 60, perDay: 2000 },
       clearingShare: 0.5,
       approvalKey: options.approvalKey ?? TEST_APPROVAL_KEY,
       now: options.now ?? (() => NOW),

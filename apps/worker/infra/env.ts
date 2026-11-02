@@ -4,21 +4,13 @@
 // - database: DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_SCHEMA, DB_JOBS_SCHEMA as
 //   plain environment, DB_PASSWORD injected by ECS from Secrets Manager,
 //   DB_CA_BUNDLE baked into the image by apps/worker/Dockerfile;
-// - STAGE, SIMULATOR_ENABLED, the development principal and its policy
-//   (PRINCIPAL_*), FEE_RATE and CLEARING_SHARE as plain environment;
+// - STAGE, SIMULATOR_ENABLED, FEE_RATE and CLEARING_SHARE as plain
+//   environment (PRINCIPAL_* left with m1-hosted-connector and are refused);
 // - SIGNING_KEY_ID, SIGNING_PRIVATE_KEY (base64 PKCS#8 DER) and
 //   SIGNING_PUBLIC_KEY (base64 raw) from the secret a2h/<stage>/signing.
 // It logs nothing and never puts a value it read into an error message.
 import { readFileSync } from "node:fs";
-import {
-  CurrencySchema,
-  OpaqueIdSchema,
-  PrincipalSchema,
-  PUBLIC_KEY_PATTERN,
-  ValidationPolicySchema,
-  type Principal,
-  type ValidationPolicy,
-} from "@a2h/protocol";
+import { OpaqueIdSchema, PUBLIC_KEY_PATTERN } from "@a2h/protocol";
 import type { SigningKeyMaterial, WorkerConfig } from "../src/config.ts";
 import type { DbConfig } from "../src/db-config.ts";
 
@@ -27,7 +19,6 @@ type Env = Record<string, string | undefined>;
 // pg-boss interpolates the schema name into its SQL: plain lower-case
 // identifiers only (`public`, `pr_<n>`, `pgboss`, `pr_<n>_jobs`), at most 63 bytes.
 const SCHEMA_NAME = /^[a-z_][a-z0-9_]{0,62}$/;
-const DECIMAL_INTEGER = /^(0|[1-9][0-9]*)$/;
 const DECIMAL_RATE = /^(0|1)(\.[0-9]+)?$/;
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
 
@@ -53,12 +44,6 @@ function bool(env: Env, name: string): boolean {
   const value = required(env, name);
   if (value !== "true" && value !== "false") throw invalid(name, "true or false");
   return value === "true";
-}
-
-function integer(env: Env, name: string): number {
-  const value = required(env, name);
-  if (!DECIMAL_INTEGER.test(value) || !Number.isSafeInteger(Number(value))) throw invalid(name, "a non-negative integer");
-  return Number(value);
 }
 
 function rate(env: Env, name: string, { allowOne }: { allowOne: boolean }): number {
@@ -113,36 +98,6 @@ export function dbConfigFromEnv(env: Env = process.env): DbConfig {
   return { connectionString, schema, jobsSchema, ssl };
 }
 
-function principalFromEnv(env: Env): Principal {
-  const principal = {
-    principal_id: required(env, "PRINCIPAL_ID"),
-    identity_mode: required(env, "PRINCIPAL_IDENTITY_MODE"),
-    verified: bool(env, "PRINCIPAL_VERIFIED"),
-  };
-  if (!OpaqueIdSchema.safeParse(principal.principal_id).success) throw invalid("PRINCIPAL_ID", "an opaque identifier");
-  const parsed = PrincipalSchema.safeParse(principal);
-  if (!parsed.success) throw invalid("PRINCIPAL_IDENTITY_MODE", "an identity mode");
-  return parsed.data;
-}
-
-function policyFromEnv(env: Env): ValidationPolicy {
-  const currency = required(env, "PRINCIPAL_CURRENCY");
-  if (!CurrencySchema.safeParse(currency).success) throw invalid("PRINCIPAL_CURRENCY", "an ISO 4217 code");
-  const askFirst = required(env, "PRINCIPAL_ASK_FIRST_ABOVE_MINOR");
-  const policy = {
-    fee_rate: rate(env, "FEE_RATE", { allowOne: false }),
-    currency,
-    monthly_budget_minor: integer(env, "PRINCIPAL_MONTHLY_BUDGET_MINOR"),
-    per_request_cap_minor: integer(env, "PRINCIPAL_PER_REQUEST_CAP_MINOR"),
-    ask_first_above_minor: askFirst === "none" ? null : integer(env, "PRINCIPAL_ASK_FIRST_ABOVE_MINOR"),
-    daily_request_limit: integer(env, "PRINCIPAL_DAILY_REQUEST_LIMIT"),
-    throttled_daily_limit: integer(env, "PRINCIPAL_THROTTLED_DAILY_LIMIT"),
-  };
-  // Every field was checked above; this is the protocol's own word on the shape.
-  if (!ValidationPolicySchema.safeParse(policy).success) throw invalid("PRINCIPAL_*", "a valid contact policy");
-  return policy;
-}
-
 function signingFromEnv(env: Env): SigningKeyMaterial {
   const key_id = required(env, "SIGNING_KEY_ID");
   if (!OpaqueIdSchema.safeParse(key_id).success) throw invalid("SIGNING_KEY_ID", "an opaque identifier");
@@ -153,6 +108,12 @@ function signingFromEnv(env: Env): SigningKeyMaterial {
 }
 
 export function workerConfigFromEnv(env: Env = process.env): WorkerConfig {
+  const stale = Object.keys(env).find((k) => k.startsWith("PRINCIPAL_"));
+  if (stale) {
+    throw new Error(
+      `worker configuration: ${stale} is set, but the development principal was removed by m1-hosted-connector (principals and their policies are database rows); remove PRINCIPAL_* from the environment`,
+    );
+  }
   const stage = required(env, "STAGE");
   // The simulator never runs on prod (spec participant-simulation "Nothing on
   // production"), whatever SIMULATOR_ENABLED says.
@@ -161,8 +122,7 @@ export function workerConfigFromEnv(env: Env = process.env): WorkerConfig {
     stage,
     db: dbConfigFromEnv(env),
     simulatorEnabled,
-    principal: principalFromEnv(env),
-    policy: policyFromEnv(env),
+    feeRate: rate(env, "FEE_RATE", { allowOne: false }),
     clearingShare: rate(env, "CLEARING_SHARE", { allowOne: true }),
     signing: signingFromEnv(env),
   };

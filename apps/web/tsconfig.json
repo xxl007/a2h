@@ -10,11 +10,13 @@
     "jsx": "preserve",
     "allowJs": false,
     "noEmit": true,
+    // test/infra-env.test.ts reads infra/*.ts, which import with .ts extensions.
+    "allowImportingTsExtensions": true,
     "incremental": true,
     "declaration": false,
     "sourceMap": false,
     "plugins": [{ "name": "next" }]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", "app/.well-known/**/*.ts", ".next/types/**/*.ts"],
   "exclude": ["node_modules", ".next"]
 }

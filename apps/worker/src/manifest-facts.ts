@@ -3,8 +3,8 @@
 // loads the facts). Delivery re-checks the participant's rules only: budget
 // and throttle were counted at approval (`phase: "delivery"`).
 import { and, count, eq, gte } from "drizzle-orm";
-import type { Manifest, RulesOfEngagement, ValidationFacts } from "@a2h/protocol";
-import { participants, requestDeliveries, rules, ruleTypes } from "@a2h/db";
+import type { Manifest, Principal, RulesOfEngagement, ValidationFacts, ValidationPolicy } from "@a2h/protocol";
+import { participants, principalWithPolicy, requestDeliveries, rules, ruleTypes } from "@a2h/db";
 import type { WorkerConfig } from "./config.ts";
 import type { Db } from "./db.ts";
 import type { RequestRow } from "./lifecycle.ts";
@@ -73,14 +73,24 @@ export async function deliveriesToday(db: Db, participantId: string, now: Date):
   return row?.n ?? 0;
 }
 
-export function deliveryFacts(config: WorkerConfig, participant: ParticipantRow, participantRules: RulesOfEngagement, interruptionsToday: number, now: Date): ValidationFacts {
+/**
+ * The request's principal and its own policy as recorded now (m1-hosted-
+ * connector design D4: rows, not the deployment's configuration), with the
+ * stage's fee rate; null when the rows are gone, and delivery then fails closed.
+ */
+export async function principalOf(db: Db, config: WorkerConfig, principalId: string): Promise<{ principal: Principal; policy: ValidationPolicy } | null> {
+  const found = await principalWithPolicy(db, principalId);
+  return found ? { principal: found.principal, policy: { ...found.policy, fee_rate: config.feeRate } } : null;
+}
+
+export function deliveryFacts(principal: Principal, policy: ValidationPolicy, participant: ParticipantRow, participantRules: RulesOfEngagement, interruptionsToday: number, now: Date): ValidationFacts {
   return {
     now: now.toISOString(),
-    principal: config.principal,
+    principal,
     participant: { participant_id: participant.id, handle: participant.handle, rules: participantRules },
     interruptions_today: interruptionsToday,
     // Skipped in the delivery phase (counted at approval); present because the facts shape requires them.
-    budget: { used_minor: 0, currency: config.policy.currency },
+    budget: { used_minor: 0, currency: policy.currency },
     requests_today: 0,
     principal_throttled: false,
     approval: "recorded",

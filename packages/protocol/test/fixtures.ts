@@ -259,6 +259,7 @@ export const fixtures: Record<string, Fixture> = {
     fail: { code: "bid_below_reserve", stage: "rules", retryable: false },
     path: ["code"],
   },
+  RateLimitDetailsSchema: { pass: { retry_after_seconds: 18 }, fail: { retry_after_seconds: 0 }, path: ["retry_after_seconds"] },
   BlockedManifestSchema: {
     pass: { participant_id: "p_sim_mv", principal_id: "dev-principal-pr-17", stage: "rules", code: "bid_below_reserve", at: "2026-10-21T08:42:00+02:00" },
     fail: { participant_id: "p_sim_mv", principal_id: "dev-principal-pr-17", stage: "rules", code: "Is this alarming?", at: "2026-10-21T08:42:00+02:00" },
@@ -296,6 +297,7 @@ export const fixtures: Record<string, Fixture> = {
     path: ["revoked_at"],
   },
   SimulatedPersonaSchema: { pass: "cant_tell", fail: "chatty", path: [] },
+  RateLimitWindowSchema: { pass: "day", fail: "hour", path: [] },
   CheckRequestsInputSchema: { pass: { request_id: "A2H-7f3c" }, fail: { request_id: "A2H-7f3" }, path: ["request_id"] },
   CheckedRequestSchema: { pass: referenceChecked, fail: { ...referenceChecked, status: "done" }, path: ["status"] },
   CheckRequestsOutputSchema: {

@@ -20,8 +20,10 @@ after(async () => {
 });
 
 const DRIZZLE_TABLES = [
-  "answers", "blocked_manifests", "participants", "profiles", "request_deliveries", "request_events", "requests",
-  "rule_types", "rules", "schema_migrations", "signing_keys", "simulated_personas",
+  "account", "answers", "blocked_manifests", "jwks", "oauth_access_token", "oauth_client", "oauth_client_assertion",
+  "oauth_client_resource", "oauth_consent", "oauth_refresh_token", "oauth_resource", "participants", "principal_policies",
+  "principals", "profiles", "rate_limit_windows", "request_deliveries", "request_events", "requests", "rule_types", "rules",
+  "schema_migrations", "session", "signing_keys", "simulated_personas", "user", "verification",
 ];
 
 test("boss options: the jobs schema, no schema creation, connection timeout tolerates an Aurora resume", () => {

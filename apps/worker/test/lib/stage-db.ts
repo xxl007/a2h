@@ -17,6 +17,7 @@ export { skipWithoutDocker };
 export const SCHEMA = "pr_12";
 export const JOBS_SCHEMA = "pr_12_jobs";
 export const STAGE = "pr-12";
+/** The stage's fallback principal, whose rows the seed creates (packages/db seed). */
 export const PRINCIPAL_ID = "dev-principal-pr-12";
 const LOGIN_PASSWORD = "test-only-pr-12";
 
@@ -81,22 +82,23 @@ export function testSigningKey(key_id: string): WorkerConfig["signing"] {
   };
 }
 
+/** A principal's rows, as the web app's consent step creates them (test setup). */
+export async function addPrincipal(admin: pg.Client, principalId: string, identityMode: "real_name" | "verified_person" | "verified_organisation", currency = "EUR"): Promise<void> {
+  await admin.query(`INSERT INTO principals (principal_id, identity_mode, verified) VALUES ($1, $2, true)`, [principalId, identityMode]);
+  await admin.query(
+    `INSERT INTO principal_policies (principal_id, currency, monthly_budget_minor, per_request_cap_minor, ask_first_above_minor, daily_request_limit, throttled_daily_limit)
+     VALUES ($1, $2, 50000, 6000, NULL, 50, 5)`,
+    [principalId, currency],
+  );
+}
+
 /** The worker configuration of stage pr-12 (the values infra/config.ts gives every stage). */
 export function testConfig(db: DbConfig, overrides: Partial<WorkerConfig> = {}): WorkerConfig {
   return {
     stage: STAGE,
     db,
     simulatorEnabled: true,
-    principal: { principal_id: PRINCIPAL_ID, identity_mode: "verified_organisation", verified: true },
-    policy: {
-      fee_rate: 0.2,
-      currency: "EUR",
-      monthly_budget_minor: 50_000,
-      per_request_cap_minor: 6_000,
-      ask_first_above_minor: null,
-      daily_request_limit: 50,
-      throttled_daily_limit: 5,
-    },
+    feeRate: 0.2,
     clearingShare: 0.5,
     signing: testSigningKey("a2h-pr-12-0000000000000001"),
     ...overrides,

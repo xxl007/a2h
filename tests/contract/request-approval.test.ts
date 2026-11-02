@@ -8,7 +8,7 @@
 //
 // "Nothing is created" is checked from outside: check_requests lists no new
 // request to the handle used. The handles used here (sim-mv-7f3c,
-// sim-ol-6a23, sim-ep-5c07) are never sent to by request-flows.test.ts.
+// sim-ol-6a23, sim-ep-5c07, sim-rc-8d14) are never sent to by request-flows.test.ts.
 // Run: A2H_MCP_URL=http://<alb>/pr-<n>/mcp pnpm --filter @a2h/tests contract
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -31,6 +31,7 @@ import {
   type A2hClient,
   type Answer,
 } from "./a2h.ts";
+import { expectedStage, gateExpectation, mcpUrl } from "../src/live-env.ts";
 
 const MV = "sim-mv-7f3c"; // judgment, net 2500 → gross 3125, prompt persona, latency 6 h
 const QUESTION = "Would a patient with type 2 diabetes find the insulin section of this leaflet alarming?";
@@ -38,6 +39,13 @@ const EDITED = "Would a newly diagnosed patient find the insulin section alarmin
 const PUSH_POLL = "Would you still trust this clinic if you learned its director lied about the results?";
 const THIRD_PARTY = "What is your colleague's home address?";
 const LABOUR = "Please write a 2,000-word report on insulin pricing.";
+
+// The seed's one organisation-only persona (packages/db seed.test.ts "who may
+// ask"): knowledge, net 2500 → gross 3125. With the gate on the caller is the
+// signed-in principal, a person (consent creates identity_mode real_name).
+const RC = "sim-rc-8d14";
+const STAGE = expectedStage(mcpUrl());
+const GATE = await gateExpectation(STAGE);
 
 const base = (extra: Record<string, unknown> = {}) => manifest(MV, "judgment", 3200, QUESTION, extra);
 
@@ -71,6 +79,23 @@ describe("protocol/request-approval (live)", () => {
     const everything = JSON.stringify(raw).toLowerCase();
     for (const leak of ["3125", "31.25", "2500", "25.00", "reserve"]) assert.ok(!everything.includes(leak), `the refusal states the reserve (${leak})`);
     await assertNothingCreatedFor(c, MV, since);
+  });
+
+  // protocol/request-approval "Blocked row", observable part: a manifest
+  // blocked by the participant's rules (who may ask: organisations only) is
+  // refused at the rules stage with no approval, nothing is created, and the
+  // refusal names a category, not the rule. The row itself (participant id,
+  // principal id, stage, code, time; no question) is not visible from outside:
+  // apps/mcp/test/request-human.test.ts "Scenario: Blocked row".
+  test("Scenario: Blocked row (observable part: a signed-in person asks an organisation-only participant; refused at the rules stage, nothing created)", { skip: GATE.authRequired ? false : `AUTH_REQUIRED=false on ${STAGE}: the caller is the fallback principal, an organisation` }, async () => {
+    const since = serverNow();
+    const raw = await firstLeg(c, manifest(RC, "knowledge", 3200, "How do I descale a commercial espresso machine boiler safely?"));
+    assert.ok(!isInputRequired(raw), "no approval is shown");
+    const error = errorOf(raw);
+    assert.equal(error.code, "outside_participant_rules");
+    assert.equal(error.stage, "rules");
+    assert.ok(!/organi[sz]ation|who_may_ask|asker/i.test(JSON.stringify(raw)), "the refusal names a category, not the participant's rule");
+    await assertNothingCreatedFor(c, RC, since);
   });
 
   for (const [scenario, question] of [

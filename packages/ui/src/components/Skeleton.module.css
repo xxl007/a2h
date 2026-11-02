@@ -1,0 +1,5 @@
+.skeleton { display: block; background: var(--surface-2); border-radius: var(--radius-md); }
+@media (prefers-reduced-motion: no-preference) {
+  .skeleton { animation: pulse 1.6s var(--motion-ease) infinite alternate; }
+  @keyframes pulse { from { opacity: 1; } to { opacity: 0.55; } }
+}

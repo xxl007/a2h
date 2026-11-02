@@ -1,0 +1,126 @@
+/**
+ * All user-facing copy of the m1-hosted-connector screens, English.
+ * Source: openspec/changes/m1-hosted-connector/design.md, "Screens". Change both together.
+ * Placeholders in braces are filled by the helpers below, never by string concatenation in apps.
+ */
+export const copy = {
+  signIn: {
+    documentTitle: "Sign in · A2H",
+    title: "Sign in to A2H",
+    lead: "Enter your email address and we'll send you a link to sign in. There is no password.",
+    leadConnecting:
+      "Sign in to finish connecting your agent. We'll email you a link; open it in this browser to come back here.",
+    emailLabel: "Email address",
+    submit: "Email me a sign-in link",
+    submitPending: "Sending the link…",
+    footnote: "A2H is open to invited addresses only for now.",
+    errorEmpty: "Enter your email address.",
+    errorFormat: "Enter an email address in the form name@example.com.",
+    errorTitle: "The link was not sent",
+    errorBody: "Something went wrong on our side. Your address is still in the field; try again.",
+    rateLimitedTitle: "Too many attempts",
+    rateLimitedBody: "Too many sign-in links were asked for from here. Wait a few minutes, then try again.",
+    offlineTitle: "You're offline",
+    offlineBody: "Your address is kept. Send the link when you're back online.",
+  },
+  checkEmail: {
+    documentTitle: "Check your email · A2H",
+    title: "Check your email",
+    sentTo: "If {address} can sign in to A2H, a sign-in link is on its way to it.",
+    sentToUnknown: "If your address can sign in to A2H, a sign-in link is on its way to it.",
+    validity: "The link works once and for 15 minutes. Open it in this browser.",
+    help: "Nothing after a few minutes? Check your spam folder, or send another link.",
+    resend: "Send another link",
+    resendPending: "Sending…",
+    otherAddress: "Use a different address",
+    resentTitle: "Another link is on its way",
+    resentBody: "Use the newest one. It works once and for 15 minutes.",
+    errorTitle: "Another link was not sent",
+    errorBody: "Something went wrong on our side. Wait a moment and try again.",
+    offlineTitle: "You're offline",
+    offlineBody: "You can send another link when you're back online.",
+    sinkTitle: "On this test stage, links are not emailed",
+    sinkBody: "The link is kept in this stage's mail sink. The runbook shows how to read it.",
+  },
+  linkExpired: {
+    documentTitle: "Sign-in link no longer works · A2H",
+    title: "This sign-in link no longer works",
+    body: "A sign-in link works once and for 15 minutes. This one has expired or was already used, so you are not signed in.",
+    action: "Send me a new link",
+  },
+  consent: {
+    documentTitle: "Connect {client} · A2H",
+    title: "Let this app act for you on A2H?",
+    scopesHeading: "It will be able to",
+    scopes: {
+      a2h: "Find humans, send them approved questions and read their answers on your behalf",
+      offline_access: "Stay connected without signing in again",
+    },
+    approvalTitle: "You still approve every question",
+    approvalBody:
+      "Every question is shown to you for approval before it is sent. Nothing reaches a person without your yes.",
+    actsFor: "It will act for {address}.",
+    returnTo: "After you choose, you go back to {origin}.",
+    disconnectLater: "You can disconnect it at any time from ",
+    clientsLink: "Connected apps",
+    accept: "Connect",
+    acceptPending: "Connecting…",
+    decline: "Don't connect",
+    declinePending: "Cancelling…",
+    errorTitle: "Your choice was not recorded",
+    errorBody: "Nothing was connected. Try again.",
+    offlineTitle: "You're offline",
+    offlineBody: "Nothing is connected. Choose when you're back online.",
+    invalidTitle: "This connection can't continue",
+    nothingConnected: "Nothing was connected",
+    invalidBody:
+      "The app's request to A2H was not valid. Go back to the app and start the connection again. If it keeps happening, the app may not work with A2H yet.",
+    expiredTitle: "This connection request has expired",
+    expiredBody: "Go back to the app and start the connection again.",
+    declinedTitle: "Not connected",
+    declinedBody: "{client} was not connected to your A2H account. You can close this page.",
+  },
+  clients: {
+    documentTitle: "Connected apps · A2H",
+    title: "Connected apps",
+    lead: "These apps can act for you on A2H. Every question they draft is still shown to you before it is sent.",
+    connected: "Connected {date}",
+    lastUsed: "last used {date}",
+    neverUsed: "not used yet",
+    disconnect: "Disconnect",
+    disconnectLabel: "Disconnect {client} ({origin})",
+    confirmQuestion: "Disconnect {client}?",
+    confirmBody:
+      "It will not be able to reconnect without asking you again. Access it already has ends within an hour. Requests you already approved are not affected.",
+    confirm: "Disconnect",
+    confirmPending: "Disconnecting…",
+    cancel: "Keep connected",
+    doneTitle: "{client} is disconnected",
+    doneBody: "Access it already has ends within an hour.",
+    errorRowTitle: "{client} is still connected",
+    errorRowBody: "The disconnection did not go through. Try again.",
+    retry: "Try again",
+    emptyTitle: "No apps are connected",
+    emptyBody:
+      "To connect one, add A2H as a connector in your agent, for example Claude or Claude Code, and sign in when it asks.",
+    loading: "Loading connected apps",
+    errorTitle: "Connected apps could not be loaded",
+    errorBody: "Your connections are unchanged. Reload the page to try again.",
+    reload: "Reload",
+    offlineTitle: "You're offline",
+    offlineBody: "This list may be out of date. Disconnecting needs a connection.",
+  },
+  signedOut: {
+    documentTitle: "Signed out · A2H",
+    title: "You're signed out",
+    body: "Apps you connected stay connected: signing out of this page does not disconnect them. To disconnect one, sign in and open Connected apps.",
+    action: "Sign in again",
+    errorTitle: "You are still signed in",
+    errorBody: "Signing out did not go through. Try again.",
+  },
+} as const;
+
+/** Fills {name} placeholders. Values are inserted as text; React escapes them. */
+export function fill(template: string, values: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (match, key: string) => values[key] ?? match);
+}

@@ -58,8 +58,16 @@ The endpoint SHALL never include a received token in any outbound call, log line
 - **THEN** no log line and no database row contains the token or any substring of it longer than eight characters
 
 ### Requirement: Open paths stay open
-The health path, the protected-resource metadata and the `ping` tool reached through the MCP endpoint SHALL remain reachable without a token.
+The health path and the protected-resource metadata SHALL remain reachable without a token. The `ping` tool SHALL require a token like every other call on the MCP endpoint, except on a non-production stage whose configuration opens it; production SHALL refuse to start with `ping` open.
 
 #### Scenario: Health without token
 - **WHEN** the load balancer probes the health path with no `Authorization` header
 - **THEN** it receives 200
+
+#### Scenario: ping on a gated stage
+- **WHEN** a client calls `ping` without a token on a stage whose configuration does not open it (every stage by default)
+- **THEN** it receives 401 with the challenge, like any other call
+
+#### Scenario: Production refuses an open ping
+- **WHEN** the MCP service starts on production with `ping` configured open
+- **THEN** it refuses to start and logs the setting by name
