@@ -43,6 +43,11 @@ Until identity verification of principals exists, a principal created at consent
 - **WHEN** a principal whose row already exists accepts consent for another client
 - **THEN** its `verified` flag and verification method are unchanged
 
+#### Scenario: Address removed from the allow-list
+- **WHEN** the owner removes a principal's address from the stage's allow-list
+- **THEN** within the allow-list refresh interval (five minutes) that principal can no longer sign in, use an existing session, consent to a client or refresh a token, and access tokens already issued expire at their own expiry (one hour at most)
+
+
 ### Requirement: Consent names the client and the scopes
 Before a token is issued to a client, the signed-in principal SHALL see a consent screen naming the client (from its metadata document, its registration or its pre-registered record) and listing the requested scopes in plain words; a token SHALL be issued only on accept.
 
