@@ -29,7 +29,7 @@ On the production stage a magic link SHALL be delivered by email only; on every 
 - **THEN** the link appears in that stage's mail sink, readable only with the stage's deploy credentials, and no email leaves the platform
 
 ### Requirement: Allow-listed principals are verified by the owner's allow-list
-Until identity verification of principals exists, a principal created at consent SHALL be recorded as verified with the verification method `owner_allowlist`, because sign-in already requires an address the owner listed and control of its mailbox; the method SHALL be stored with the principal so that a later identity check can find every principal verified only this way. A principal whose address is no longer on the stage's allow-list SHALL NOT be able to sign in again, and an existing principal's verification SHALL never be upgraded or downgraded by a second consent.
+Until identity verification of principals exists, a principal created at consent SHALL be recorded as verified with the verification method `owner_allowlist`, stored with the principal so a later identity check can find it. A second consent SHALL never change a stored principal's verification.
 
 #### Scenario: Consent creates a verified principal
 - **WHEN** an allow-listed address signs in and accepts consent for the first time
