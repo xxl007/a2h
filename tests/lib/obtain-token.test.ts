@@ -88,19 +88,39 @@ describe("signInUntilLink", () => {
 
 describe("startCallbackListener", () => {
   test("answers the client's loopback redirect URI for real (a 302 from the authorization server lands here) and hands the URL over", async () => {
-    const listener = await startCallbackListener("http://127.0.0.1:43110/callback");
+    // Port 0: an ephemeral port, read back from the listener, so a parallel workspace or a leftover
+    // server on the production port (LOOPBACK_REDIRECT) cannot fail this test with EADDRINUSE.
+    const listener = await startCallbackListener("http://127.0.0.1:0/callback");
     try {
+      const base = listener.url;
+      assert.equal(base.hostname, "127.0.0.1");
+      assert.equal(base.pathname, "/callback");
+      assert.notEqual(base.port, "0", "the bound port is read back");
+      assert.ok(Number(base.port) > 0);
+      const at = (path: string) => new URL(path, base).href;
       const pending = listener.next();
-      const res = await fetch("http://127.0.0.1:43110/callback?code=abc&state=xyz&iss=https%3A%2F%2Fexample.org%2Fapi%2Fauth");
+      const res = await fetch(at("/callback?code=abc&state=xyz&iss=https%3A%2F%2Fexample.org%2Fapi%2Fauth"));
       assert.equal(res.status, 200);
       const url = await pending;
       assert.equal(url.searchParams.get("code"), "abc");
       assert.equal(url.searchParams.get("state"), "xyz");
       // Another path on the port is not the callback.
-      assert.equal((await fetch("http://127.0.0.1:43110/other")).status, 404);
+      assert.equal((await fetch(at("/other"))).status, 404);
       // A callback that arrives before anyone waits is kept.
-      await fetch("http://127.0.0.1:43110/callback?error=access_denied&state=s2");
+      await fetch(at("/callback?error=access_denied&state=s2"));
       assert.equal((await listener.next()).searchParams.get("error"), "access_denied");
+    } finally {
+      await listener.stop();
+    }
+  });
+
+  test("a fixed port is kept as given: url is the redirect URI itself", async () => {
+    const probe = await startCallbackListener("http://127.0.0.1:0/cb");
+    const port = probe.url.port;
+    await probe.stop();
+    const listener = await startCallbackListener(`http://127.0.0.1:${port}/cb`);
+    try {
+      assert.equal(listener.url.href, `http://127.0.0.1:${port}/cb`);
     } finally {
       await listener.stop();
     }

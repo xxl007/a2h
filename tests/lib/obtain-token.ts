@@ -122,6 +122,8 @@ export interface CallbackListener {
   /** Resolves with the next callback URL the client receives (code or error, state, iss). */
   next: () => Promise<URL>;
   stop: () => Promise<void>;
+  /** The callback URL as bound: the redirect URI given, with port 0 replaced by the port the system chose. */
+  url: URL;
 }
 
 /**
@@ -150,7 +152,11 @@ export async function startCallbackListener(redirectUri: string = LOOPBACK_REDIR
     server.once("error", reject);
     server.listen(Number(target.port), target.hostname, resolve);
   });
+  const bound = new URL(target);
+  const address = server.address();
+  if (address !== null && typeof address === "object") bound.port = String(address.port);
   return {
+    url: bound,
     next: () =>
       new Promise<URL>((resolve) => {
         const queued = queue.shift();
