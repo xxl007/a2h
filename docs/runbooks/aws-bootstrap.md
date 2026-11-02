@@ -373,6 +373,8 @@ aws iam put-user-policy --profile a2h-member --user-name <your IAM user> --polic
 
 Check what is set: `aws ssm get-parameter --profile a2h-member --region eu-west-3 --name /a2h/shared/principal-allowlist --with-decryption --query Parameter.Value --output text`.
 
+**Removing someone.** Set the list again without their address. Within five minutes (the web app re-reads the list on that interval) they can no longer sign in, and their next page, consent or token refresh fails: their sessions are deleted and their refresh tokens revoked at that moment, not at the moment you edit the list. An access token their agent already holds keeps working until it expires, one hour at most (ADR 0004). Putting the address back lets them sign in again; the revoked tokens stay revoked.
+
 ## 16. IAM update for m1-hosted-connector (once, before the dev deploy of PR #57)
 
 PR #57 adds the edge rate limit (AWS WAF), the allow-list parameter and the web app's database access through the RDS Data API. Checked against `infra/bootstrap/` (`infra/test/bootstrap-policies.test.ts`):
