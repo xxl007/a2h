@@ -1,5 +1,5 @@
 // Product domain, TLS and SES identity for every stage, and the Data API flag
-// of each cluster (openspec/changes/m1-hosted-connector, task 1.2).
+// of each cluster (openspec/changes/archive/2026-11-02-m1-hosted-connector, task 1.2).
 // Spec platform/hosted-endpoint: "Stage hostnames under the product domain"
 // and "HTTPS only"; spec platform/preview-environments: "A PR gets a preview
 // stage". The component functions (cluster.ts, email.ts, database.ts, web.ts)

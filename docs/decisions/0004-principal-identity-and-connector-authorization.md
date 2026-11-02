@@ -4,7 +4,7 @@
 - Date: 2026-11-01
 - Deciders: product owner (Galem L.), PM agent, Protocol-dev and Web-dev agents
 - Scope: who a principal is to the platform, where sign-in and consent live, how an MCP client obtains and presents a token, how the MCP service verifies it, and how the web tier reaches the database to do so. Governs `apps/web` (authorization server), `apps/mcp` (resource server), `packages/db` (`principals`, `principal_policies`, Better Auth tables) and the stage configuration in `infra/`.
-- Related: CLAUDE.md §Stack (Better Auth, magic link only) and §Engineering rules (every request carries an accountable principal); PRD §4 (request card), §11 (EU residency); `openspec/changes/m1-hosted-connector/` (proposal decisions 1–5, design D1–D8, D10; specs `platform/principal-identity`, `platform/connector-authorization`); ADR 0001 amendment 2 (Data API, WAF scope).
+- Related: CLAUDE.md §Stack (Better Auth, magic link only) and §Engineering rules (every request carries an accountable principal); PRD §4 (request card), §11 (EU residency); `openspec/changes/archive/2026-11-02-m1-hosted-connector/` (proposal decisions 1–5, design D1–D8, D10; specs `platform/principal-identity`, `platform/connector-authorization`); ADR 0001 amendment 2 (Data API, WAF scope).
 
 ## Context
 

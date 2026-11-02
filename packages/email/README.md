@@ -1,7 +1,7 @@
 # @a2h/email
 
 Email for A2H: a provider-neutral `Mailer`, React Email templates, the stage
-mail sink, and the stage selection between the sink and the production mailer. Change: `openspec/changes/m1-hosted-connector`
+mail sink, and the stage selection between the sink and the production mailer. Change: `openspec/changes/archive/2026-11-02-m1-hosted-connector`
 (design D6 mail sink, D10 logging; spec `platform/principal-identity`).
 
 ## Entry points

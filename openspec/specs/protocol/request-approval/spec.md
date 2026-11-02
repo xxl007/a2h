@@ -90,11 +90,15 @@ On accept, `request_human` SHALL return `request_id`, `eta`, `status: "sent"` an
 - **THEN** the result arrives within one second with a request id of the form `A2H-xxxx`, an ETA, status `sent` and the held amount equal to the gross bid
 
 ### Requirement: Every request carries its principal
-Every created request SHALL record the accountable principal identity of the connection; in this change that identity is the stage's development principal, and a request from a different principal SHALL be invisible to it.
+Every created request SHALL record the accountable principal identity of the connection, which is the signed-in account the bearer token was issued to; a request from a different principal SHALL be invisible to it.
 
 #### Scenario: Principal recorded
 - **WHEN** a request is created
-- **THEN** it carries the principal id, and `check_requests` from another principal reports `not_found` for that id
+- **THEN** it carries the principal id of the token's account, and `check_requests` from another principal reports `not_found` for that id
+
+#### Scenario: Principal's own policy applies
+- **WHEN** a principal's manifest is validated
+- **THEN** the budget, per-request cap and daily limits applied are the ones recorded for that principal (the stage default until the principal surface exists), never another principal's
 
 ### Requirement: Blocked manifests are counted without content
 Every validation failure at the rules stage SHALL be recorded with the participant id, the principal id, the stage, the code and the time, and SHALL NOT record the question text or any personal data.

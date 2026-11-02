@@ -1,5 +1,5 @@
 // Contract tests against a live stage for
-// openspec/changes/m1-hosted-connector/specs/platform/connector-authorization/spec.md:
+// openspec/changes/archive/2026-11-02-m1-hosted-connector/specs/platform/connector-authorization/spec.md:
 // the MCP endpoint as an OAuth 2.1 resource server. One test per scenario,
 // named after it. What the stage's configuration says about its gate comes
 // from infra (tests/src/live-env.ts gateExpectation): a scenario that needs
