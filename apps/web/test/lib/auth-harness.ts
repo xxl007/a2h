@@ -52,6 +52,10 @@ export interface HarnessOptions {
   /** The stage's public origin; `BASE` (plain http on localhost) by default, an https origin to stand for a deployed stage. */
   baseURL?: string;
   mcpUrl?: string;
+  /** The allow-list's source, read through the same cached reader as the app (five-minute refresh); `allow` by default. */
+  loadAllowlist?: () => Promise<string>;
+  /** The allow-list reader's clock (tests move it past the refresh interval). */
+  now?: () => number;
 }
 
 export async function startHarness(adminUrl: string, schema: string, allow = `${ALLOWED},${SECOND}`, options: HarnessOptions = {}): Promise<Harness> {
@@ -63,7 +67,7 @@ export async function startHarness(adminUrl: string, schema: string, allow = `${
   const mail: Mail[] = [];
   const logLines: string[] = [];
   const logger = createLogger({ write: (l) => logLines.push(l), level: "debug" });
-  const allowlist = new Allowlist(() => Promise.resolve(allow), { logger });
+  const allowlist = new Allowlist(options.loadAllowlist ?? (() => Promise.resolve(allow)), { logger, ...(options.now ? { now: options.now } : {}) });
   const cimd = new Map<string, unknown>();
   const cimdFetches: string[] = [];
   const isAllowed = (email: string) => allowlist.has(email);
