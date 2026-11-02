@@ -223,7 +223,15 @@ export async function obtainToken(
       }
       if (path === "/sign-in/expired") throw new Error("the magic link was refused as expired or used");
       if (path === "/consent") {
-        await page.getByRole("button", { name: "Connect", exact: true }).click();
+        // Accepting posts the consent and the authorization server sends the browser to the client's
+        // redirect URI (the listener above). That navigation can interrupt the click itself, which
+        // Playwright then reports as a timeout on a page that no longer has the button (seen on the
+        // preview: "locator.click: Timeout" with the page already on /callback). The callback, not the
+        // click's return, is the proof that the consent was accepted: the loop waits for it.
+        await page
+          .getByRole("button", { name: "Connect", exact: true })
+          .click({ noWaitAfter: true, timeout: STEP_TIMEOUT_MS })
+          .catch(() => undefined);
         await page.waitForLoadState("load", { timeout: STEP_TIMEOUT_MS }).catch(() => undefined);
         continue;
       }
