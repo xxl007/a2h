@@ -282,39 +282,74 @@ export interface Obtained {
   A2H_TOKEN_NOSCOPE?: string;
 }
 
+/**
+ * Disconnects every app the signed-in principal has on /account/clients, so the
+ * QA principals leave no consent behind: the web app's own e2e flows (same
+ * verify job, same addresses, same test client) expect to be asked for consent
+ * and to find "No apps are connected" after a decline. Access tokens already
+ * issued stay valid until their expiry (spec "Client revoked"), so the suites
+ * keep working. Returns how many were disconnected.
+ */
+export async function disconnectAll(context: BrowserContext, webUrl: string): Promise<number> {
+  const page = await context.newPage();
+  try {
+    await page.goto(`${webUrl.replace(/\/$/, "")}/account/clients`, { waitUntil: "load", timeout: STEP_TIMEOUT_MS });
+    let count = 0;
+    for (;;) {
+      const disconnect = page.getByRole("button", { name: /^Disconnect / }).first();
+      if ((await disconnect.count()) === 0) break;
+      await disconnect.click({ timeout: STEP_TIMEOUT_MS });
+      // The row asks to confirm.
+      await page.getByRole("group").getByRole("button", { name: "Disconnect", exact: true }).click({ timeout: STEP_TIMEOUT_MS });
+      await page.waitForLoadState("load", { timeout: STEP_TIMEOUT_MS }).catch(() => undefined);
+      count += 1;
+      if (count > 20) throw new Error("more than twenty connected apps on a QA principal: stopping");
+      await page.reload({ waitUntil: "load", timeout: STEP_TIMEOUT_MS });
+    }
+    return count;
+  } finally {
+    await page.close().catch(() => undefined);
+  }
+}
+
 /** Principal A (both scopes), principal B when given, and A again without `a2h` when the server lets a subset through. */
 export async function obtainAll(browser: Browser, target: SignInTarget, emails: { a: string; b?: string }, log: (line: string) => void): Promise<Obtained> {
   const { clientId, registration } = await clientIdFor(target.webUrl);
   log(`client: ${registration} (${clientId})`);
-  const a = await obtainToken(browser, target, emails.a, { clientId, retry: { log }, diagnosticsLabel: "obtain-token-a" });
-  log(`principal A: sub ${a.principalId}, scopes [${a.scopes.join(" ")}], expires in ${a.expiresAt - Math.floor(Date.now() / 1000)} s`);
-  if (!a.scopes.includes("a2h")) throw new Error("principal A's token lacks the a2h scope");
-  const out: Obtained = { A2H_TOKEN: a.accessToken };
-  if (emails.b) {
-    const b = await obtainToken(browser, target, emails.b, { clientId, retry: { log }, diagnosticsLabel: "obtain-token-b" });
-    log(`principal B: sub ${b.principalId}, scopes [${b.scopes.join(" ")}]`);
-    if (b.principalId === a.principalId) throw new Error("the two addresses map to one principal");
-    out.A2H_TOKEN_2 = b.accessToken;
-  }
+  // One browser context per principal, kept until the end: the session that signed in disconnects the apps again.
+  const contextA = await browser.newContext();
+  const contextB = emails.b ? await browser.newContext() : undefined;
   try {
-    // Same account, `offline_access` only: a token the resource server must answer with 403 insufficient_scope.
-    const context = await browser.newContext();
+    const a = await obtainToken(browser, target, emails.a, { clientId, context: contextA, retry: { log }, diagnosticsLabel: "obtain-token-a" });
+    log(`principal A: sub ${a.principalId}, scopes [${a.scopes.join(" ")}], expires in ${a.expiresAt - Math.floor(Date.now() / 1000)} s`);
+    if (!a.scopes.includes("a2h")) throw new Error("principal A's token lacks the a2h scope");
+    const out: Obtained = { A2H_TOKEN: a.accessToken };
+    if (emails.b && contextB) {
+      const b = await obtainToken(browser, target, emails.b, { clientId, context: contextB, retry: { log }, diagnosticsLabel: "obtain-token-b" });
+      log(`principal B: sub ${b.principalId}, scopes [${b.scopes.join(" ")}]`);
+      if (b.principalId === a.principalId) throw new Error("the two addresses map to one principal");
+      out.A2H_TOKEN_2 = b.accessToken;
+    }
     try {
-      const signedIn = await obtainToken(browser, target, emails.a, { clientId, context });
-      void signedIn;
-      const noScope = await obtainToken(browser, target, emails.a, { clientId, scope: "offline_access", context });
+      // Same account and session, `offline_access` only: a token the resource server must answer with 403 insufficient_scope.
+      const noScope = await obtainToken(browser, target, emails.a, { clientId, scope: "offline_access", context: contextA, diagnosticsLabel: "obtain-token-noscope" });
       if (noScope.scopes.includes("a2h")) log("no-scope token: the server granted a2h anyway; A2H_TOKEN_NOSCOPE not written");
       else {
         out.A2H_TOKEN_NOSCOPE = noScope.accessToken;
         log(`no-scope token: scopes [${noScope.scopes.join(" ")}]`);
       }
-    } finally {
-      await context.close().catch(() => undefined);
+    } catch (e) {
+      log(`no-scope token not obtained (${(e as Error).message}); the Missing scope scenario runs in-process only`);
     }
-  } catch (e) {
-    log(`no-scope token not obtained (${(e as Error).message}); the Missing scope scenario runs in-process only`);
+    // Leave the accounts as found: no connected app (the web app's e2e flows run next, on the same accounts).
+    const disconnectedA = await disconnectAll(contextA, target.webUrl).catch((e: Error) => `not done (${e.message.split("\n")[0]})`);
+    const disconnectedB = contextB ? await disconnectAll(contextB, target.webUrl).catch((e: Error) => `not done (${e.message.split("\n")[0]})`) : "-";
+    log(`connected apps disconnected again: principal A ${String(disconnectedA)}, principal B ${String(disconnectedB)} (the access tokens stay valid until they expire)`);
+    return out;
+  } finally {
+    await contextA.close().catch(() => undefined);
+    await contextB?.close().catch(() => undefined);
   }
-  return out;
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<void> {
