@@ -104,7 +104,7 @@ export async function consentAction(_prev: ConsentActionState, form: FormData): 
   let url: string;
   try {
     url = await decideConsent(
-      { db: runtime.db, baseURL: runtime.config.baseURL, authOn: runtime.authOn, defaultPolicy: runtime.config.defaultPolicy, logger: runtime.logger },
+      { db: runtime.db, baseURL: runtime.config.baseURL, authOn: runtime.authOn, defaultPolicy: runtime.config.defaultPolicy, logger: runtime.logger, isAllowed: runtime.isAllowed },
       { accept: form.get("accept") === "true", oauthQuery, userId: session.user.id, headers: h, requestId: ref },
     );
   } catch (e) {

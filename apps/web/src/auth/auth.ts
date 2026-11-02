@@ -13,17 +13,29 @@
 //   - magicLink: 15 minutes, single use, token stored hashed. Its HTTP
 //     endpoint is disabled: the only way to ask for a link is the sign-in
 //     server action, which checks the allow-list first (D7) and stays neutral.
-// Users and sessions are created for allow-listed addresses only (database
-// hooks), so a link minted before an address left the list cannot sign in.
+// The allow-list decides whether a principal may act now (design D4, ADR 0004
+// decision 2; spec scenario "Address removed from the allow-list"), through
+// the same cached reader (five-minute refresh) at every step:
+//   - users and sessions are created for allow-listed addresses only
+//     (database hooks), so a link minted before removal cannot sign in;
+//   - every Better Auth call that reads a session, over HTTP or through
+//     `auth.api` (pages, server actions, authorize, consent), first re-checks
+//     the session's address: a removed one has all its sessions revoked and
+//     the cookie cleared, so the call sees no session (`allowlistGate`);
+//   - the token endpoint refuses any grant for a removed address and revokes
+//     every live refresh token of that principal (`refuseRemovedPrincipal`).
+// Access tokens already issued live to their own expiry (one hour at most).
 import { cimd } from "@better-auth/cimd";
 import { fetchClientMetadataResource } from "@better-auth/cimd/node";
 import { mcp } from "@better-auth/mcp";
 import type { ClientMetadataResourceFetch } from "@better-auth/oauth-provider";
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
+import { deleteSessionCookie } from "better-auth/cookies";
 import { jwt, magicLink } from "better-auth/plugins";
 import type { PrincipalsDb } from "@a2h/db";
-import { authSchema } from "@a2h/db";
+import { and, authSchema, eq, isNull, oauthRefreshToken } from "@a2h/db";
 import { AUTH_BASE_PATH, type WebConfig } from "../config";
 import { betterAuthLog, type Logger } from "../log";
 
@@ -56,6 +68,55 @@ export interface AuthDeps {
   fetchClientMetadata?: ClientMetadataResourceFetch;
   /** Better Auth's own HTTP rate limiter (in-memory per instance); on by default. */
   rateLimit?: boolean;
+}
+
+/**
+ * Re-checks the address of the session a call carries, before the endpoint
+ * runs. A removed address: every session of that user is deleted, the session
+ * cookie is cleared and the call proceeds signed out. The endpoint's own
+ * session read then finds nothing (the cached read is reset to null).
+ */
+export function allowlistGate(isAllowed: AuthDeps["isAllowed"], logger: Logger): BetterAuthPlugin {
+  return {
+    id: "a2h-allowlist-gate",
+    hooks: {
+      before: [
+        {
+          // Only calls that can carry a session cookie; the token endpoint and
+          // metadata reads from clients carry none.
+          matcher: (ctx) => Boolean(ctx.headers?.get("cookie")),
+          handler: createAuthMiddleware(async (ctx) => {
+            const current = await getSessionFromCtx(ctx);
+            if (!current || (await isAllowed(current.user.email))) return;
+            await ctx.context.internalAdapter.deleteUserSessions(current.user.id);
+            deleteSessionCookie(ctx);
+            ctx.context.session = null;
+            logger.warn("session revoked: address no longer allowed", { code: "session_not_allowed", principal_id: current.user.id });
+          }),
+        },
+      ],
+    },
+  };
+}
+
+/**
+ * Called by the OAuth provider before it mints tokens for a user (the
+ * `authorization_code` and `refresh_token` grants; `customTokenResponseFields`
+ * runs before any token is created or rotated). A removed address: every
+ * live refresh token of the principal is revoked and the grant is refused
+ * with `invalid_grant`, so the client must go through sign-in again.
+ */
+export function refuseRemovedPrincipal(deps: Pick<AuthDeps, "db" | "isAllowed" | "logger">) {
+  return async (info: { grantType: string; user?: { id: string; email: string } | null }): Promise<Record<string, never>> => {
+    const { user } = info;
+    if (!user || (await deps.isAllowed(user.email))) return {};
+    await deps.db
+      .update(oauthRefreshToken)
+      .set({ revoked: new Date() })
+      .where(and(eq(oauthRefreshToken.userId, user.id), isNull(oauthRefreshToken.revoked)));
+    deps.logger.warn("token grant refused: address no longer allowed", { code: info.grantType === "refresh_token" ? "refresh_not_allowed" : "grant_not_allowed", principal_id: user.id });
+    throw new APIError("BAD_REQUEST", { error: "invalid_grant", error_description: "the principal may no longer use this stage" });
+  };
 }
 
 export function createAuth(deps: AuthDeps) {
@@ -107,6 +168,7 @@ export function createAuth(deps: AuthDeps) {
       },
     },
     plugins: [
+      allowlistGate(deps.isAllowed, logger),
       jwt({
         jwks: { keyPairConfig: { alg: "EdDSA", crv: "Ed25519" } },
         jwt: { issuer: config.issuer },
@@ -125,6 +187,8 @@ export function createAuth(deps: AuthDeps) {
         clientRegistrationDefaultApplicationType: "native",
         clientRegistrationDefaultResources: [config.mcpUrl],
         grantTypes: ["authorization_code", "refresh_token"],
+        // Not a response field: the allow-list check of the token endpoint (see refuseRemovedPrincipal).
+        customTokenResponseFields: refuseRemovedPrincipal(deps),
       }),
       cimd({
         fetchClientMetadataResource: deps.fetchClientMetadata ?? fetchClientMetadataResource,
