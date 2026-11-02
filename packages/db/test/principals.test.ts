@@ -1,6 +1,8 @@
 // m1-hosted-connector tasks 3.2 (design D4, D5) against PostgreSQL 17 in
 // Docker: the queries of src/queries/principals.ts.
-// Specs: platform/hosted-endpoint "Limit shared across instances" (the
+// Specs: platform/principal-identity "Allow-listed principals are verified by
+// the owner's allow-list" (decision 8: created verified with the method
+// `owner_allowlist`, an existing row never changed); platform/hosted-endpoint "Limit shared across instances" (the
 // counter under concurrent callers on two connection pools, i.e. two
 // instances); protocol/request-approval "Principal's own policy applies"
 // (each principal reads its own policy row, created once from the stage
@@ -9,7 +11,7 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { RATE_LIMIT_WINDOWS, rateLimitWindowStart } from "@a2h/protocol";
+import { RATE_LIMIT_WINDOWS, rateLimitWindowStart, validateManifest, type Manifest, type ValidationFacts } from "@a2h/protocol";
 import {
   bumpRateLimit,
   ensurePrincipal,
@@ -62,11 +64,70 @@ describe("principal queries (Postgres 17)", { skip }, () => {
   });
 
   describe("ensurePrincipal (created on consent, design D4)", () => {
-    test("creates the principal and its policy from the stage default", async () => {
+    test("Scenario: Consent creates a verified principal: verified true, method owner_allowlist, policy from the stage default", async () => {
       const got = await ensurePrincipal(dbOf(poolA), "u_first", { policy: STAGE_DEFAULT });
-      assert.deepEqual(got.principal, { principal_id: "u_first", identity_mode: "real_name", verified: false });
+      assert.deepEqual(got.principal, { principal_id: "u_first", identity_mode: "real_name", verified: true });
       assert.deepEqual(got.policy, STAGE_DEFAULT);
       assert.deepEqual(await principalWithPolicy(dbOf(poolB), "u_first"), got);
+      const { rows } = await poolA.query<{ verified: boolean; verification_method: string | null }>(
+        `SELECT verified, verification_method FROM principals WHERE principal_id = 'u_first'`,
+      );
+      assert.deepEqual(rows[0], { verified: true, verification_method: "owner_allowlist" });
+    });
+
+    test("Scenario: Second consent leaves verification as stored: an unverified row without a method stays so", async () => {
+      // A row from before decision 8 (or flipped by hand): verified false, no method.
+      await poolA.query(`INSERT INTO principals (principal_id, identity_mode, verified) VALUES ('u_before_d8', 'real_name', false)`);
+      const second = await ensurePrincipal(dbOf(poolA), "u_before_d8", { policy: STAGE_DEFAULT });
+      assert.equal(second.principal.verified, false);
+      const { rows } = await poolA.query<{ verified: boolean; verification_method: string | null }>(
+        `SELECT verified, verification_method FROM principals WHERE principal_id = 'u_before_d8'`,
+      );
+      assert.deepEqual(rows[0], { verified: false, verification_method: null });
+    });
+
+    test("Scenario: Signed-in principal can send: the principal as stored passes validation's principal stage", async () => {
+      const { principal } = await ensurePrincipal(dbOf(poolA), "u_sender", { policy: STAGE_DEFAULT });
+      const manifest: Manifest = {
+        to: "sim-mv-7f3c",
+        intent: "judgment",
+        audience: "named_individual",
+        time_shape: "one_shot",
+        format: "single_field",
+        question: "Is this patient-information leaflet clear for a newly diagnosed reader?",
+        lane: "paid",
+        bid_minor: 3500,
+        currency: "EUR",
+        expires_at: "2026-10-22T16:42:00+02:00",
+        data_terms: { storage: "principal_workspace", attribution: "not_attributed", training: "off" },
+        principal_id: principal.principal_id,
+      };
+      const facts: ValidationFacts = {
+        now: "2026-10-21T08:42:00+02:00",
+        principal,
+        participant: {
+          participant_id: "p_sim_mv",
+          handle: "sim-mv-7f3c",
+          rules: {
+            types: [{ intent: "judgment", accepted: true, reserve_net_minor: 2500, currency: "EUR" }],
+            free_lanes: [],
+            who_may_ask: "anyone_verified",
+            quiet_hours: { start: "22:00", end: "07:00", time_zone: "Europe/Paris" },
+            max_interruptions_per_day: 3,
+            latency_promise_seconds: 86400,
+          },
+        },
+        interruptions_today: 0,
+        budget: { used_minor: 0, currency: "EUR" },
+        requests_today: 0,
+        principal_throttled: false,
+        approval: "pending",
+      };
+      const r = validateManifest(manifest, facts, { ...STAGE_DEFAULT, fee_rate: 0.2 });
+      assert.equal(r.ok ? "passed" : r.error.stage, "passed", JSON.stringify(r));
+      // The same manifest under an unverified principal is refused at that stage: the test can fail.
+      const refused = validateManifest(manifest, { ...facts, principal: { ...principal, verified: false } }, { ...STAGE_DEFAULT, fee_rate: 0.2 });
+      assert.equal(refused.ok ? "passed" : refused.error.code, "principal_not_accountable");
     });
 
     test("idempotent: a second call returns the existing rows unchanged, whatever defaults it brings", async () => {

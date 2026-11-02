@@ -473,6 +473,16 @@ export const answers = pgTable(
 const IDENTITY_MODES = PrincipalSchema.shape.identity_mode.options;
 
 /**
+ * How a principal's `verified` flag was established (decision 8). M1 has one
+ * method: sign-in requires an owner-listed address and control of its mailbox,
+ * so a principal created at consent is verified by the owner's allow-list. A
+ * later identity check finds the principals verified this way by this value.
+ * Stored only, not part of the protocol Principal.
+ */
+export const PRINCIPAL_VERIFICATION_METHODS = ["owner_allowlist"] as const;
+export type PrincipalVerificationMethod = (typeof PRINCIPAL_VERIFICATION_METHODS)[number];
+
+/**
  * An accountable principal (protocol PrincipalSchema). The id is the
  * authorization server's user id, an opaque id: never an e-mail address.
  * Created in the consent step (`ensurePrincipal`).
@@ -483,11 +493,14 @@ export const principals = pgTable(
     principal_id: id("principal_id").primaryKey(),
     identity_mode: code("identity_mode", IDENTITY_MODES).notNull().default("real_name"),
     verified: boolean("verified").notNull().default(false),
+    /** Null when not verified, or verified before the method was recorded. */
+    verification_method: text("verification_method").$type<PrincipalVerificationMethod>(),
     created_at: createdAt(),
   },
   (t) => [
     check("principals_id_opaque", matches(t.principal_id, OPAQUE_ID_PATTERN)),
     check("principals_identity_mode_known", oneOf(t.identity_mode, IDENTITY_MODES)),
+    check("principals_verification_method_known", sql`${t.verification_method} IS NULL OR ${oneOf(t.verification_method, PRINCIPAL_VERIFICATION_METHODS)}`),
   ],
 );
 
