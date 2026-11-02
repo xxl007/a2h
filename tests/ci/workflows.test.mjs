@@ -941,3 +941,27 @@ test("no workflow sets A2H_PING_OPEN or A2H_AUTH_REQUIRED: on a deployed stage t
   const bad = files.filter((f) => /A2H_PING_OPEN|A2H_AUTH_REQUIRED/.test(uncommented(text[f])));
   assert.deepEqual(bad, []);
 });
+
+// Run 41501855008 (pr-51): two verify jobs of the same stage overlapped. The older one's last step
+// removed the QA principals from the allow-list while the newer one was mid-run (its own "add" had
+// found them listed and written nothing); five minutes later the web app's copy dropped them, the
+// sign-in page answered neutrally and the e2e waited for a link that never came. A verify adds and
+// removes shared state (the stage's allow-list), so verify jobs of one stage run one at a time, in a
+// group of their own: never preview-pr-<n>, where a pending verify could cancel a pending teardown.
+test("verify jobs of one stage never overlap: their own concurrency group, never cancelled in progress", () => {
+  const cases = [
+    ["preview.yml", "preview-verify-pr-${{ github.event.pull_request.number }}"],
+    ["deploy.yml", "verify-dev"],
+  ];
+  for (const [f, group] of cases) {
+    const j = wf[f].jobs.verify;
+    assert.ok(j, `${f}: no verify job`);
+    assert.equal(j.concurrency?.group, group, `${f} verify concurrency group`);
+    assert.equal(j.concurrency?.["cancel-in-progress"], false, `${f} verify must not be cancelled in progress`);
+  }
+  const groups = files.flatMap((f) => jobs(f).map(([id, j]) => [f, id, j.concurrency?.group]));
+  for (const [f, id, g] of groups) {
+    if (id === "verify") continue;
+    assert.ok(!String(g ?? "").includes("verify"), `${f} ${id} shares a verify group: ${g}`);
+  }
+});

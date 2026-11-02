@@ -278,13 +278,20 @@ jobs:
   # the whole job is about 10.5 min, so the limit is 15 (task 8.3 asked for
   # ten; recorded in PR #59 for the PM).
   # Not in the preview-pr-<n> concurrency group: a pending verify must never
-  # cancel a pending teardown.
+  # cancel a pending teardown. A group of its own instead: a verify adds the
+  # QA principals to the stage's allow-list and removes them at the end, so
+  # two verifies of one PR must not overlap (run 41501855008: the older one's
+  # removal signed the newer one's principals out mid-run). A newer pending
+  # verify replaces an older pending one; a running one is never cancelled.
   verify:
     name: verify pr-${{ github.event.pull_request.number }}
     needs: deploy
     if: needs.deploy.outputs.deployed == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    concurrency:
+      group: preview-verify-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     permissions:
       # id-token: the stage's deploy role, for two things only: the sign-in
       # allow-list parameter and the stage's mail sink (m1-hosted-connector
