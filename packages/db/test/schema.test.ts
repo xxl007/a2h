@@ -2,9 +2,8 @@
 // behaviour of the same constraints is in constraints.test.ts.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import * as protocol from "@a2h/protocol";
@@ -124,17 +123,34 @@ describe("enums and codes come from @a2h/protocol", () => {
   });
 });
 
+// drizzle-kit 0.31 prefixes "./" to `out`, so an absolute path (a system temp
+// dir) becomes a missing relative one: it prints ENOENT, exits 0 and generates
+// nothing, and a no-drift check on it passes whatever the schema says. The
+// copy therefore lives under packages/db (a relative path, gitignored as
+// `.drizzle-check-*`), and the run must show it read the snapshots: no error
+// in its output, and its own "No schema changes" line.
 test("committed migrations are what drizzle-kit generates from src/schema.ts (no drift)", () => {
-  const out = mkdtempSync(join(tmpdir(), "a2h-db-gen-"));
+  const root = new URL("..", import.meta.url).pathname;
+  const name = mkdtempSync(join(root, ".drizzle-check-")).slice(root.length).replace(/^\//, "");
+  const out = join(root, name);
   try {
     cpSync(MIGRATIONS_DIR, out, { recursive: true });
-    const before = readdirSync(out, { recursive: true }).sort();
-    const log = execFileSync("pnpm", ["exec", "drizzle-kit", "generate"], {
-      cwd: new URL("..", import.meta.url).pathname,
-      env: { ...process.env, DRIZZLE_OUT: out },
+    const files = () => (readdirSync(out, { recursive: true, encoding: "utf8" })).sort();
+    const before = files();
+    assert.ok(before.some((f) => f.endsWith("_snapshot.json")), "the copy holds the committed snapshots");
+    const run = spawnSync("pnpm", ["exec", "drizzle-kit", "generate"], {
+      cwd: root,
+      env: { ...process.env, DRIZZLE_OUT: `./${name}` },
       encoding: "utf8",
+      timeout: 60_000,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-    assert.deepEqual(readdirSync(out, { recursive: true }).sort(), before, `drizzle-kit generated new files:\n${log}`);
+    const log = `${run.stdout}\n${run.stderr}`;
+    assert.equal(run.status, 0, `drizzle-kit exited ${run.status}:\n${log}`);
+    assert.doesNotMatch(log, /error|ENOENT|not found/i, `drizzle-kit reported an error:\n${log}`);
+    const generated = files().filter((f) => !before.includes(f));
+    assert.deepEqual(generated, [], `src/schema.ts drifted from the committed migrations; drizzle-kit generated:\n${generated.join("\n")}\n${log}`);
+    assert.match(log, /No schema changes/, `drizzle-kit did not confirm the schema matches:\n${log}`);
   } finally {
     rmSync(out, { recursive: true, force: true });
   }
