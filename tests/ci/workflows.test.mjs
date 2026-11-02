@@ -370,11 +370,8 @@ function assertVerifyJob(f) {
   for (const s of steps(j)) {
     if (typeof s.run === "string") assert.doesNotMatch(s.run, /\$\{\{/, `${f} verify ${s.name}: pass values through env`);
   }
-  // The Playwright report is kept when the job fails.
-  const upload = steps(j).find((s) => s.uses?.startsWith("actions/upload-artifact@"));
-  assert.ok(upload, `${f} verify does not upload the Playwright report`);
-  assert.match(String(upload.if ?? ""), /failure\(\)/, `${f} report upload must run on failure`);
-  assert.match(String(upload.with?.path ?? ""), /tests\/playwright-report/, `${f} report path`);
+  // Nothing is uploaded, failure or not (task 10.7): see "no workflow uploads an artifact".
+  assert.ok(!steps(j).some((s) => s.uses?.startsWith("actions/upload-artifact@")), `${f} verify uploads an artifact`);
   return j;
 }
 
@@ -447,13 +444,6 @@ function assertSignIn(f, j, creds, at) {
   assert.ok(writer, `${f}: no outcome writer`);
   assert.match(String(writer.env?.TOKENS ?? ""), /steps\.tokens\.outcome/, `${f}: the outcome reads the token step`);
   assert.match(String(writer.env?.WEB_E2E ?? ""), /steps\.web-e2e\.outcome/, `${f}: the outcome reads the web e2e step`);
-  // The report upload covers the web app's Playwright output too.
-  const upload = steps(j).find((s) => s.uses?.startsWith("actions/upload-artifact@"));
-  assert.match(String(upload.with?.path ?? ""), /apps\/web\/test-results/, `${f}: web e2e traces kept on failure`);
-  assert.match(String(upload.if ?? ""), /steps\.web-e2e\.outcome == 'failure'/, `${f}: upload on a web e2e failure`);
-  // obtain-token writes a screenshot of the page it failed on under tests/test-results (no address in it).
-  assert.match(String(upload.if ?? ""), /steps\.tokens\.outcome == 'failure'/, `${f}: upload on a sign-in failure too`);
-  assert.match(String(upload.with?.path ?? ""), /tests\/test-results/, `${f}: the sign-in screenshot folder is uploaded`);
 }
 
 test("allowlist.sh names the same parameter per stage as infra/config.ts allowlistParameterName, and refuses prod", async () => {
@@ -508,6 +498,10 @@ test("preview.yml: the preview comment carries the sign-in URL and the owner's a
     assert.match(md, /\| Sign in \| https:\/\/pr-12\.dev\.a2h-protocol\.org\/sign-in \|/);
     assert.match(md, /--name \/a2h\/pr-12\/principal-allowlist --type SecureString --overwrite/);
     assert.match(md, /MCP endpoint \(connector URL\)/);
+    // Task 10.7: every stage gates ping and the tool list (PING_OPEN=false, PR #60; spec "ping on a gated stage").
+    assert.doesNotMatch(md, /(ping|tool list)[^.;]*\bare open\b/i, "the comment must not promise an open ping or tool list");
+    assert.match(md, /`ping` and the tool list included/, "the comment says ping and the tool list need a token");
+    assert.match(md, /401/, "the comment says what a tokenless call gets");
     assert.equal(run("http://d111.cloudfront.net").status, 0);
     assert.match(readFileSync(join(dir, "preview-comment.md"), "utf8"), /\| Sign in \| not deployed \|/, "no sign-in URL without https");
   } finally {
@@ -872,4 +866,78 @@ test("the adversarial suite's in-process half runs in CI's pnpm test and cannot 
   const testStep = Object.values(wf["ci.yml"].jobs).flatMap((j) => steps(j)).find((s) => runs(s, "pnpm test"));
   assert.ok(testStep, "ci.yml has no pnpm test step");
   assert.equal(String(testStep.env?.A2H_DB_PG_REQUIRED ?? ""), "1", "pnpm test must run with A2H_DB_PG_REQUIRED=1");
+});
+
+// m1-hosted-connector task 10.7 (cold review of #51, B4). A Playwright trace holds the
+// network log of the sign-in and consent flows: magic-link URLs, session cookies,
+// authorization codes. Screenshots and the HTML report can show the same pages. The
+// repository is public, so any artifact is downloadable by any signed-in GitHub user.
+// CI records none of it and uploads nothing; the job log (with ::add-mask:: on tokens)
+// is the only failure evidence.
+const uncommented = (src) => src.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+
+test("no workflow uploads an artifact: nothing a run produces can carry a credential out of the runner", () => {
+  const bad = [];
+  for (const f of files) {
+    for (const [id, j] of jobs(f)) {
+      for (const s of steps(j)) {
+        if (typeof s.uses === "string" && /upload-artifact|upload-pages-artifact/.test(s.uses)) bad.push(`${f} ${id}: ${s.name ?? s.uses}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, [], "an artifact of a public repo is downloadable by anyone signed in to GitHub");
+});
+
+test("no workflow names a Playwright output (test-results, playwright-report, a trace or a video) outside a comment", () => {
+  const bad = [];
+  for (const f of files) {
+    const body = uncommented(text[f]);
+    for (const needle of ["test-results", "playwright-report", "trace.zip", ".webm", "gh run upload", "actions/cache/save"]) {
+      if (body.includes(needle)) bad.push(`${f}: ${needle}`);
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+/** The `use` and `reporter` a Playwright config resolves to under the given env. */
+function playwrightConfig(rel, env) {
+  const file = join(ROOT, rel);
+  const script = `const c = (await import(${JSON.stringify(new URL(`file://${file}`).href)})).default; process.stdout.write(JSON.stringify({ use: c.use ?? {}, reporter: c.reporter ?? null, projects: (c.projects ?? []).map((p) => p.use ?? {}) }));`;
+  const base = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "CI"));
+  const r = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: join(ROOT, rel.split("/").slice(0, -1).join("/") || "."),
+    env: { ...base, A2H_WEB_URL: "https://pr-0.dev.example.org", ...env },
+    encoding: "utf8",
+  });
+  assert.equal(r.status, 0, `${rel} did not load: ${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
+
+const PLAYWRIGHT_CONFIGS = ["tests/playwright.config.ts", "apps/web/playwright.config.ts"];
+
+test("both Playwright configs record no trace, no video and no screenshot when CI is set", () => {
+  for (const rel of PLAYWRIGHT_CONFIGS) {
+    for (const ci of ["true", "1"]) {
+      const { use, projects } = playwrightConfig(rel, { CI: ci });
+      for (const [where, u] of [["use", use], ...projects.map((p, i) => [`projects[${i}].use`, p])]) {
+        for (const key of ["trace", "video", "screenshot"]) {
+          if (where !== "use" && !(key in u)) continue; // a project inherits the top-level value
+          const v = typeof u[key] === "object" && u[key] !== null ? u[key].mode : u[key];
+          assert.equal(v, "off", `${rel} CI=${ci} ${where}.${key} is ${JSON.stringify(u[key])}`);
+        }
+      }
+    }
+  }
+});
+
+test("both Playwright configs write no HTML report when CI is set (it embeds attachments and error pages)", () => {
+  for (const rel of PLAYWRIGHT_CONFIGS) {
+    const { reporter } = playwrightConfig(rel, { CI: "true" });
+    assert.ok(!JSON.stringify(reporter ?? "").includes("html"), `${rel}: reporter ${JSON.stringify(reporter)}`);
+  }
+});
+
+test("no workflow sets A2H_PING_OPEN or A2H_AUTH_REQUIRED: on a deployed stage the gate expectation comes from infra, so \"ping on a gated stage\" cannot be skipped by an override", () => {
+  const bad = files.filter((f) => /A2H_PING_OPEN|A2H_AUTH_REQUIRED/.test(uncommented(text[f])));
+  assert.deepEqual(bad, []);
 });

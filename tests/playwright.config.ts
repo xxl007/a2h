@@ -4,18 +4,23 @@ import { defineConfig, devices } from "@playwright/test";
 import { requireEnv } from "./src/live-env.ts";
 
 const baseURL = requireEnv("A2H_WEB_URL", "https://<id>.cloudfront.net");
+// In CI nothing is recorded (task 10.7): a trace holds the network log (magic links, session
+// cookies, authorization codes), a video or screenshot the pages, and the repo is public.
+// Locally a failure keeps its trace and screenshot for the developer.
+const ci = !!process.env.CI;
 
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
-  forbidOnly: !!process.env.CI,
+  forbidOnly: ci,
   retries: 0,
-  reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
+  reporter: "list",
   use: {
     baseURL,
     headless: true,
-    trace: "retain-on-failure",
-    screenshot: "only-on-failure",
+    trace: ci ? "off" : "retain-on-failure",
+    video: "off",
+    screenshot: ci ? "off" : "only-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

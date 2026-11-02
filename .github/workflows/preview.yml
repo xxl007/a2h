@@ -231,10 +231,10 @@ jobs:
           | Commit | \`$HEAD_SHA\` |
           | Deploy run | $RUN_URL |
 
-          List the MCP tools from your terminal (\`ping\` and the tool list are open; the A2H tools need a signed-in principal):
+          Every call on the MCP endpoint needs a signed-in principal's token, \`ping\` and the tool list included; only the health path and the protected-resource metadata are open. Without a token the endpoint answers 401 with the challenge, which a hosted client (claude.ai) turns into sign-in. To see the challenge from your terminal:
 
           \`\`\`sh
-          npx -y @modelcontextprotocol/inspector --cli $OUT_MCP --method tools/list
+          curl -si -X POST $OUT_MCP -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | grep -iE '^(HTTP|www-authenticate)'
           \`\`\`
 
           To sign in on this preview, add your address to its allow-list first (SecureString, nobody by default; runbook aws-bootstrap.md §15):
@@ -425,16 +425,9 @@ jobs:
         if: always() && steps.allowlist.outcome == 'success'
         run: .github/scripts/allowlist.sh remove "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
 
-      - name: Upload the Playwright report
-        if: failure() && (steps.tokens.outcome == 'failure' || steps.e2e.outcome == 'failure' || steps.web-e2e.outcome == 'failure')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: playwright-report-pr-${{ github.event.pull_request.number }}
-          path: |
-            tests/playwright-report
-            tests/test-results
-            apps/web/test-results
-          retention-days: 14
+      # No artifact (task 10.7, cold review of #51 B4): a Playwright trace, screenshot or report of
+      # the sign-in and consent flows can hold a magic link, a session cookie or a code, and the
+      # repository is public. The job log, with tokens masked, is the failure evidence.
 
       - name: Write the Verification line
         if: always()
