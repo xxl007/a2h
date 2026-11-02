@@ -315,15 +315,16 @@ test("stage limits are configuration: test stages 600/20000 and edge 3000, prod 
   assert.equal(limitsFor(stageInfo("dev")).perMinute, 600);
 });
 
-test("allow-list parameter per environment (D7): dev and previews share one, prod has its own; only dev and prod create it", () => {
+test("allow-list parameter per stage (D7, task 8.3 fact): dev's is the shared one, a preview has its own, prod its own", () => {
   assert.equal(allowlistParameterName(stageInfo("dev")), "/a2h/shared/principal-allowlist");
-  assert.equal(allowlistParameterName(stageInfo("pr-12")), "/a2h/shared/principal-allowlist");
+  assert.equal(allowlistParameterName(stageInfo("pr-12")), "/a2h/pr-12/principal-allowlist");
+  assert.equal(allowlistParameterName(stageInfo("pr-51")), "/a2h/pr-51/principal-allowlist");
   assert.equal(allowlistParameterName(stageInfo("prod")), "/a2h/prod/principal-allowlist");
   // SSM refuses empty values: the deploy writes this marker for "nobody yet".
   assert.equal(ALLOWLIST_NONE, "none");
   assert.deepEqual(allowlistReadPermission(stageInfo("pr-12"), "123456789012"), {
     actions: ["ssm:GetParameter"],
-    resources: ["arn:aws:ssm:eu-west-3:123456789012:parameter/a2h/shared/principal-allowlist"],
+    resources: ["arn:aws:ssm:eu-west-3:123456789012:parameter/a2h/pr-12/principal-allowlist"],
   });
   assert.deepEqual(allowlistReadPermission(stageInfo("prod"), "123456789012").resources, [
     "arn:aws:ssm:eu-west-3:123456789012:parameter/a2h/prod/principal-allowlist",

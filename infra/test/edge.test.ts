@@ -186,9 +186,10 @@ test("the CloudFront ACL reaches the web distribution only (Cdn named WebCdn), w
   assert.equal(other["webAclArn"], undefined);
 });
 
-test("allow-list: dev creates /a2h/shared/principal-allowlist, prod /a2h/prod/…, SecureString, value never reverted", () => {
+test("allow-list: every stage creates its own parameter (dev the shared name, pr-<n> /a2h/pr-<n>/…, prod /a2h/prod/…), SecureString, value never reverted", () => {
   for (const [s, name] of [
     ["dev", "/a2h/shared/principal-allowlist"],
+    ["pr-12", "/a2h/pr-12/principal-allowlist"],
     ["prod", "/a2h/prod/principal-allowlist"],
   ] as const) {
     const { made } = stubGlobals();
@@ -201,8 +202,12 @@ test("allow-list: dev creates /a2h/shared/principal-allowlist, prod /a2h/prod/�
     assert.equal(p?.args["value"], ALLOWLIST_NONE);
     // The owner's `aws ssm put-parameter --overwrite` is never reverted by a deploy.
     assert.deepEqual(p?.opts?.["ignoreChanges"], ["value"]);
+    // No value in the description (the parameter is a SecureString for a reason), and it says who sets it.
+    assert.doesNotMatch(String(p?.args["description"]), /@/);
   }
+  // A preview's parameter is a resource of its stage: `sst remove` deletes it with the stage (teardown).
   const { made } = stubGlobals();
-  assert.equal(createAllowlist(stageInfo("pr-12")), undefined);
-  assert.deepEqual(made, [], "previews read dev's parameter and create none");
+  createAllowlist(stageInfo("pr-12"));
+  assert.equal(made.length, 1);
+  assert.match(String(made[0]?.args["description"]), /pr-12/);
 });

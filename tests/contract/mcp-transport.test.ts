@@ -7,12 +7,14 @@ import assert from "node:assert/strict";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { toolJsonSchemas } from "@a2h/protocol";
-import { expectedStage, healthUrl, mcpUrl } from "../src/live-env.ts";
+import { expectedStage, gateExpectation, healthUrl, mcpUrl, metadataUrl } from "../src/live-env.ts";
 import { PROTOCOL_VERSION, connectFresh, recordingFetch, type Exchange } from "./mcp-client.ts";
 
 // Fails the whole file with a clear message when A2H_MCP_URL is unset.
 const MCP_URL = mcpUrl();
 const STAGE = expectedStage(MCP_URL);
+// m1-hosted-connector: what infra configures for this stage's gate (AUTH_REQUIRED, PING_OPEN).
+const GATE = await gateExpectation(STAGE);
 
 function assertNoSession(exchanges: Exchange[], who: string): void {
   assert.ok(exchanges.length > 0, `${who}: no HTTP exchange was recorded`);
@@ -159,6 +161,44 @@ test("Scenario: Load balancer probes health", async () => {
   assert.equal(response.status, 200, `${url.href} returned ${response.status}`);
   assert.ok(elapsed < 1_000, `${url.href} took ${Math.round(elapsed)} ms (limit 1000 ms)`);
   assert.equal(response.headers.get("mcp-session-id"), null, "health response set Mcp-Session-Id");
+});
+
+// m1-hosted-connector (modified requirement): with the gate on, a handshake
+// without a token is challenged before any MCP message is read, unless the
+// stage opens the handshake, tools/list and ping (PING_OPEN, dev and previews
+// for QA; design D3). The expectation is the stage's configuration.
+test(`Scenario: Handshake without a token (${STAGE}: AUTH_REQUIRED=${GATE.authRequired}, PING_OPEN=${GATE.pingOpen})`, { skip: GATE.authRequired ? false : `AUTH_REQUIRED=false on ${STAGE}: the gate is off by configuration` }, async () => {
+  const challenge = `Bearer resource_metadata="${metadataUrl(MCP_URL).href}", scope="a2h"`;
+  for (const body of [
+    { jsonrpc: "2.0", id: 1, method: "server/discover", params: {} },
+    { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "raw", version: "0" } } },
+  ]) {
+    const res = await fetch(MCP_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const text = await res.text();
+    if (GATE.pingOpen) {
+      assert.equal(res.status, 200, `${body.method}: an open handshake must be admitted on ${STAGE}`);
+    } else {
+      assert.equal(res.status, 401, `${body.method}: HTTP ${res.status}`);
+      assert.equal(res.headers.get("www-authenticate"), challenge, body.method);
+      assert.equal(text, "", `${body.method}: capabilities returned without a token`);
+    }
+  }
+  // The official client, tokenless: connects only where the handshake is open.
+  if (GATE.pingOpen) {
+    const { client, close } = await connectFresh({ token: null });
+    try {
+      assert.ok(client.getServerCapabilities()?.tools);
+    } finally {
+      await close();
+    }
+  } else {
+    await assert.rejects(connectFresh({ token: null }), /HTTP 401/);
+  }
 });
 
 // Not a spec scenario. MCP Inspector and older clients connect with the 2025

@@ -28,7 +28,8 @@ describe("infra -> apps/web environment", () => {
       const host = { dev: "dev.a2h-protocol.org", "pr-12": "pr-12.dev.a2h-protocol.org", prod: "a2h-protocol.org" }[name];
       expect(config.issuer).toBe(`https://${host}/api/auth`);
       expect(config.mailSinkPrefix).toBe(`tmp/${stage.storagePrefix}`);
-      expect(config.allowlist.parameter).toBe(name === "prod" ? "/a2h/prod/principal-allowlist" : "/a2h/shared/principal-allowlist");
+      // One parameter per stage (D7, group 8.3 fact): dev the shared name, a preview its own, prod its own.
+      expect(config.allowlist.parameter).toBe({ dev: "/a2h/shared/principal-allowlist", "pr-12": "/a2h/pr-12/principal-allowlist", prod: "/a2h/prod/principal-allowlist" }[name]);
       expect(dataApiConfigFromEnv(env).schema).toBe(stage.dbSchema);
     });
   }
