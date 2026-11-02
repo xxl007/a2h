@@ -129,7 +129,7 @@ jobs:
     name: verify dev
     needs: deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       # id-token: the stage's deploy role, for the stage's mail sink only
       # (m1-hosted-connector task 8.3). Nothing is deployed from here, and
