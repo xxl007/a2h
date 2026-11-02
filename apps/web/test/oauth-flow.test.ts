@@ -3,7 +3,9 @@
 // Spec principal-identity: "Consent accepted", "Consent declined", "Client
 // revoked", "Clients register by…" (dynamic, PKCE missing, metadata-document,
 // private address), "Resource recorded as audience", "Refresh token
-// replayed"; design D4 (consent and principal rows in one transaction).
+// replayed", "Allow-listed principals are verified by the owner's
+// allow-list" (decision 8); design D4 (consent and principal rows in one
+// transaction).
 import { oauthClient, oauthConsent, oauthRefreshToken, principalPolicies, principals, user, verification, eq } from "@a2h/db";
 import { createLocalJWKSet, decodeJwt, jwtVerify, type JSONWebKeySet } from "jose";
 import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
@@ -167,7 +169,10 @@ describe.skipIf(!adminUrl)("OAuth 2.1 flow of an MCP client", () => {
     expect(code).toBeTruthy();
 
     expect(await h.db.select().from(oauthConsent).where(eq(oauthConsent.userId, uid))).toHaveLength(1);
-    expect(await h.db.select().from(principals).where(eq(principals.principal_id, uid))).toHaveLength(1);
+    // Scenario: Consent creates a verified principal (decision 8), in the consent's transaction.
+    const created = await h.db.select().from(principals).where(eq(principals.principal_id, uid));
+    expect(created).toHaveLength(1);
+    expect(created[0]).toMatchObject({ verified: true, verification_method: "owner_allowlist" });
     const [policy] = await h.db.select().from(principalPolicies).where(eq(principalPolicies.principal_id, uid));
     expect(policy).toMatchObject({ currency: "EUR", monthly_budget_minor: 50_000, ask_first_above_minor: null });
 
@@ -258,6 +263,31 @@ describe.skipIf(!adminUrl)("OAuth 2.1 flow of an MCP client", () => {
     // ...and a refused consent call leaves no principal either.
     await expect(decideConsent(consentDeps(), { accept: true, oauthQuery: `${request.oauthQuery}x`, userId: uid, headers: browser.headers() })).rejects.toThrow();
     expect(await h.db.select().from(principals).where(eq(principals.principal_id, uid))).toHaveLength(0);
+  });
+
+  test("Scenario: Second consent leaves verification as stored: consent for another client changes neither flag nor method", async () => {
+    async function consentTo(name: string): Promise<string> {
+      const id = await register({ client_name: name });
+      const browser = new Browser(h.auth);
+      const { challenge } = pkce();
+      const consentUrl = await signInThroughAuthorize(browser, authorizePath(authorizeParams(id, challenge)), SECOND);
+      const request = await readConsentRequest(h.db, SECRET, consentUrl.searchParams);
+      if (request.state !== "ready") throw new Error("not ready");
+      const uid = await userIdOf(SECOND);
+      await decideConsent(consentDeps(), { accept: true, oauthQuery: request.oauthQuery, userId: uid, headers: browser.headers() });
+      return uid;
+    }
+    const uid = await consentTo("First app of the second account");
+    expect((await h.db.select().from(principals).where(eq(principals.principal_id, uid)))[0]).toMatchObject({
+      verified: true,
+      verification_method: "owner_allowlist",
+    });
+    // As stored before decision 8 (or changed by hand): not verified, no method.
+    await h.db.update(principals).set({ verified: false, verification_method: null }).where(eq(principals.principal_id, uid));
+    await consentTo("Second app of the second account");
+    const rows = await h.db.select().from(principals).where(eq(principals.principal_id, uid));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ verified: false, verification_method: null });
   });
 
   test("consent page: a tampered query is invalid, an old one expired", async () => {

@@ -28,6 +28,21 @@ On the production stage a magic link SHALL be delivered by email only; on every 
 - **WHEN** an allow-listed address signs in on a preview or development stage
 - **THEN** the link appears in that stage's mail sink, readable only with the stage's deploy credentials, and no email leaves the platform
 
+### Requirement: Allow-listed principals are verified by the owner's allow-list
+Until identity verification of principals exists, a principal created at consent SHALL be recorded as verified with the verification method `owner_allowlist`, stored with the principal so a later identity check can find it. A second consent SHALL never change a stored principal's verification.
+
+#### Scenario: Consent creates a verified principal
+- **WHEN** an allow-listed address signs in and accepts consent for the first time
+- **THEN** the principal row is created with `verified` true and verification method `owner_allowlist`, in the transaction that records the consent
+
+#### Scenario: Signed-in principal can send
+- **WHEN** that principal's client calls `request_human` with a manifest that passes every other check
+- **THEN** validation does not refuse it at the principal stage and the approval follows
+
+#### Scenario: Second consent leaves verification as stored
+- **WHEN** a principal whose row already exists accepts consent for another client
+- **THEN** its `verified` flag and verification method are unchanged
+
 ### Requirement: Consent names the client and the scopes
 Before a token is issued to a client, the signed-in principal SHALL see a consent screen naming the client (from its metadata document, its registration or its pre-registered record) and listing the requested scopes in plain words; a token SHALL be issued only on accept.
 

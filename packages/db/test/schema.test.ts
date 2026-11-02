@@ -92,9 +92,11 @@ describe("principal policies hold exactly the policy fields of @a2h/protocol (sp
     assert.equal(t.columns.find((c) => c.name === "ask_first_above_minor")?.notNull, false, "ask_first_above_minor nullable");
     for (const c of t.columns) if (c.name !== "ask_first_above_minor") assert.equal(c.notNull, true, c.name);
   });
-  test("principals hold the protocol Principal fields and a creation time", () => {
+  test("principals hold the protocol Principal fields, a creation time and the verification method (decision 8)", () => {
     const t = byName.get("principals")!;
-    assert.deepEqual(t.columns.map((c) => c.name).sort(), [...Object.keys(protocol.PrincipalSchema.shape), "created_at"].sort());
+    assert.deepEqual(t.columns.map((c) => c.name).sort(), [...Object.keys(protocol.PrincipalSchema.shape), "created_at", "verification_method"].sort());
+    assert.equal(t.columns.find((c) => c.name === "verified")?.default, false, "verified defaults to false");
+    assert.equal(t.columns.find((c) => c.name === "verification_method")?.notNull, false, "verification_method nullable");
   });
 });
 

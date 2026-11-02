@@ -73,16 +73,23 @@ export async function principalWithPolicy(db: PrincipalsDb, principalId: string)
 /**
  * Create the principal and its policy from `defaults` if they do not exist,
  * in one transaction (a savepoint inside the caller's), and return the rows
- * as stored. Idempotent: an existing principal or policy is never changed, so
- * a second consent cannot reset a policy, and two concurrent calls create one
- * of each (`ON CONFLICT DO NOTHING`).
+ * as stored. A new principal is verified by the owner's allow-list (decision
+ * 8: only owner-listed addresses can sign in and reach consent). Idempotent:
+ * an existing principal or policy is never changed, so a second consent
+ * cannot reset a policy or a verification, and two concurrent calls create
+ * one of each (`ON CONFLICT DO NOTHING`).
  */
 export async function ensurePrincipal(db: PrincipalsDb, principalId: string, defaults: PrincipalDefaults): Promise<PrincipalWithPolicy> {
   const policy = PrincipalPolicySchema.parse(defaults.policy);
   return db.transaction(async (tx) => {
     await tx
       .insert(principals)
-      .values({ principal_id: principalId, identity_mode: defaults.identity_mode ?? "real_name", verified: false })
+      .values({
+        principal_id: principalId,
+        identity_mode: defaults.identity_mode ?? "real_name",
+        verified: true,
+        verification_method: "owner_allowlist",
+      })
       .onConflictDoNothing({ target: principals.principal_id });
     await tx
       .insert(principalPolicies)
