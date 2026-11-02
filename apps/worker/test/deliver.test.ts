@@ -48,12 +48,13 @@ describe("deliver", { skip }, () => {
 
   // m1-hosted-connector task 7.2; spec request-approval "Principal's own policy applies".
   test("Scenario: Principal's own policy applies at delivery: each request re-validated with its own principal's record", async () => {
-    // sim-hb-1f7d takes questions from organisations only.
+    // sim-rc-8d14 takes questions from organisations only (the seed's one such
+    // persona; knowledge reserve 2500 net = 3125 gross, so 3200 clears it).
     await addPrincipal(stage.admin, "user-person", "real_name");
     await addPrincipal(stage.admin, "user-gbp", "verified_organisation", "GBP");
-    const org = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400 });
-    const person = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400, principal_id: "user-person" });
-    const gbp = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400, principal_id: "user-gbp" });
+    const org = await createRequest(stage.admin, { handle: "sim-rc-8d14", intent: "knowledge", bid_minor: 3200 });
+    const person = await createRequest(stage.admin, { handle: "sim-rc-8d14", intent: "knowledge", bid_minor: 3200, principal_id: "user-person" });
+    const gbp = await createRequest(stage.admin, { handle: "sim-rc-8d14", intent: "knowledge", bid_minor: 3200, principal_id: "user-gbp" });
     logs = [];
     for (const r of [org, person, gbp]) await deliverRequest(ctx(), r.id);
     assert.deepEqual(await deliveryOf(org.id), [{ outcome: "delivered", participant_id: org.participant_id }]);
@@ -62,6 +63,15 @@ describe("deliver", { skip }, () => {
     // The policy's currency is the principal's own (EUR request, GBP policy): not delivered.
     assert.deepEqual(await deliveryOf(gbp.id), [{ outcome: "blocked", participant_id: gbp.participant_id }]);
     assert.deepEqual(await blockedOf(gbp.id), [], "not the participant's rules: not counted for them");
+  });
+
+  test("the silent persona sim-hb-1f7d is delivered a signed-in person's request (anyone verified): Silent until expiry runs live with the gate on", async () => {
+    await addPrincipal(stage.admin, "user-person-silent", "real_name");
+    const r = await createRequest(stage.admin, { handle: "sim-hb-1f7d", intent: "judgment", bid_minor: 4400, principal_id: "user-person-silent" });
+    logs = [];
+    await deliverRequest(ctx(), r.id);
+    assert.deepEqual(await deliveryOf(r.id), [{ outcome: "delivered", participant_id: r.participant_id }]);
+    assert.deepEqual(await blockedOf(r.id), []);
   });
 
   test("a request whose principal has no rows any more fails closed: blocked, not delivered, not counted for the participant", async () => {

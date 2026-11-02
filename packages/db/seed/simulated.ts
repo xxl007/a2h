@@ -98,7 +98,10 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     "sim-rc-8d14", "Rupert Cole", "decline",
     [{ topic: "commercial kitchen equipment repair", evidence: "self_declared" }],
     [4.2, 9, 10 * HOUR],
-    rules([eur("knowledge", 2500), eur("estimate", 3000)]),
+    // The one organisation-only persona (who may ask): no live flow sends to it,
+    // so a signed-in person meets the refusal there and nowhere else
+    // (tests/contract request-approval.test.ts "Blocked row"); discovery reads it.
+    rules([eur("knowledge", 2500), eur("estimate", 3000)], { who_may_ask: "organisations_only" }),
     false,
   ),
   participant(
@@ -121,7 +124,7 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     // the schema floor is 0 s), so a 10-minute expiry passes and "Silent until
     // expiry" can be observed live on a preview (QA finding).
     [4.7, 40, 5 * MINUTE],
-    rules([eur("verification", 4000), eur("judgment", 3500)], { who_may_ask: "organisations_only", latency_promise_seconds: 5 * MINUTE }),
+    rules([eur("verification", 4000), eur("judgment", 3500)], { latency_promise_seconds: 5 * MINUTE }),
   ),
   participant(
     "sim-ol-6a23", "Oliver Lang", "prompt",
