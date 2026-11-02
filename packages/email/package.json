@@ -2,16 +2,12 @@
   "name": "@a2h/email",
   "version": "0.0.0",
   "private": true,
-  "description": "Mailer interface and React Email templates. Core is provider-neutral; SES (prod) and the stage mail sink are separate entry points.",
+  "description": "Mailer interface, React Email templates and the stage mail sink. Provider-neutral: no AWS SDK (the SES mailer is a deployment adapter in apps/web/infra).",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    },
-    "./ses": {
-      "types": "./dist/ses.d.ts",
-      "default": "./dist/ses.js"
     },
     "./sink": {
       "types": "./dist/sink.d.ts",
@@ -33,7 +29,6 @@
     "preview": "node scripts/preview.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-sesv2": "3.1160.0",
     "@react-email/body": "0.3.0",
     "@react-email/container": "0.0.16",
     "@react-email/head": "0.0.13",

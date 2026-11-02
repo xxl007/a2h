@@ -10,18 +10,24 @@
 // Browsers: `pnpm --filter @a2h/web exec playwright install chromium`.
 import { defineConfig, devices } from "@playwright/test";
 
+// In CI nothing is recorded (task 10.7): a trace holds the network log (magic links, session
+// cookies, authorization codes), a video or screenshot the pages, and the repo is public.
+const ci = !!process.env["CI"];
+
 export default defineConfig({
   testDir: "./test/e2e",
   fullyParallel: false,
   workers: 1,
-  forbidOnly: !!process.env["CI"],
+  forbidOnly: ci,
   retries: 0,
   reporter: "list",
   timeout: 60_000,
   use: {
     baseURL: process.env["A2H_WEB_URL"] ?? "http://localhost:3210",
     headless: true,
-    trace: "retain-on-failure",
+    trace: ci ? "off" : "retain-on-failure",
+    video: "off",
+    screenshot: "off",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

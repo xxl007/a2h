@@ -6,7 +6,7 @@
 // passed since it began. Nothing it prints names an address.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
+import { describePage, signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
 
 const ADDRESS = "qa-principal-a@a2h-protocol.org";
 
@@ -88,21 +88,82 @@ describe("signInUntilLink", () => {
 
 describe("startCallbackListener", () => {
   test("answers the client's loopback redirect URI for real (a 302 from the authorization server lands here) and hands the URL over", async () => {
-    const listener = await startCallbackListener("http://127.0.0.1:43110/callback");
+    // Port 0: an ephemeral port, read back from the listener, so a parallel workspace or a leftover
+    // server on the production port (LOOPBACK_REDIRECT) cannot fail this test with EADDRINUSE.
+    const listener = await startCallbackListener("http://127.0.0.1:0/callback");
     try {
+      const base = listener.url;
+      assert.equal(base.hostname, "127.0.0.1");
+      assert.equal(base.pathname, "/callback");
+      assert.notEqual(base.port, "0", "the bound port is read back");
+      assert.ok(Number(base.port) > 0);
+      const at = (path: string) => new URL(path, base).href;
       const pending = listener.next();
-      const res = await fetch("http://127.0.0.1:43110/callback?code=abc&state=xyz&iss=https%3A%2F%2Fexample.org%2Fapi%2Fauth");
+      const res = await fetch(at("/callback?code=abc&state=xyz&iss=https%3A%2F%2Fexample.org%2Fapi%2Fauth"));
       assert.equal(res.status, 200);
       const url = await pending;
       assert.equal(url.searchParams.get("code"), "abc");
       assert.equal(url.searchParams.get("state"), "xyz");
       // Another path on the port is not the callback.
-      assert.equal((await fetch("http://127.0.0.1:43110/other")).status, 404);
+      assert.equal((await fetch(at("/other"))).status, 404);
       // A callback that arrives before anyone waits is kept.
-      await fetch("http://127.0.0.1:43110/callback?error=access_denied&state=s2");
+      await fetch(at("/callback?error=access_denied&state=s2"));
       assert.equal((await listener.next()).searchParams.get("error"), "access_denied");
     } finally {
       await listener.stop();
     }
+  });
+
+  test("a fixed port is kept as given: url is the redirect URI itself", async () => {
+    const probe = await startCallbackListener("http://127.0.0.1:0/cb");
+    const port = probe.url.port;
+    await probe.stop();
+    const listener = await startCallbackListener(`http://127.0.0.1:${port}/cb`);
+    try {
+      assert.equal(listener.url.href, `http://127.0.0.1:${port}/cb`);
+    } finally {
+      await listener.stop();
+    }
+  });
+});
+
+// Task 10.7 (cold review of #51, B4): a failing sign-in or consent page can show the
+// signed-in address, a client name or a code in its URL. In CI (public repository)
+// describePage writes no screenshot; the job log gets the path, headings and buttons only.
+describe("describePage", () => {
+  function fakePage(shots: string[]): import("@playwright/test").Page {
+    const none = { allTextContents: () => Promise.resolve(["Allow access?"]), evaluateAll: () => Promise.resolve(["Allow"]) };
+    return {
+      url: () => "https://pr-12.dev.example/consent?code=SECRET-CODE&state=s",
+      getByRole: () => none,
+      screenshot: (o: { path: string }) => (shots.push(o.path), Promise.resolve(Buffer.alloc(0))),
+    } as unknown as import("@playwright/test").Page;
+  }
+  async function withCi<T>(value: string | undefined, fn: () => Promise<T>): Promise<T> {
+    const before = process.env["CI"];
+    if (value === undefined) delete process.env["CI"];
+    else process.env["CI"] = value;
+    try {
+      return await fn();
+    } finally {
+      if (before === undefined) delete process.env["CI"];
+      else process.env["CI"] = before;
+    }
+  }
+
+  test("in CI: no screenshot is written, and the description holds the path without its query", async () => {
+    for (const ci of ["true", "1"]) {
+      const shots: string[] = [];
+      const out = await withCi(ci, () => describePage(fakePage(shots), "unit"));
+      assert.deepEqual(shots, [], `CI=${ci}: a screenshot was written`);
+      assert.match(out, /screenshot none \(CI\)/);
+      assert.ok(out.includes("/consent") && !out.includes("SECRET-CODE"), out);
+    }
+  });
+
+  test("outside CI: a screenshot is written for the developer", async () => {
+    const shots: string[] = [];
+    await withCi(undefined, () => describePage(fakePage(shots), "unit"));
+    assert.equal(shots.length, 1);
   });
 });

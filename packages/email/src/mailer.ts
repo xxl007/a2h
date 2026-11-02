@@ -10,7 +10,7 @@ export interface Message {
 }
 
 /**
- * Provider-neutral delivery. Implementations: SesMailer (`@a2h/email/ses`,
+ * Provider-neutral delivery. Implementations: SesMailer (apps/web/infra,
  * prod only) and S3SinkMailer (`@a2h/email/sink`, every other stage).
  * A Mailer logs nothing; it returns an opaque id the caller may log.
  */

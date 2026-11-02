@@ -7,7 +7,12 @@
 // creates the principal and its policy (`ensurePrincipal`, stage default) in
 // one database transaction: a failure in either leaves neither (D4). The
 // Better Auth instance for that call is built on the transaction.
-import { ensurePrincipal, oauthClient, type PrincipalPolicy, type PrincipalsDb, eq } from "@a2h/db";
+//
+// The principal's address is re-checked against the allow-list first (spec
+// scenario "Address removed from the allow-list"): the session gate in
+// auth.ts already refuses a removed principal's session, and this step does
+// not rely on its caller having read one.
+import { ensurePrincipal, oauthClient, type PrincipalPolicy, type PrincipalsDb, eq, user } from "@a2h/db";
 import { verifyOAuthQueryParams } from "@better-auth/oauth-provider";
 import { AUTH_BASE_PATH } from "../config";
 import type { Logger } from "../log";
@@ -127,6 +132,8 @@ export interface ConsentDeps {
   authOn: (db: PrincipalsDb) => Auth;
   defaultPolicy: PrincipalPolicy;
   logger: Logger;
+  /** The stage's allow-list (the same cached reader as sign-in). */
+  isAllowed: (email: string) => Promise<boolean>;
 }
 
 export interface ConsentDecision {
@@ -139,6 +146,15 @@ export interface ConsentDecision {
 
 /** Records the choice; returns where the browser goes (the client's redirect URI with a code or `access_denied`). */
 export async function decideConsent(deps: ConsentDeps, decision: ConsentDecision): Promise<string> {
+  const [principal] = await deps.db.select({ email: user.email }).from(user).where(eq(user.id, decision.userId)).limit(1);
+  if (!principal || !(await deps.isAllowed(principal.email))) {
+    deps.logger.warn("consent refused: address not allowed", {
+      code: "consent_not_allowed",
+      principal_id: decision.userId,
+      ...(decision.requestId ? { request_id: decision.requestId } : {}),
+    });
+    throw new ConsentError(403);
+  }
   const url = await deps.db.transaction(async (tx) => {
     const auth = deps.authOn(tx);
     // Through the handler, not auth.api: the authorize step that issues the

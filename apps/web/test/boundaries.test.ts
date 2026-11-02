@@ -33,5 +33,7 @@ describe("AWS SDK imports", () => {
   test("infra/ is where the Data API, SSM and S3 clients live", () => {
     const infra = sources(join(ROOT, "infra")).map((f) => readFileSync(f, "utf8")).join("\n");
     expect(infra).toMatch(/@aws-sdk\/client-rds-data/);
+    // The SES mailer moved here from packages/email (task 10.5).
+    expect(infra).toMatch(/@aws-sdk\/client-sesv2/);
   });
 });

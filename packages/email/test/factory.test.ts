@@ -1,23 +1,26 @@
-// Task 6.1, spec "Preview sign-in", design D6: SES on prod only; the sink on
-// every other stage, and the SES client factory is never called off prod.
+// Task 6.1, spec "Preview sign-in", design D6: the production mailer on prod
+// only; the sink on every other stage, and the production mailer factory is
+// never called off prod. The production mailer itself (SES) lives in
+// apps/web/infra (task 10.5), so this package imports no AWS SDK.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mailerFor, type MailerDeps } from "../src/factory.ts";
-import { SesMailer } from "../src/ses.ts";
+import type { Mailer } from "../src/mailer.ts";
 import { S3SinkMailer } from "../src/sink.ts";
+
+const prod: Mailer = { send: () => Promise.resolve({ id: "m" }) };
 
 function deps() {
   const calls = { ses: 0, s3: 0 };
   const d: MailerDeps = {
-    sesClient: () => {
+    prodMailer: () => {
       calls.ses++;
-      return { send: () => Promise.resolve({ MessageId: "m", $metadata: {} }) };
+      return prod;
     },
     objectClient: () => {
       calls.s3++;
       return { putObject: () => Promise.resolve() };
     },
-    from: "no-reply@a2h-protocol.org",
     bucket: "a2h-dev-uploads",
     storagePrefix: "dev/",
   };
@@ -25,7 +28,7 @@ function deps() {
 }
 
 for (const stage of ["dev", "pr-12", "pr-48899"]) {
-  test(`${stage}: the sink, and the SES client factory is never called`, async () => {
+  test(`${stage}: the sink, and the production mailer factory is never called`, async () => {
     const { d, calls } = deps();
     const mailer = mailerFor(stage, d);
     assert.ok(mailer instanceof S3SinkMailer);
@@ -35,10 +38,10 @@ for (const stage of ["dev", "pr-12", "pr-48899"]) {
   });
 }
 
-test("prod: SES, and the object client factory is never called", () => {
+test("prod: the production mailer, and the object client factory is never called", () => {
   const { d, calls } = deps();
   const mailer = mailerFor("prod", d);
-  assert.ok(mailer instanceof SesMailer);
+  assert.equal(mailer, prod);
   assert.equal(calls.ses, 1);
   assert.equal(calls.s3, 0);
 });

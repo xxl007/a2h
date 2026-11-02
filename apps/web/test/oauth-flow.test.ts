@@ -45,7 +45,7 @@ describe.skipIf(!adminUrl)("OAuth 2.1 flow of an MCP client", () => {
     await h?.close();
   });
 
-  const consentDeps = () => ({ db: h.db, baseURL: BASE, authOn: h.authOn, defaultPolicy: POLICY, logger: h.logger });
+  const consentDeps = () => ({ db: h.db, baseURL: BASE, authOn: h.authOn, defaultPolicy: POLICY, logger: h.logger, isAllowed: h.isAllowed });
 
   async function register(extra: Record<string, unknown> = {}): Promise<string> {
     const res = await registerDynamic(h.auth, {
