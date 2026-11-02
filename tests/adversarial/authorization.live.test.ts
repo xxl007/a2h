@@ -223,7 +223,16 @@ describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens 
 });
 
 describe("adversarial: client registration flood (live)", () => {
-  test("case A8: DCR flood → 429 within ten rapid registrations from one address, with a retry hint", { skip: process.env["A2H_ISSUER"] ? "the local stage's test authorization server has no registration endpoint; runs against a deployed stage or a local next start" : false, timeout: 60_000 }, async () => {
+  // Opt-in (A2H_DCR_FLOOD=1): the flood fills the stage's registration limiter (5 a minute per address)
+  // for a minute, so anything that registers a client from the same address afterwards gets 429. The
+  // verify jobs run it in a step of its own, after the web e2e, the last thing that registers
+  // (run 41436823855: run inside the adversarial step, it broke the web e2e's "Dynamic registration").
+  const dcrSkip = process.env["A2H_ISSUER"]
+    ? "the local stage's test authorization server has no registration endpoint; runs against a deployed stage or a local next start"
+    : process.env["A2H_DCR_FLOOD"] === "1"
+      ? false
+      : "opt-in A2H_DCR_FLOOD=1: fills the registration limiter for a minute; the verify jobs run it last, in its own step";
+  test("case A8: DCR flood → 429 within ten rapid registrations from one address, with a retry hint", { skip: dcrSkip, timeout: 60_000 }, async () => {
     const iss = await issuer(STAGE);
     void (await webUrl(STAGE));
     const statuses: number[] = [];

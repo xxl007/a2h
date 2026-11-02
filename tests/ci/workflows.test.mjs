@@ -402,6 +402,19 @@ function assertSignIn(f, j, creds, at) {
   const webE2e = indexOf(j, (s) => runs(s, "@a2h/web e2e"), `${f} verify web e2e`);
   assert.ok(creds < sink && sink < tokens && tokens < at[0], `${f} verify: credentials, sink, tokens, then the suites`);
   assert.ok(at[E2E] < webE2e, `${f} verify: web e2e after the e2e`);
+  // Adversarial A8 (DCR flood) fills the registration limiter for a minute: it runs in its own step after
+  // every step that registers a client, i.e. after the web e2e (run 41436823855), and the general
+  // adversarial step leaves it out (opt-in A2H_DCR_FLOOD, set on that step only).
+  const flood = indexOf(j, (s) => runs(s, 'case A8') && runs(s, "authorization.live.test.ts"), `${f} verify DCR flood step`);
+  assert.equal(steps(j)[flood].id, "dcr-flood");
+  assert.equal(String(steps(j)[flood].env?.A2H_DCR_FLOOD), "1", `${f}: the flood step opts in`);
+  assert.ok(webE2e < flood, `${f} verify: the DCR flood runs after the web e2e`);
+  const registers = (s) => runs(s, "@a2h/web e2e") || runs(s, "@a2h/tests contract") || runs(s, "@a2h/tests e2e") || runs(s, "obtain-token");
+  assert.ok(steps(j).every((s, i) => !registers(s) || i < flood), `${f} verify: nothing that registers a client runs after the flood`);
+  for (const s of steps(j)) {
+    if (s.id !== "dcr-flood") assert.equal(s.env?.A2H_DCR_FLOOD, undefined, `${f} verify ${s.name}: only the flood step opts in`);
+  }
+  assert.equal(steps(j)[flood]["continue-on-error"], undefined, `${f}: a failing flood fails the job`);
   assert.equal(steps(j)[tokens].id, "tokens");
   assert.equal(steps(j)[webE2e].id, "web-e2e");
   if (f === "preview.yml") {

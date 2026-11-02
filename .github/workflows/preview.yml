@@ -410,6 +410,17 @@ jobs:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: pnpm --filter @a2h/web e2e
 
+      # Adversarial case A8 (DCR flood) last: it fills the stage's registration
+      # limiter for a minute from this runner's address, so it runs after every
+      # step that registers a client (the web e2e; run 41436823855).
+      - name: Adversarial DCR flood (case A8, last)
+        id: dcr-flood
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_DCR_FLOOD: "1"
+        run: pnpm --filter @a2h/tests exec node --test --test-reporter=spec --test-name-pattern="case A8" adversarial/authorization.live.test.ts
+
       - name: Remove the QA principals from the sign-in allow-list
         if: always() && steps.allowlist.outcome == 'success'
         run: .github/scripts/allowlist.sh remove "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
@@ -437,11 +448,12 @@ jobs:
           WEB: ${{ steps.web.outcome }}
           E2E: ${{ steps.e2e.outcome }}
           WEB_E2E: ${{ steps.web-e2e.outcome }}
+          DCR_FLOOD: ${{ steps.dcr-flood.outcome }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
-            result="passed (sign-in, smoke, contract, adversarial, e2e, web e2e)"
+            result="passed (sign-in, smoke, contract, adversarial, e2e, web e2e, DCR flood)"
           elif [ "$JOB_STATUS" = "cancelled" ]; then result="cancelled"
           elif [ "$ALLOWLIST" = "failure" ]; then result="FAILED (allow-list: the stage's parameter could not be set)"
           elif [ "$TOKENS" = "failure" ]; then result="FAILED (sign-in: no token obtained through the mail sink)"
@@ -451,6 +463,7 @@ jobs:
           elif [ "$WEB" = "failure" ]; then result="FAILED (web not reachable)"
           elif [ "$E2E" = "failure" ]; then result="FAILED (e2e)"
           elif [ "$WEB_E2E" = "failure" ]; then result="FAILED (web e2e)"
+          elif [ "$DCR_FLOOD" = "failure" ]; then result="FAILED (adversarial DCR flood, case A8)"
           else result="FAILED (setup, before the suites ran)"
           fi
           printf '\n**Verification:** %s · commit %s · run %s\n' "$result" "\`${HEAD_SHA:0:7}\`" "$RUN_URL" > "$RUNNER_TEMP/verification.md"

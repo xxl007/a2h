@@ -245,6 +245,17 @@ jobs:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: pnpm --filter @a2h/web e2e
 
+      # Adversarial case A8 (DCR flood) last: it fills the stage's registration
+      # limiter for a minute from this runner's address, so it runs after every
+      # step that registers a client (the web e2e; run 41436823855).
+      - name: Adversarial DCR flood (case A8, last)
+        id: dcr-flood
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_DCR_FLOOD: "1"
+        run: pnpm --filter @a2h/tests exec node --test --test-reporter=spec --test-name-pattern="case A8" adversarial/authorization.live.test.ts
+
       - name: Upload the Playwright report
         if: failure() && (steps.tokens.outcome == 'failure' || steps.e2e.outcome == 'failure' || steps.web-e2e.outcome == 'failure')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -267,6 +278,7 @@ jobs:
           WEB: ${{ steps.web.outcome }}
           E2E: ${{ steps.e2e.outcome }}
           WEB_E2E: ${{ steps.web-e2e.outcome }}
+          DCR_FLOOD: ${{ steps.dcr-flood.outcome }}
           WEB_URL: ${{ needs.deploy.outputs.web }}
           MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: |
@@ -287,6 +299,7 @@ jobs:
             echo "| web reachable | ${WEB:-not run} |"
             echo "| e2e | ${E2E:-not run} |"
             echo "| web e2e | ${WEB_E2E:-not run} |"
+            echo "| adversarial DCR flood (A8) | ${DCR_FLOOD:-not run} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   disabled:
