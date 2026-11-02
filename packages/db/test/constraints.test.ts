@@ -270,6 +270,19 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       assert.ok(rows[0]?.created_at instanceof Date);
       await db.query("ROLLBACK TO SAVEPOINT p");
     });
+    test("verification method (decision 8): null by default, owner_allowlist accepted, any other value refused", async () => {
+      await db.query("SAVEPOINT p");
+      await accepts(`INSERT INTO principals (principal_id) VALUES ($1)`, [P]);
+      const { rows } = await db.query<{ verification_method: string | null }>(`SELECT verification_method FROM principals WHERE principal_id = $1`, [P]);
+      assert.equal(rows[0]?.verification_method, null);
+      await db.query("ROLLBACK TO SAVEPOINT p");
+      const ins = `INSERT INTO principals (principal_id, verified, verification_method) VALUES ($1, true, $2)`;
+      await db.query("SAVEPOINT p");
+      await accepts(ins, [P, "owner_allowlist"]);
+      await db.query("ROLLBACK TO SAVEPOINT p");
+      await rejects(ins, [P, "self_declared"], /principals_verification_method_known/);
+      await rejects(ins, [P, ""], /principals_verification_method_known/);
+    });
     test("principal id is unique", async () => {
       await db.query("SAVEPOINT p");
       await accepts(insPrincipal, [P, "real_name", false]);
