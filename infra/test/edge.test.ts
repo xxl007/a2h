@@ -140,6 +140,48 @@ function stubGlobals() {
 
 const fakeAlb = { arn: "arn:aws:elasticloadbalancing:eu-west-3:123456789012:loadbalancer/app/a2h-dev/abc" } as unknown as sst.aws.Alb;
 
+// AWS WAFV2 API reference (CreateWebACL; types WebACL, Rule,
+// VisibilityConfig, RegexMatchStatement, CustomResponse): the server-side
+// constraints of every field this module builds. A value outside them is a
+// ValidationException at deploy time, which no preview ever reached (previews
+// create no ACL): dev's first deploy from main failed on the description's
+// parentheses (run 41519664469). AWS's \w is [A-Za-z0-9_], as in JS without
+// the u flag.
+const WAF_FIELDS = {
+  webAclName: { pattern: /^[\w-]+$/, min: 1, max: 128 },
+  description: { pattern: /^[\w+=:#@/\-,.][\w+=:#@/\-,.\s]+[\w+=:#@/\-,.]$/, min: 1, max: 256 },
+  ruleName: { pattern: /^[\w-]+$/, min: 1, max: 128 },
+  metricName: { pattern: /^[\w#:.\-/]+$/, min: 1, max: 255 },
+  regexString: { pattern: /^[\s\S]+$/, min: 1, max: 512 },
+} as const;
+
+function assertWafField(field: keyof typeof WAF_FIELDS, value: string, where: string): void {
+  const { pattern, min, max } = WAF_FIELDS[field];
+  assert.ok(value.length >= min && value.length <= max, `${where} ${field} length ${value.length} outside ${min}..${max}: ${value}`);
+  assert.match(value, pattern, `${where} ${field} fails AWS's pattern: ${value}`);
+}
+
+test("every WAF name, description, metric name and regex is within AWS's constraints for its field (CreateWebACL)", () => {
+  for (const s of ["dev", "prod"]) {
+    for (const kind of ["REGIONAL", "CLOUDFRONT"] as const) {
+      const args = edgeWebAclArgs(stageInfo(s), kind);
+      const where = `${s} ${kind}`;
+      assertWafField("webAclName", args.name, where);
+      assertWafField("description", args.description, where);
+      assertWafField("metricName", args.visibilityConfig.metricName, where);
+      assert.notEqual(args.visibilityConfig.metricName, "All");
+      assert.notEqual(args.visibilityConfig.metricName, "Default_Action");
+      for (const rule of args.rules) {
+        assertWafField("ruleName", rule.name, `${where} rule`);
+        assertWafField("metricName", rule.visibilityConfig.metricName, `${where} rule`);
+        assertWafField("regexString", rule.statement.rateBasedStatement.scopeDownStatement.regexMatchStatement.regexString, `${where} rule`);
+        const code = rule.action.block.customResponse.responseCode;
+        assert.ok(Number.isInteger(code) && code >= 200 && code <= 600, `${where} response code ${code}`);
+      }
+    }
+  }
+});
+
 test("dev and prod: a REGIONAL web ACL associated with the ALB, and a CLOUDFRONT one in us-east-1", () => {
   for (const s of ["dev", "prod"]) {
     const { made } = stubGlobals();
