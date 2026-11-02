@@ -25,8 +25,8 @@ test("issuer: https://<web host>/api/auth when the stage has a domain; none with
   assert.equal(authIssuer(stageInfo("dev"), undefined), undefined);
 });
 
-test("allow-list parameter: shared by dev and previews, prod its own (D7)", () => {
-  assert.equal(webPlainEnvironment(stageInfo("pr-12"), {})["ALLOWLIST_PARAMETER"], "/a2h/shared/principal-allowlist");
+test("allow-list parameter: one per stage (D7; task 8.3 fact: a preview has its own)", () => {
+  assert.equal(webPlainEnvironment(stageInfo("pr-12"), {})["ALLOWLIST_PARAMETER"], "/a2h/pr-12/principal-allowlist");
   assert.equal(webPlainEnvironment(stageInfo("dev"), {})["ALLOWLIST_PARAMETER"], "/a2h/shared/principal-allowlist");
   assert.equal(webPlainEnvironment(stageInfo("prod"), {})["ALLOWLIST_PARAMETER"], "/a2h/prod/principal-allowlist");
 });
@@ -69,7 +69,7 @@ test("IAM: Data API on the cluster, the stage's own database secret, the allow-l
   assert.deepEqual(pr, [
     { actions: [...RDS_DATA_ACTIONS], resources: [CLUSTER] },
     { actions: ["secretsmanager:GetSecretValue"], resources: [PR_SECRET] },
-    { actions: ["ssm:GetParameter"], resources: [`arn:aws:ssm:eu-west-3:${ACCOUNT}:parameter/a2h/shared/principal-allowlist`] },
+    { actions: ["ssm:GetParameter"], resources: [`arn:aws:ssm:eu-west-3:${ACCOUNT}:parameter/a2h/pr-12/principal-allowlist`] },
   ]);
   // A preview never reads the master secret.
   assert.throws(() => webDatabasePermissions(stageInfo("pr-12"), { clusterArn: CLUSTER, secretArn: MASTER, accountId: ACCOUNT }), /a2h\/pr-12\/db/);

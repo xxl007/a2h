@@ -48,7 +48,15 @@ export interface Harness {
   close(): Promise<void>;
 }
 
-export async function startHarness(adminUrl: string, schema: string, allow = `${ALLOWED},${SECOND}`): Promise<Harness> {
+export interface HarnessOptions {
+  /** The stage's public origin; `BASE` (plain http on localhost) by default, an https origin to stand for a deployed stage. */
+  baseURL?: string;
+  mcpUrl?: string;
+}
+
+export async function startHarness(adminUrl: string, schema: string, allow = `${ALLOWED},${SECOND}`, options: HarnessOptions = {}): Promise<Harness> {
+  const baseURL = options.baseURL ?? BASE;
+  const mcpUrl = options.mcpUrl ?? MCP;
   const url = await createStageSchema(adminUrl, schema);
   const pool = new pg.Pool({ connectionString: url, max: 6 });
   const db = drizzle(pool) as unknown as PrincipalsDb;
@@ -61,7 +69,7 @@ export async function startHarness(adminUrl: string, schema: string, allow = `${
   const isAllowed = (email: string) => allowlist.has(email);
   const deps = (database: AuthDeps["db"]): AuthDeps => ({
     db: database,
-    config: { baseURL: BASE, issuer: ISSUER, mcpUrl: MCP, secret: SECRET },
+    config: { baseURL, issuer: `${baseURL}/api/auth`, mcpUrl, secret: SECRET },
     sendMagicLink: (email, link) => {
       mail.push({ email, url: link });
       return Promise.resolve();
@@ -133,9 +141,9 @@ export function authorizePath(params: Record<string, string>): string {
   return `/api/auth/oauth2/authorize?${new URLSearchParams(params).toString()}`;
 }
 
-export async function registerDynamic(auth: Auth, body: Record<string, unknown>): Promise<Response> {
+export async function registerDynamic(auth: Auth, body: Record<string, unknown>, base: string = BASE): Promise<Response> {
   return auth.handler(
-    new Request(`${BASE}/api/auth/oauth2/register`, {
+    new Request(`${base}/api/auth/oauth2/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
