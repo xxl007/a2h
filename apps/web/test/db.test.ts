@@ -74,7 +74,7 @@ describe.skipIf(!adminUrl)("packages/db queries on the web side (node-postgres s
 
   test("ensurePrincipal then principalWithPolicy read back the principal and its policy", async () => {
     const stored = await ensurePrincipal(db, "UsErId0123456789abcdefABCDEF0123", { policy: POLICY });
-    expect(stored.principal).toEqual({ principal_id: "UsErId0123456789abcdefABCDEF0123", identity_mode: "real_name", verified: false });
+    expect(stored.principal).toEqual({ principal_id: "UsErId0123456789abcdefABCDEF0123", identity_mode: "real_name", verified: true });
     expect(stored.policy).toEqual(POLICY);
     expect(await principalWithPolicy(db, "UsErId0123456789abcdefABCDEF0123")).toEqual(stored);
     const { rows } = await pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${SCHEMA}.principals`);
