@@ -1,7 +1,7 @@
 # @a2h/email
 
-Email for A2H: a provider-neutral `Mailer`, React Email templates, and two
-delivery implementations chosen by stage. Change: `openspec/changes/m1-hosted-connector`
+Email for A2H: a provider-neutral `Mailer`, React Email templates, the stage
+mail sink, and the stage selection between the sink and the production mailer. Change: `openspec/changes/m1-hosted-connector`
 (design D6 mail sink, D10 logging; spec `platform/principal-identity`).
 
 ## Entry points
@@ -10,13 +10,13 @@ delivery implementations chosen by stage. Change: `openspec/changes/m1-hosted-co
 |---|---|---|
 | `@a2h/email` | `Mailer`, `Message`, `stageLabel()`, `renderMagicLink()` | none |
 | `@a2h/email/sink` | `S3SinkMailer` (every stage but prod); injected put-only client | none |
-| `@a2h/email/ses` | `SesMailer` (prod only); injected `SESv2Client` | `@aws-sdk/client-sesv2` |
-| `@a2h/email/factory` | `mailerFor(stage, deps)` | via `./ses` |
+| `@a2h/email/factory` | `mailerFor(stage, deps)` | none |
 
-`src/ses.ts` is the only module here allowed to import an AWS SDK (enforced in
-`eslint.config.mjs`). It is the email counterpart of `apps/*/infra`: business
-logic stays provider-neutral, and changing provider means a new entry point,
-not a rewrite.
+No module here imports an AWS SDK (CLAUDE.md: AWS SDKs only inside
+`apps/*/infra` and `infra/`; enforced for every package in `eslint.config.mjs`
+and by `test/boundaries.test.ts`). The SES mailer, `SesMailer`, is a deployment
+adapter of the web app: `apps/web/infra/ses-mailer.ts`, built by
+`apps/web/infra/mail.ts`. Changing provider means a new adapter, not a rewrite.
 
 ## What each stage does with a message
 
@@ -26,19 +26,21 @@ not a rewrite.
 | `dev` | `S3SinkMailer` | Written to `s3://<UPLOADS_BUCKET>/dev/mail/<id>.json`. Nothing is sent. |
 | `pr-<n>` | `S3SinkMailer` | Written to `s3://<UPLOADS_BUCKET>/pr-<n>/mail/<id>.json`. Nothing is sent. |
 
-`mailerFor(stage, deps)` takes client *factories*: the SES client is
+`mailerFor(stage, deps)` takes *factories*: the production mailer is
 constructed on `prod` only and the object client only elsewhere, so no
 non-prod stage can send email by construction (scenario "Preview sign-in").
 Any stage name other than `dev`, `prod` or `pr-<n>` throws.
 
 ```ts
+// In apps/web/infra (the only place that may import an AWS SDK):
 import { SESv2Client } from "@aws-sdk/client-sesv2";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { renderMagicLink, stageLabel } from "@a2h/email";
 import { mailerFor } from "@a2h/email/factory";
+import { SesMailer } from "./ses-mailer";
 
 const mailer = mailerFor(process.env.STAGE!, {
-  sesClient: () => new SESv2Client({}),
+  prodMailer: () => new SesMailer({ client: new SESv2Client({}), from: process.env.EMAIL_SENDER! }),
   objectClient: () => {
     const s3 = new S3Client({});
     return {
@@ -46,7 +48,6 @@ const mailer = mailerFor(process.env.STAGE!, {
         s3.send(new PutObjectCommand({ Bucket: a.bucket, Key: a.key, Body: a.body, ContentType: a.contentType })),
     };
   },
-  from: process.env.EMAIL_SENDER!,
   bucket: process.env.UPLOADS_BUCKET!,
   storagePrefix: process.env.STORAGE_PREFIX!,
 });
@@ -55,7 +56,7 @@ const email = await renderMagicLink({ link, expiresInMinutes: 15, productName: "
 const { id } = await mailer.send({ to, ...email });
 ```
 
-(The S3 adapter lives with the caller, in `apps/web`'s infra-side code.)
+(The S3 and SES adapters live with the caller, in `apps/web/infra/mail.ts`.)
 
 ## Sink objects
 
@@ -81,8 +82,9 @@ wraps this and filters by recipient.
 ## SES identity
 
 The sending identity (domain, DKIM) and any configuration set are created by
-infra (task group 1), not by this package. The caller passes the sender
-address and configuration set name from stage configuration.
+infra (task group 1), not by this package. `apps/web/infra/mail.ts` passes the
+sender address (and a configuration set, if one is ever configured) to
+`SesMailer` from stage configuration.
 
 ## Logging
 

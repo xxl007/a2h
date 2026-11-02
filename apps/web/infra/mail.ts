@@ -1,5 +1,5 @@
 // Deployment adapter for email (design D6): `mailerFor(STAGE, …)` from
-// @a2h/email: SES on prod only, the stage's mail sink everywhere else, under
+// @a2h/email: SES on prod only (./ses-mailer.ts), the stage's mail sink everywhere else, under
 // `tmp/<STORAGE_PREFIX>mail/<id>.json` in the uploads bucket (the 7-day `tmp`
 // lifecycle rule expires it; a preview's `tmp/pr-<n>/*` grant covers it).
 // LOCAL_MAIL_DIR (never set on a deployed stage, refused on prod) writes the
@@ -11,6 +11,7 @@ import { SESv2Client } from "@aws-sdk/client-sesv2";
 import type { Mailer } from "@a2h/email";
 import { mailerFor } from "@a2h/email/factory";
 import type { ObjectPutClient } from "@a2h/email/sink";
+import { SesMailer } from "./ses-mailer";
 
 export interface MailConfig {
   stage: string;
@@ -44,9 +45,8 @@ function s3ObjectClient(): ObjectPutClient {
 export function createMailer(config: MailConfig): Mailer {
   if (config.localDir && config.stage === "prod") throw new Error("web mail configuration: LOCAL_MAIL_DIR is refused on prod");
   return mailerFor(config.stage, {
-    sesClient: () => new SESv2Client({}),
+    prodMailer: () => new SesMailer({ client: new SESv2Client({}), from: config.emailFrom }),
     objectClient: () => (config.localDir ? localObjectClient(config.localDir) : s3ObjectClient()),
-    from: config.emailFrom,
     bucket: config.uploadsBucket || "local",
     storagePrefix: config.mailSinkPrefix,
   });

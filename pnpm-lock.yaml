@@ -213,9 +213,6 @@ importers:
 
   packages/email:
     dependencies:
-      '@aws-sdk/client-sesv2':
-        specifier: 3.1160.0
-        version: 3.1160.0
       '@react-email/body':
         specifier: 0.3.0
         version: 0.3.0(react@19.3.1)

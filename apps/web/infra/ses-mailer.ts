@@ -1,11 +1,12 @@
-// SES delivery, production only. This is the one module in packages/email
-// that imports an AWS SDK: it is the email counterpart of `apps/*/infra`
-// (CLAUDE.md: AWS SDKs only inside apps/*/infra and infra/). The client is
-// injected, so the caller constructs `new SESv2Client(...)` and only on prod
-// (see `mailerFor` in ./factory.ts). The sending identity and the
-// configuration set are created by infra, not here.
+// SES delivery, production only: a deployment adapter of the web app, the
+// only sender in M1 (CLAUDE.md: AWS SDKs only inside apps/*/infra and
+// infra/; moved from packages/email by task 10.5). It implements the
+// provider-neutral `Mailer` of @a2h/email. The client is injected, so
+// ./mail.ts constructs `new SESv2Client(...)` and only on prod (through
+// `mailerFor`). The sending identity and the configuration set are created
+// by infra/, not here.
 import { SendEmailCommand, type SendEmailCommandOutput } from "@aws-sdk/client-sesv2";
-import type { Mailer, Message } from "./mailer.ts";
+import type { Mailer, Message } from "@a2h/email";
 
 /** The part of SESv2Client this mailer uses. A real SESv2Client satisfies it. */
 export interface SesSendClient {
