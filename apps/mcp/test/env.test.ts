@@ -203,3 +203,28 @@ test("startup: the service refuses to start when DB_CA_BUNDLE is set but unreada
   assert.ok(!out.includes(APPROVAL_KEY), "no approval key in the output");
   assert.doesNotMatch(out, /listening/);
 });
+
+// connector-authorization "Open paths stay open" (amended after the cold review
+// of PR #51): ping is open only where a non-production stage opens it.
+test("Scenario: Production refuses an open ping", (t) => {
+  silenceAndWatchConsole(t);
+  // Non-production stages may still open it (dev, previews).
+  assert.equal(mcpConfigFromEnv({ ...base, PING_OPEN: "true" }).auth.pingOpen, true);
+  assert.equal(mcpConfigFromEnv({ ...base, STAGE: "prod", PING_OPEN: "false" }).auth.pingOpen, false);
+  assert.throws(() => mcpConfigFromEnv({ ...base, STAGE: "prod", PING_OPEN: "true" }), /PING_OPEN=true is refused on prod/);
+
+  // The service itself refuses to start, logging the setting by name and no value of a secret.
+  const entry = new URL("../src/index.ts", import.meta.url).pathname;
+  const run = spawnSync(process.execPath, [entry], {
+    env: { PATH: process.env["PATH"] ?? "", ...base, STAGE: "prod", PING_OPEN: "true", PORT: "0" },
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  assert.equal(run.status, 1, `exit status ${run.status}; stderr: ${run.stderr}`);
+  const out = run.stdout + run.stderr;
+  assert.match(out, /mcp server failed to start/);
+  assert.match(out, /PING_OPEN/);
+  assert.ok(!out.includes(PASSWORD), "no password in the output");
+  assert.ok(!out.includes(APPROVAL_KEY), "no approval key in the output");
+  assert.doesNotMatch(out, /listening/);
+});

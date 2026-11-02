@@ -131,12 +131,16 @@ export function mcpConfigFromEnv(env: Env = process.env): McpConfig {
   if (!authRequired && stage === "prod") fail("AUTH_REQUIRED=false is refused on prod");
   const resourceUrl = url(env, "MCP_RESOURCE_URL");
   if (new URL(resourceUrl).pathname !== mcpBasePath) fail("MCP_RESOURCE_URL does not end in MCP_BASE_PATH");
+  const pingOpen = flag(env, "PING_OPEN", false);
+  // connector-authorization "Open paths stay open": a tokenless ping (and
+  // handshake) is a non-production convenience; prod refuses to start with it.
+  if (pingOpen && stage === "prod") fail("PING_OPEN=true is refused on prod");
   const auth = {
     required: authRequired,
     issuer: url(env, "AUTH_ISSUER"),
     jwksUrl: url(env, "AUTH_JWKS_URL"),
     resourceUrl,
-    pingOpen: flag(env, "PING_OPEN", false),
+    pingOpen,
   };
 
   return {
