@@ -93,6 +93,7 @@ const app = createApp({
     limits: { perMinute: 600, perDay: 20000 },
     clearingShare: config.clearingShare,
     approvalKey: Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + 3) & 0xff),
+    webOrigin: "https://web.a2h.test",
     ...(pinnedAt ? { now: () => new Date(pinnedAt.getTime() + (Date.now() - started)) } : {}),
   },
 });

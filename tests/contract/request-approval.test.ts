@@ -13,7 +13,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { ProtocolError } from "@modelcontextprotocol/client";
-import { RequestHumanOutputM1Schema as RequestHumanOutputSchema } from "@a2h/protocol";
+
 import {
   accept,
   approvalRound,
@@ -46,6 +46,13 @@ const LABOUR = "Please write a 2,000-word report on insulin pricing.";
 const RC = "sim-rc-8d14";
 const STAGE = expectedStage(mcpUrl());
 const GATE = await gateExpectation(STAGE);
+
+// m2-approval-page task 3.1: request_human no longer asks through a client
+// form; the cases that drove it are skipped, not deleted (QA rewrites them
+// against the approval page in task 6.1).
+const FORM = "approval moves to the page, QA rewrites in 6.1";
+/** The m1 form result's shape, for the skipped cases only (type-level; they never run). */
+const RequestHumanOutputSchema = { parse: (v: unknown) => v as { status: string; reason?: string } };
 
 const base = (extra: Record<string, unknown> = {}) => manifest(MV, "judgment", 3200, QUESTION, extra);
 
@@ -115,7 +122,7 @@ describe("protocol/request-approval (live)", () => {
     });
   }
 
-  test("Scenario: Quiet hours (branch decided by the server's clock in Europe/London)", async (t) => {
+  test("Scenario: Quiet hours (branch decided by the server's clock in Europe/London)", { skip: FORM }, async (t) => {
     // sim-ep-5c07: quiet 22:00-07:00 Europe/London, latency 24 h, judgment net 2000 (gross 2500).
     // The server's clock cannot be set from outside: by day the deferral is
     // not observable and only "delivery now" is checked; the deferred and
@@ -144,7 +151,7 @@ describe("protocol/request-approval (live)", () => {
     await assertNothingCreatedFor(c, EP, since);
   });
 
-  test("Scenario: Interruption budget exceeded", async () => {
+  test("Scenario: Interruption budget exceeded", { skip: FORM }, async () => {
     // sim-bk-2e6f accepts at most 2 interruptions a UTC day (silent persona,
     // latency 24 h, estimate net 3500 → gross 4375). Requests are sent until
     // it refuses: at most two are created per UTC day on a stage (earlier runs
@@ -174,7 +181,7 @@ describe("protocol/request-approval (live)", () => {
 
   // ---- Approval shows the exact wording -------------------------------------
 
-  test("Approval shows the exact wording: one pre-filled field, the terms in the message, Send · hold", async () => {
+  test("Approval shows the exact wording: one pre-filled field, the terms in the message, Send · hold", { skip: FORM }, async () => {
     const since = serverNow();
     const round = await approvalRound(c, base());
     assert.deepEqual(Object.keys(round.inputRequests ?? {}), ["approval"]);
@@ -203,7 +210,7 @@ describe("protocol/request-approval (live)", () => {
     ["Decline", { action: "decline" }, "declined"],
     ["Dismissed", { action: "cancel" }, "dismissed"],
   ] as const satisfies readonly (readonly [string, Answer, string])[]) {
-    test(`Scenario: ${scenario}`, async () => {
+    test(`Scenario: ${scenario}`, { skip: FORM }, async () => {
       const since = serverNow();
       const round = await approvalRound(c, base());
       const result = await retryLeg(c, base(), round.requestState, answer);
@@ -214,7 +221,7 @@ describe("protocol/request-approval (live)", () => {
     });
   }
 
-  test("Scenario: Forged or expired approval state (forged and altered; expired: package test)", async () => {
+  test("Scenario: Forged or expired approval state (forged and altered; expired: package test)", { skip: FORM }, async () => {
     const since = serverNow();
     const round = await approvalRound(c, base());
     const state = round.requestState!;
@@ -228,7 +235,7 @@ describe("protocol/request-approval (live)", () => {
     await assertNothingCreatedFor(c, MV, since);
   });
 
-  test("Scenario: Approval state replayed with changed arguments", async () => {
+  test("Scenario: Approval state replayed with changed arguments", { skip: FORM }, async () => {
     const since = serverNow();
     const round = await approvalRound(c, base());
     for (const changed of [base({ bid_minor: 3300 }), base({ to: "sim-ol-6a23" }), base({ expires_at: expiresIn(9 * 3600) })]) {
@@ -241,7 +248,7 @@ describe("protocol/request-approval (live)", () => {
     await assertNothingCreatedFor(c, "sim-ol-6a23", since);
   });
 
-  test("Scenario: Client on an older revision", async () => {
+  test("Scenario: Client on an older revision", { skip: FORM }, async () => {
     const since = serverNow();
     let elicited = false;
     const legacy = await legacyClient(() => {
@@ -264,7 +271,7 @@ describe("protocol/request-approval (live)", () => {
 
   // ---- Approval covers the validated manifest ---------------------------------
 
-  test("Scenario: Edit turns the question into a push-poll", async () => {
+  test("Scenario: Edit turns the question into a push-poll", { skip: FORM }, async () => {
     const since = serverNow();
     const round = await approvalRound(c, base());
     const result = await retryLeg(c, base(), round.requestState, accept(PUSH_POLL));
@@ -274,7 +281,7 @@ describe("protocol/request-approval (live)", () => {
     await assertNothingCreatedFor(c, MV, since);
   });
 
-  test("an edit is re-validated as a whole: an accepted edit that is empty is schema_invalid and creates nothing", async () => {
+  test("an edit is re-validated as a whole: an accepted edit that is empty is schema_invalid and creates nothing", { skip: FORM }, async () => {
     const since = serverNow();
     const round = await approvalRound(c, base());
     const result = await retryLeg(c, base(), round.requestState, accept("   "));
@@ -282,7 +289,7 @@ describe("protocol/request-approval (live)", () => {
     await assertNothingCreatedFor(c, MV, since);
   });
 
-  test("Scenario: Options shown with the question (the approval message; stored values: package test)", async () => {
+  test("Scenario: Options shown with the question (the approval message; stored values: package test)", { skip: FORM }, async () => {
     // sim-ep-5c07 accepts opinion (net 800 → gross 1000); first leg only, nothing created.
     const EP = "sim-ep-5c07";
     const since = serverNow();
@@ -326,7 +333,7 @@ describe("protocol/request-approval (live)", () => {
     await assertNothingCreatedFor(c, MV, since);
   });
 
-  test("Scenario: Client without forms", async () => {
+  test("Scenario: Client without forms", { skip: FORM }, async () => {
     const since = serverNow();
     const noForms = await principalClient({ forms: false });
     try {
@@ -341,7 +348,7 @@ describe("protocol/request-approval (live)", () => {
     await assertNothingCreatedFor(c, MV, since);
   });
 
-  test("the edited text example is accepted by validation (used by request-flows.test.ts)", async () => {
+  test("the edited text example is accepted by validation (used by request-flows.test.ts)", { skip: FORM }, async () => {
     // Guards the fixture: EDITED must pass the content rules, or the flows
     // test would fail for the wrong reason. First leg only; nothing created.
     const round = await approvalRound(c, base({ question: EDITED }));

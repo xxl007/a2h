@@ -19,17 +19,20 @@ export const FIND_HUMANS_DESCRIPTION =
   POLICY_TEXT;
 
 export const REQUEST_HUMAN_DESCRIPTION =
-  "Send one question to one participant found with find_humans, on behalf of the principal. " +
-  "The server validates it against the participant's rules and the principal's policy, then " +
-  "shows the principal the exact question (editable) with the bid, format, expiry and data " +
-  "terms, and sends it only if they accept. Returns the request id, an ETA and the amount held " +
-  "within a second; the answer comes later through check_requests. " +
-  "Needs MCP protocol revision 2026-07-28 for the approval. " +
+  "Ask one participant found with find_humans one question, on behalf of the principal. " +
+  "The server validates it against the participant's rules and the principal's policy, records it " +
+  "with status awaiting_approval and returns at once the request id and an approval link with its " +
+  "expiry. Nothing is held or sent yet: the principal opens the link, reviews the exact question " +
+  "with the bid, format, expiry and data terms on the A2H approval page, may edit it, and chooses " +
+  "Send or Don't send there. Show the principal the approval link (your client may also offer to " +
+  "open it); then follow the request with check_requests, which reports awaiting_approval, then " +
+  "sent (and the answer later) or not_sent. " +
   POLICY_TEXT;
 
 export const CHECK_REQUESTS_DESCRIPTION =
   "Check the principal's requests: one by id (A2H-xxxx) or a list filtered by status and time. " +
-  "Reports the status, when each step happened, the amount held and, once answered, the " +
+  "Reports the status, when each step happened, the amount held once sent; while awaiting approval " +
+  "the approval link and its expiry; when not sent, why (declined or the link expired); once answered, the " +
   "signed human answer (body, confidence, personal attestation, signature, time) and the " +
   "cleared amount. Show an answer as coming from a human, not from you. " +
   POLICY_TEXT;

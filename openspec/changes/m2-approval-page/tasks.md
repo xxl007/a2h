@@ -15,8 +15,8 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 
 ## 3. MCP tools (PD, after 2)
 
-- [ ] 3.1 `request_human` records the request and returns the link (D1–D3), URL elicitation where declared, text otherwise; the form path, approval-state codec and replay table removed (D5); verify "Link returned", "Client with URL elicitation", "Client without URL elicitation", "Principal refuses to open the link", "Return under a second", and that the tool descriptions state the new flow
-- [ ] 3.2 `check_requests` reports the link and expiry while awaiting, and the reason when not sent; verify "Awaiting approval" and "Not sent"
+- [x] 3.1 `request_human` records the request and returns the link (D1–D3), URL elicitation where declared, text otherwise; the form path, approval-state codec and replay table removed (D5); verify "Link returned", "Client with URL elicitation", "Client without URL elicitation", "Principal refuses to open the link", "Return under a second", and that the tool descriptions state the new flow — done in PR #81 (merged 2026-11-03): awaiting result with link, URL elicitation with the request id in signed `requestState`, decline or cancel → `not_sent`; form path, approval state and nonce removed (migration 0010, which also closes the event CHECK hole); link token derived (D2); form-driven live tests skipped for QA to rewrite in 6.1; Data API bug in `principalUsage` (raw ISO date as text) fixed, with `packages/db/test/data-api.test.ts` running the web app's queries through a Data API stand-in; verify pr-81 green
+- [x] 3.2 `check_requests` reports the link and expiry while awaiting, and the reason when not sent; verify "Awaiting approval" and "Not sent" — done in PR #81: link and expiry while awaiting, reason when not sent
 
 ## 4. Design (DS, after Gate 1, parallel to 2)
 
@@ -30,9 +30,11 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 - [ ] 5.3 Question editor behaviour; verify "Restore agent draft", "Over the limit", "Enter in the question", "Labels", "Poll request", "Simulated participant", "Time zone" with Playwright
 - [ ] 5.4 Accessibility; verify "Keyboard only" and "Narrow screen" with Playwright and axe on the preview
 
+- [ ] 5.5 WD (found while diagnosing pr-82, PM decision 2026-11-03): a repeated revoke is a success, spec `platform/principal-identity` "Revoke repeated"; verify with a test first, separate small PR after #82
+
 ## 6. Verification (QA)
 
-- [ ] 6.1 Contract tests for every scenario of the four deltas, named after them, against the preview; the table in `tests/README.md` updated; the suites that drove the old form (`request-approval`, `request-flows`) rewritten to approve through the page with the QA principal's session
+- [ ] 6.1 (also: `tests/lib/obtain-token.ts` `disconnectAll` waits for the row's disconnected notice instead of `waitForLoadState`, the race seen on pr-82) Contract tests for every scenario of the four deltas, named after them, against the preview; the table in `tests/README.md` updated; the suites that drove the old form (`request-approval`, `request-flows`) rewritten to approve through the page with the QA principal's session
 - [ ] 6.2 Adversarial: approving another principal's request, replaying a decision, forging and guessing tokens, sending after the link expired, an agent trying to move a request out of `awaiting_approval` through any tool; each red against a weakened check locally, then green on the preview
 - [ ] 6.3 Hosted-client check: claude.ai and Claude Code each show the link and the outcome reaches `check_requests`; record in `docs/runbooks/mcp-setup.md`
 

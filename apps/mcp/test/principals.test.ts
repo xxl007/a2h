@@ -12,13 +12,13 @@ import { ProtocolError, type CallToolResult } from "@modelcontextprotocol/client
 import type { DbConfig } from "../src/config.ts";
 import type { AuthConfig } from "../src/auth.ts";
 import { freshSchema, skipWithoutDocker, sqlIn, startPostgres, writeCounts, type PgContainer } from "./lib/db.ts";
-import { TEST_POLICY, callRaw, consentPrincipal, ensurePrincipalRows, isInputRequired, modernClient, retry, startA2h, texts, type A2hOptions, type RunningA2h } from "./lib/a2h.ts";
+import { TEST_POLICY, approveOnPage, callRaw, consentPrincipal, ensurePrincipalRows, isInputRequired, modernClient, retry, startA2h, texts, urlClient, type A2hOptions, type RunningA2h } from "./lib/a2h.ts";
 import { startAuthServer, TEST_CLIENT_ID, TEST_RESOURCE, withToken, type TestAuthServer } from "./lib/auth-server.ts";
 import { BASE, ORIGINAL } from "./lib/fixtures.ts";
 
 const A = { principal_id: "user-a", identity_mode: "verified_organisation", verified: true } as const;
 const B = { principal_id: "user-b", identity_mode: "verified_organisation", verified: true } as const;
-const ACCEPT = { approval: { action: "accept", content: { question: ORIGINAL } } };
+const ACCEPT = { approval: { action: "accept" } };
 const FIND = { topic: "patient information leaflets", request_type: "judgment" };
 
 function errorOf(r: CallToolResult): { code: string; stage: string; retryable: boolean; details?: { retry_after_seconds: number } } {
@@ -85,10 +85,10 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
       }
     });
 
-    test("Scenario: Approval state used by another account: -32602 invalid_request_state, nothing created", async () => {
+    test("Scenario: Approval state used by another account: -32602 invalid_request_state, nothing changes", async () => {
       const { db, server } = await fresh();
-      const a = await clientFor(server.url, A.principal_id);
-      const b = await clientFor(server.url, B.principal_id);
+      const a = await urlClient(server.url, withToken(await as.mint({ sub: A.principal_id })));
+      const b = await urlClient(server.url, withToken(await as.mint({ sub: B.principal_id })));
       try {
         const round = await callRaw(a, "request_human", BASE);
         assert.ok(isInputRequired(round), JSON.stringify(round));
@@ -98,7 +98,9 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
           assert.equal((error.data as { reason?: string } | undefined)?.reason, "invalid_request_state");
           return true;
         });
-        assert.deepEqual(await writeCounts(db), { requests: 0, request_events: 0, blocked_manifests: 0, answers: 0 });
+        // Recorded on the first leg, awaiting approval; B's retry changed nothing.
+        assert.deepEqual(await writeCounts(db), { requests: 1, request_events: 1, blocked_manifests: 0, answers: 0 });
+        assert.deepEqual(await sqlIn(db, "SELECT status FROM requests"), [{ status: "awaiting_approval" }]);
         // The genuine owner can still use it.
         const ok = await retry(a, "request_human", BASE, round.requestState, ACCEPT);
         assert.equal(ok.isError, undefined, JSON.stringify(ok));
@@ -132,12 +134,13 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
     const a = await clientFor(server.url, A.principal_id);
     const b = await clientFor(server.url, B.principal_id);
     try {
-      assert.ok(isInputRequired(await callRaw(a, "request_human", BASE)), "A is asked for approval");
+      const awaiting = (r: CallToolResult) => !r.isError && (r.structuredContent as { status?: string }).status === "awaiting_approval";
+      assert.ok(awaiting((await callRaw(a, "request_human", BASE)) as CallToolResult), "A's request awaits approval");
       const refused = (await callRaw(b, "request_human", BASE)) as CallToolResult;
       assert.equal(errorOf(refused).code, "over_budget");
       // A policy change applies to the next call, not after the token expires (design D4).
       await sqlIn(db, "UPDATE principal_policies SET monthly_budget_minor = 50000 WHERE principal_id = $1", [B.principal_id]);
-      assert.ok(isInputRequired(await callRaw(b, "request_human", BASE)));
+      assert.ok(awaiting((await callRaw(b, "request_human", BASE)) as CallToolResult));
     } finally {
       await a.close();
       await b.close();
@@ -148,7 +151,7 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
   // (`@a2h/db` ensurePrincipal, as apps/web calls it, with the stage's default
   // policy and no identity mode of its own), and it can send.
   describe("Requirement: A principal created by consent is verified by the allow-list", () => {
-    test("Scenario: Signed-in principal can send: request_human reaches input_required (the approval), not a principal-stage refusal", async () => {
+    test("Scenario: Signed-in principal can send: request_human records the request for approval (not a principal-stage refusal), and Send on the page sends it under this principal", async () => {
       const db = await freshSchema(pgc);
       const id = "user-consented";
       const created = await consentPrincipal(db, id);
@@ -161,17 +164,17 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
       const { server } = await fresh({}, db);
       const client = await clientFor(server.url, created.principal_id);
       try {
-        const raw = await callRaw(client, "request_human", BASE);
-        if (!isInputRequired(raw)) {
+        const raw = (await callRaw(client, "request_human", BASE)) as CallToolResult;
+        if (raw.isError) {
           const error = errorOf(raw);
           assert.notEqual(error.stage, "principal", `refused at the principal stage: ${JSON.stringify(error)}`);
-          assert.fail(`expected input_required, got ${JSON.stringify(raw)}`);
+          assert.fail(`expected awaiting_approval, got ${JSON.stringify(raw)}`);
         }
-        assert.equal(raw.inputRequests?.["approval"]?.method, "elicitation/create", "the approval is asked of the principal");
-        // The approval follows: accepting it sends the request under this principal.
-        const sent = await retry(client, "request_human", BASE, raw.requestState, ACCEPT);
-        assert.equal(sent.isError, undefined, JSON.stringify(sent));
-        const requestId = (sent.structuredContent as { request_id: string }).request_id;
+        const out = raw.structuredContent as { status: string; request_id: string; approval_url: string };
+        assert.equal(out.status, "awaiting_approval");
+        // The page's Send, as this principal, sends it.
+        assert.equal((await approveOnPage(db, out.approval_url, { principal_id: created.principal_id })).kind, "sent");
+        const requestId = out.request_id;
         const [stored] = await sqlIn<{ principal_id: string }>(db, "SELECT principal_id FROM requests WHERE id = $1", [requestId]);
         assert.equal(stored?.principal_id, id);
       } finally {
@@ -270,7 +273,7 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
       running.push(server);
       const outbound = watchOutbound(t, realFetch);
       const token = await own.mint({ sub: A.principal_id, email: "ana.lovelace@example.org", name: "Ana Lovelace" });
-      const client = await modernClient(server.url, () => ({ action: "accept", content: { question: ORIGINAL } }), withToken(token, realFetch));
+      const client = await modernClient(server.url, undefined, withToken(token, realFetch));
       let id: string;
       try {
         const sent = await client.callTool({ name: "request_human", arguments: BASE });
@@ -300,8 +303,8 @@ describe("principals, limits and records behind the gate", { skip: skipWithoutDo
 
       // Log lines: the opaque principal id, the client id and the request id.
       const calls = server.logs.filter((l) => l.msg === "tool call");
-      // request_human logs both rounds (input_required, then sent), then check_requests and find_humans.
-      assert.equal(calls.length, 4);
+      // request_human (one round: the link in the text), then check_requests and find_humans.
+      assert.equal(calls.length, 3);
       for (const l of calls) {
         assert.equal(l.principal_id, A.principal_id);
         assert.equal(l.client_id, TEST_CLIENT_ID);

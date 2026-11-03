@@ -22,6 +22,7 @@ export function offlineA2h(): A2hOptions {
     feeRate: 0.2,
     clearingShare: 0.5,
     approvalKey: new Uint8Array(32).fill(1),
+    webOrigin: "https://web.a2h.test",
     limits: { perMinute: 60, perDay: 2000 },
   };
 }

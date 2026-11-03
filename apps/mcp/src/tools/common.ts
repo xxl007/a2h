@@ -7,12 +7,12 @@ import type { CallToolResult, RequestStateCodec, StandardSchemaWithJSON } from "
 import type * as z from "zod";
 import type { Log } from "../logging.ts";
 
-/** What the approval state carries (design D1): no question, only the manifest's hash. */
+/**
+ * What the URL elicitation's `requestState` carries (m2-approval-page D3):
+ * the request id only, signed and bound to the principal of the connection.
+ */
 export interface ApprovalState {
-  principal_id: string;
-  manifest_hash: string;
-  nonce: string;
-  issued_at: string;
+  request_id: string;
 }
 
 export interface ToolDeps {
@@ -22,6 +22,10 @@ export interface ToolDeps {
   policy: ValidationPolicy;
   clearingShare: number;
   codec: RequestStateCodec<ApprovalState>;
+  /** The stage's approval key: derives approval-link tokens (never logged). */
+  approvalKey: Uint8Array;
+  /** The stage's web host (https origin), where approval links point. */
+  webOrigin: string;
   now: () => Date;
   randomBytes: (n: number) => Uint8Array;
   log: Log;

@@ -266,9 +266,10 @@ export async function usage(c: A2hClient): Promise<{ committed_minor: number; to
   let committed = 0;
   for (const r of month) {
     if (r.status === "answered") committed += r.cleared_minor ?? 0;
-    else if (r.status === "sent" || r.status === "accepted") committed += r.held_minor;
+    else if (r.status === "sent" || r.status === "accepted") committed += r.held_minor ?? 0;
   }
-  const today = month.filter((r) => Date.parse(r.transitions.sent_at) >= dayStart.getTime()).length;
+  // The daily limit counts sent requests only (m2-approval-page D4).
+  const today = month.filter((r) => r.transitions.sent_at !== undefined && Date.parse(r.transitions.sent_at) >= dayStart.getTime()).length;
   return { committed_minor: committed, today, seen: month.length };
 }
 

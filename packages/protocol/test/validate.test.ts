@@ -1,7 +1,7 @@
 // Spec protocol/request-approval "Manifest validation runs before anything
 // else" (one test per scenario), "Edit turns the question into a push-poll",
-// "Blocked manifests are counted without content", the conflict code for a
-// replayed approval with different arguments, and protocol/request-lifecycle
+// "Blocked manifests are counted without content", the approval link's
+// minimum (m2-approval-page D2), and protocol/request-lifecycle
 // "Rules changed after approval" at the function level. Design D6.
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
@@ -172,11 +172,19 @@ describe("Scenario: Edit turns the question into a push-poll", () => {
   });
 });
 
-describe("Approval binding: conflict on a replayed approval with different arguments", () => {
-  test("matching manifest hashes pass; a mismatch → conflict and nothing else is evaluated", () => {
-    assert.equal(validateManifest(manifest(), facts({ approval: "recorded", approval_binding: { issued_for: "abc", presented: "abc" } }), policy).ok, true);
-    const r = fails(validateManifest(manifest({ bid_minor: 1 }), facts({ approval: "recorded", approval_binding: { issued_for: "abc", presented: "abd" } }), policy));
-    assert.deepEqual([r.error.code, r.error.retryable], ["conflict", false]);
+describe("The approval link needs at least 15 minutes (m2-approval-page D2): otherwise the latency refusal", () => {
+  const latency = { latency_promise_seconds: 3600 };
+  test("request_human (approval pending): expiry minus latency less than 15 minutes from now → outside_participant_rules, latency_mismatch counted", () => {
+    // now 08:42 +02:00; expiry 09:52 → 70 min, minus 60 min latency = 10 min of link.
+    const r = fails(validateManifest(manifest({ expires_at: "2026-10-21T09:52:00+02:00" }), facts({}, latency), policy));
+    assert.deepEqual([r.error.code, r.error.stage, r.blocked?.code], ["outside_participant_rules", "rules", "latency_mismatch"]);
+    assertNoLeak(r);
+  });
+  test("exactly 15 minutes of link passes", () => {
+    assert.equal(validateManifest(manifest({ expires_at: "2026-10-21T09:57:00+02:00" }), facts({}, latency), policy).ok, true);
+  });
+  test("Send on the page (approval recorded) is not held to it: the link was valid when issued", () => {
+    assert.equal(validateManifest(manifest({ expires_at: "2026-10-21T09:52:00+02:00" }), facts({ approval: "recorded" }, latency), policy).ok, true);
   });
 });
 

@@ -30,8 +30,8 @@ Why over a separate drafts table: one id from the first call (proposal decision 
 The worker's delivery query already selects `sent` only; a test pins that `awaiting_approval` rows are never delivered or counted against the participant's interruption budget.
 
 ### D2. The link
-`https://<web host>/approve/<request id>?t=<token>`, token 32 random bytes base64url, stored as SHA-256. The token alone grants nothing: the page also requires the signed-in principal of the request (spec `platform/approval-page`). Logs record the request id and principal id, never the query string; CloudFront and ALB access logs stay off for these paths, as for the sign-in link.
-Expiry (proposal decision 3): the earlier of 24 hours after creation and the request's own expiry minus the participant's latency promise; at least 15 minutes, otherwise `request_human` refuses with the existing latency refusal.
+`https://<web host>/approve/<request id>?t=<token>`, token derived as HMAC-SHA-256 of the request id under the stage's approval key with a fixed derivation context (PM decision 2026-11-03, from group 3), stored as SHA-256. Derived rather than random so `check_requests` can show the link again while only the hash is stored; if the key rotates, `check_requests` omits the link but keeps the expiry, and issued links keep working because the page compares hashes. The token alone grants nothing: the page also requires the signed-in principal of the request (spec `platform/approval-page`). Logs record the request id and principal id, never the query string; CloudFront and ALB access logs stay off for these paths, as for the sign-in link.
+Expiry (proposal decision 3): the earlier of 24 hours after creation and the request's own expiry minus the participant's latency promise; at least 15 minutes, otherwise `request_human` refuses with the existing latency refusal. In effect a request needs an expiry of at least the participant's latency promise plus 15 minutes.
 Alternative rejected: a token in the URL fragment, read by script and posted: the page must work with JavaScript off for the read-only states, and the server action needs the token anyway.
 
 ### D3. How the client is told
@@ -63,7 +63,7 @@ Server-rendered route `/approve/[id]` in `apps/web` (App Router), no client data
 
 ## Migration Plan
 
-Forward-only migration adding `awaiting_approval` and `not_sent` to the status set and the approval columns; existing rows are all `sent` or later and are untouched. Deploy order is irrelevant within one stage deploy (web, mcp and worker ship together). Rollback is a redeploy of the previous version; rows in `awaiting_approval` would then never be delivered and expire unseen, which is safe.
+Forward-only migration adding `awaiting_approval` and `not_sent` to the status set and the approval columns; existing rows are all `sent` or later and are untouched. Deploy order is irrelevant within one stage deploy (web, mcp and worker ship together). Migration 0010 drops the M1 approval nonce and only admits new requests into `awaiting_approval`, so the M1 code cannot run on a migrated database: rollback is a forward fix, not a redeploy of the previous version (PM decision 2026-11-03; no production stage exists yet). 0010 also closes a hole in the event CHECK, where a NULL `from_status` let a creation event go straight into `sent`, `accepted` or `answered`; it is added NOT VALID so M1 history stays.
 
 ## Screens
 
