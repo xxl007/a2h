@@ -317,7 +317,10 @@ export async function disconnectAll(context: BrowserContext, webUrl: string): Pr
       await disconnect.click({ timeout: STEP_TIMEOUT_MS });
       // The row asks to confirm.
       await page.getByRole("group").getByRole("button", { name: "Disconnect", exact: true }).click({ timeout: STEP_TIMEOUT_MS });
-      await page.waitForLoadState("load", { timeout: STEP_TIMEOUT_MS }).catch(() => undefined);
+      // The revoke is a server action: the row's "<client> is disconnected" notice says it was
+      // recorded. waitForLoadState resolved at once on the loaded page, and the reload below
+      // could abort the revoke and find the same row again (pr-82).
+      await page.getByText(/ is disconnected$/).waitFor({ state: "visible", timeout: STEP_TIMEOUT_MS });
       count += 1;
       if (count > 20) throw new Error("more than twenty connected apps on a QA principal: stopping");
       await page.reload({ waitUntil: "load", timeout: STEP_TIMEOUT_MS });
