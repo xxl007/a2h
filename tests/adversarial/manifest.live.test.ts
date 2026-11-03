@@ -42,6 +42,8 @@ import {
 
 const MV = "sim-mv-7f3c"; // judgment net 2500 → gross 3125; own_publications free lane
 const TH = "sim-th-2a91"; // knowledge net 4500 → gross 5625, verification net 3500 → 4375; no free lane
+// Decline persona, judgment net 1800 → gross 2250: only the known-limit todos send to it (m2-approval-page 3.1).
+const DM = "sim-dm-7b80";
 const BENIGN = "Would a patient with type 2 diabetes find the insulin section of this leaflet alarming?";
 
 const mv = (extra: Args = {}) => manifest(MV, "judgment", 3200, BENIGN, extra);
@@ -138,14 +140,14 @@ describe("adversarial: manifest validation fails closed (live)", () => {
   }
 
   for (const [label, question] of EVASIONS) {
-    // Skipped since m2-approval-page 3.1: an evasion that passes now records an
-    // awaiting request, which breaks the "nothing created" checks of the cases after it.
-    test(`known limit of the deterministic rules (D6, OPEN): ${label}`, { skip: `${FORM}; was todo: reported to the PM, a classifier is an M3 proposal` }, async () => {
-      const since = serverNow();
-      const raw = await firstLeg(c, mv({ question }));
-      if (isInputRequired(raw)) await retryLeg(c, mv({ question }), raw.requestState, { action: "cancel" });
-      await assertNothingCreatedFor(c, MV, since);
-      assert.ok(!isInputRequired(raw), "the approval was shown: this evasion gets past the content rules");
+    // Since m2-approval-page 3.1 an evasion that passes the content rules is
+    // recorded as awaiting approval. The todos send to DM, a persona no
+    // "nothing created" check of this suite uses, so a passing evasion cannot
+    // fail another case (verify pr-81, case 6). Still todo: expected to fail.
+    test(`known limit of the deterministic rules (D6, OPEN): ${label}`, { todo: "reported to the PM; a classifier is an M3 proposal" }, async () => {
+      const raw = await firstLeg(c, manifest(DM, "judgment", 3200, question));
+      assert.ok(!isInputRequired(raw), "a URL elicitation was not expected from a forms-only client");
+      assert.equal(raw.isError, true, `this evasion gets past the content rules: recorded as ${JSON.stringify(raw.structuredContent)}`);
       assert.equal(errorOf(raw).code, "forbidden_content");
     });
   }
