@@ -15,8 +15,8 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 
 ## 3. MCP tools (PD, after 2)
 
-- [ ] 3.1 `request_human` records the request and returns the link (D1–D3), URL elicitation where declared, text otherwise; the form path, approval-state codec and replay table removed (D5); verify "Link returned", "Client with URL elicitation", "Client without URL elicitation", "Principal refuses to open the link", "Return under a second", and that the tool descriptions state the new flow
-- [ ] 3.2 `check_requests` reports the link and expiry while awaiting, and the reason when not sent; verify "Awaiting approval" and "Not sent"
+- [x] 3.1 `request_human` records the request and returns the link (D1–D3), URL elicitation where declared, text otherwise; the form path, approval-state codec and replay table removed (D5); verify "Link returned", "Client with URL elicitation", "Client without URL elicitation", "Principal refuses to open the link", "Return under a second", and that the tool descriptions state the new flow — done in PR #81 (merged 2026-11-03): awaiting result with link, URL elicitation with the request id in signed `requestState`, decline or cancel → `not_sent`; form path, approval state and nonce removed (migration 0010, which also closes the event CHECK hole); link token derived (D2); form-driven live tests skipped for QA to rewrite in 6.1; Data API bug in `principalUsage` (raw ISO date as text) fixed, with `packages/db/test/data-api.test.ts` running the web app's queries through a Data API stand-in; verify pr-81 green
+- [x] 3.2 `check_requests` reports the link and expiry while awaiting, and the reason when not sent; verify "Awaiting approval" and "Not sent" — done in PR #81: link and expiry while awaiting, reason when not sent
 
 ## 4. Design (DS, after Gate 1, parallel to 2)
 
