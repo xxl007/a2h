@@ -158,7 +158,9 @@ export async function principalUsage(
         WHEN ${requests.status} IN ('sent', 'accepted') THEN ${requests.bid_minor}
         WHEN ${requests.status} = 'answered' THEN coalesce(${requests.cleared_minor}, ${requests.bid_minor})
         ELSE 0 END), 0)::int`,
-      today: sql<number>`count(*) FILTER (WHERE ${requests.created_at} >= ${dayStart.toISOString()} AND ${requests.status} NOT IN ('awaiting_approval', 'not_sent'))::int`,
+      // Bound through the column (gte), never as a raw string: the Data API sends a raw string as
+      // text, and Postgres has no timestamptz >= text (pr-82; test/data-api.test.ts).
+      today: sql<number>`count(*) FILTER (WHERE ${and(gte(requests.created_at, dayStart), notInArray(requests.status, [...UNSENT_STATUSES]))})::int`,
     })
     .from(requests)
     .where(and(eq(requests.principal_id, principalId), gte(requests.created_at, monthStart)));
