@@ -8,7 +8,7 @@
 // the question or a participant's detail.
 import { decideApproval, eq, requests, type A2hDb } from "@a2h/db";
 import type { ApprovalRefusal } from "@a2h/ui";
-import type { Logger } from "../log";
+import { errorFields, type Logger } from "../log";
 import { decidedAt } from "./page-data";
 import { refusalOf, submittedQuestion } from "./view";
 
@@ -95,7 +95,7 @@ export async function decide(deps: DecideDeps, i: DecideInput): Promise<Approval
         return { state: "wrong-principal" };
     }
   } catch (e) {
-    deps.logger.error(`approval decision not recorded for ${i.requestId}`, { request_id: i.reference, principal_id: i.principalId, code: e instanceof Error ? e.name : "error" });
+    deps.logger.error(`approval decision not recorded for ${i.requestId}`, { request_id: i.reference, principal_id: i.principalId, ...errorFields(e) });
     return { state: "error", reference: i.reference, ...(kept !== undefined ? { question: kept } : {}) };
   }
 }
