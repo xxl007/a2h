@@ -181,7 +181,7 @@ The fee breakdown is visible, not behind a toggle: the page has room, and skill 
 
 ### A3. Sending and cancelling
 
-After **Send**: the button reads **Sending…** and is busy; Don't send is disabled; the question is read-only (muted). After **Don't send**: that button reads **Cancelling…**; Send is disabled. No spinner-only state; focus stays on the pressed button. No optimistic outcome: the page moves to A7 or A9 only on the server's answer.
+After **Send**: the button reads **Sending…** and is busy; Don't send is disabled; the question is read-only (muted). After **Don't send**: that button reads **Cancelling…**; Send is disabled; the question is read-only, as while sending. No spinner-only state; focus stays on the pressed button. No optimistic outcome: the page moves to A7 or A9 only on the server's answer.
 
 ### A4. Validation failed after an edit (spec scenario; `request-approval` "Approval covers the validated manifest")
 
@@ -204,7 +204,7 @@ Which rule of the participant failed is never said (it would disclose their rule
 
 ### A5. Error (the server action failed or timed out)
 
-`danger` notice, `role=alert`, focus moves to it: **Your choice was not recorded** / "Nothing was sent and nothing is held. Try again." + **Reference {request id of the HTTP call}** (mono). Edits kept, both actions available. A retry after a Send that did in fact go through lands on A8 (spec "Decision replayed").
+`danger` notice, `role=alert`, focus moves to it: **Your choice was not recorded** / "Nothing was sent and nothing is held. Try again." + **Reference {request id of the HTTP call}** (mono), shown only when the server answered; when the call never reached it (network failure), there is no request id and the line is left out. Edits kept, both actions available. A retry after a Send that did in fact go through lands on A8 (spec "Decision replayed").
 
 ### A6. Offline
 
@@ -287,3 +287,7 @@ The token, any ISO string, protocol values or underscores, the participant's res
 ### Review on Storybook (2026-11-03)
 
 Storybook build `pnpm --filter @a2h/ui build-storybook`; 34 approval stories (12 component states, 22 screen states, including a stress case for poll labels that is not a spec state). Playwright (Chromium 1.64) over every story at 320, 390 and 1280 px, light and dark (`prefers-color-scheme` and `data-theme`), reduced motion on: axe-core 4.14 (WCAG 2.0/2.1/2.2 A and AA plus best practice), a 44 px target check and a horizontal-overflow check. Result: 204 runs, no axe violation, no control under 44 px, no horizontal overflow. Keyboard pass on "Approval Interactive" at 320 and 1280 px: Tab order as above, focus visible (2 px) at every stop; Enter in the field inserts a line break and Ctrl+Enter does nothing (native textarea, no key handler), neither submits; Restore brings the draft back byte for byte, disappears and returns focus to the field; Send shows "Sending…" then "Question sent" with focus on the h1; Don't send leads to "Not sent" with focus on the h1. Not run: a screen reader, browsers other than Chromium, JavaScript-off rendering, the built page in `apps/web` on the preview (task 5.4 reviews it against this section).
+
+### Review on the built page (2026-11-03)
+
+`apps/web` built from `feat/m2-approval-page` plus the stage-line fix, `next start` on a local stage (Postgres 17, migrations and seed, stage `dev`), the approval page reached through the non-production fixture route. Playwright (Chromium) at 390 and 1280 px, light and dark, reduced motion: A1 (paid and poll), A2 (edited, emptied, whitespace only, over the limit), A3 (sending and cancelling, server action slowed), A4 (content refusal), A5 (server action aborted), A6 (offline at submit), A7, A8 (sent and not sent), A9, A10 (expired and forged), A11, A12, and A1 with JavaScript off. Copy, order, states and focus match this section; the screens match the static specs apart from data. Keyboard-only pass at 390 light and 1280 dark: sign-in, then Sign out → question → Send → Don't send, focus ring 2 px with 2 px offset at every stop, Restore by Enter returns focus to the field with the draft byte for byte, Send by Space lands on "Question sent" with focus on the h1; the stage line is not a Tab stop. The approval e2e (26 tests, axe with best-practice on and no exclusion) passes. Not reached on the built page: A1 free lane and deferred delivery, A1 real participant (production only), A4 rules, budget and the other refusals, A5 with a server reference, A8/A10 reached by an action. Not run: a screen reader, browsers other than Chromium, the preview stage.
