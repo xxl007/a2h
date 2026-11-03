@@ -86,6 +86,10 @@ test("DB_CA_BUNDLE set but the file is missing: refuse to start rather than drop
   assert.deepEqual(seen, []);
 });
 
+test("approval links point at the web host: the origin of AUTH_ISSUER (m2-approval-page D2)", () => {
+  assert.equal(mcpConfigFromEnv(base).webOrigin, "https://pr-12.dev.a2h-protocol.org");
+});
+
 test("the approval key is the 32 bytes of APPROVAL_KEY (base64), never shorter", (t) => {
   silenceAndWatchConsole(t);
   assert.deepEqual(mcpConfigFromEnv({ ...base }).approvalKey, KEY_BYTES);

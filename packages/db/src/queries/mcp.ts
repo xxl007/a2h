@@ -5,7 +5,7 @@
 import {
   type BlockedManifest,
   type FreeLaneKind,
-  type Manifest,
+  type NotSentReason,
   type RatingSummary,
   type RequestStatus,
   type RulesOfEngagement,
@@ -158,7 +158,9 @@ export async function principalUsage(
         WHEN ${requests.status} IN ('sent', 'accepted') THEN ${requests.bid_minor}
         WHEN ${requests.status} = 'answered' THEN coalesce(${requests.cleared_minor}, ${requests.bid_minor})
         ELSE 0 END), 0)::int`,
-      today: sql<number>`count(*) FILTER (WHERE ${requests.created_at} >= ${dayStart.toISOString()} AND ${requests.status} NOT IN ('awaiting_approval', 'not_sent'))::int`,
+      // Bound through the column (gte), never as a raw string: the Data API sends a raw string as
+      // text, and Postgres has no timestamptz >= text (pr-82; test/data-api.test.ts).
+      today: sql<number>`count(*) FILTER (WHERE ${and(gte(requests.created_at, dayStart), notInArray(requests.status, [...UNSENT_STATUSES]))})::int`,
     })
     .from(requests)
     .where(and(eq(requests.principal_id, principalId), gte(requests.created_at, monthStart)));
@@ -177,78 +179,11 @@ export async function recordBlockedManifest(db: A2hDb, b: BlockedManifest): Prom
   });
 }
 
-/** Thrown by `createRequest` when the id is taken; the caller draws another. */
+/** Thrown by `createAwaitingRequest` when the id is taken; the caller draws another. */
 export class RequestIdTaken extends Error {
   constructor() {
     super("request id already exists");
     this.name = "RequestIdTaken";
-  }
-}
-
-/** Thrown by `createRequest` when the approval nonce already created a request (a replayed approval). */
-export class ApprovalAlreadyUsed extends Error {
-  constructor() {
-    super("approval already used");
-    this.name = "ApprovalAlreadyUsed";
-  }
-}
-
-/** True when an approval with this nonce already created a request. */
-export async function approvalNonceUsed(db: McpDb, nonce: string): Promise<boolean> {
-  const rows = await db.select({ id: requests.id }).from(requests).where(eq(requests.approval_nonce, nonce)).limit(1);
-  return rows.length > 0;
-}
-
-export interface NewRequest {
-  id: string;
-  /** The nonce of the accepted approval: unique, so one approval creates one request. */
-  approval_nonce: string;
-  manifest: Manifest;
-  participant_id: string;
-  deliver_at: Date;
-  now: Date;
-}
-
-/**
- * Create a request in `sent` with its first event (null → sent, by the
- * principal), in one transaction: both rows or neither. The approval nonce
- * is written in the same row: a second request for the same accepted
- * approval fails on its unique index (`ApprovalAlreadyUsed`).
- */
-export async function createRequest(db: McpDb, r: NewRequest): Promise<void> {
-  const m = r.manifest;
-  try {
-    await db.transaction(async (tx) => {
-      await tx.insert(requests).values({
-        id: r.id,
-        principal_id: m.principal_id,
-        participant_id: r.participant_id,
-        intent: m.intent,
-        audience: m.audience,
-        time_shape: m.time_shape,
-        format: m.format,
-        lane: m.lane,
-        free_lane: m.free_lane ?? null,
-        question: m.question,
-        approval_nonce: r.approval_nonce,
-        options: m.options ?? null,
-        scale: m.scale ?? null,
-        attachments: m.attachments ?? null,
-        data_terms: m.data_terms,
-        bid_minor: m.bid_minor,
-        currency: m.currency,
-        status: "sent",
-        deliver_at: r.deliver_at,
-        expires_at: new Date(m.expires_at),
-        created_at: r.now,
-        updated_at: r.now,
-      });
-      await tx.insert(requestEvents).values({ request_id: r.id, from_status: null, to_status: "sent", actor: "principal", at: r.now });
-    });
-  } catch (error) {
-    if (isUniqueViolation(error, "requests_pkey")) throw new RequestIdTaken();
-    if (isUniqueViolation(error, "requests_approval_nonce_unique")) throw new ApprovalAlreadyUsed();
-    throw error;
   }
 }
 
@@ -270,6 +205,10 @@ export interface RequestRecord {
   cleared_minor: number | null;
   currency: string;
   created_at: Date;
+  /** While awaiting approval: the stored hash of the link's token and the link's expiry. */
+  approval_token_hash: string | null;
+  approval_expires_at: Date | null;
+  not_sent_reason: NotSentReason | null;
   participant: { participant_id: string; handle: string; display_label: string; simulated: boolean; identity_verified: boolean };
   /** Gross reserve basis: the participant's current net reserve for the intent, if any. */
   reserve_net_minor: number | null;
@@ -312,6 +251,9 @@ export async function findRequests(db: McpDb, principalId: string, q: RequestQue
       cleared_minor: requests.cleared_minor,
       currency: requests.currency,
       created_at: requests.created_at,
+      approval_token_hash: requests.approval_token_hash,
+      approval_expires_at: requests.approval_expires_at,
+      not_sent_reason: requests.not_sent_reason,
       participant_id: participants.id,
       handle: participants.handle,
       display_label: participants.display_label,
@@ -359,6 +301,9 @@ export async function findRequests(db: McpDb, principalId: string, q: RequestQue
       cleared_minor: r.cleared_minor,
       currency: r.currency,
       created_at: r.created_at,
+      approval_token_hash: r.approval_token_hash,
+      approval_expires_at: r.approval_expires_at,
+      not_sent_reason: r.not_sent_reason as NotSentReason | null,
       participant: {
         participant_id: r.participant_id,
         handle: r.handle,

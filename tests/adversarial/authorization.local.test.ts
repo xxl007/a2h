@@ -18,6 +18,7 @@ import type { AddressInfo } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import { createApp, type LogLine } from "../../apps/mcp/src/app.ts";
 import { openDatabase } from "../../apps/mcp/src/db.ts";
+import { decideApproval } from "@a2h/db";
 import { modernClient } from "../../apps/mcp/test/lib/a2h.ts";
 import { startAuthServer, withToken, type TestAuthServer } from "../../apps/mcp/test/lib/auth-server.ts";
 import type { WorkerLogLine } from "../../apps/worker/src/log.ts";
@@ -55,7 +56,7 @@ describe("adversarial: token passthrough attempt (in-process, Postgres in Docker
       log: (l) => mcpLogs.push(l),
       auth: { required: true, issuer: as.issuer, jwksUrl: as.jwksUrl, resourceUrl: url, pingOpen: false },
       pingMaxConcurrent: 4,
-      a2h: { db: database.db, feeRate: 0.2, clearingShare: 0.5, approvalKey: new Uint8Array(32).fill(9), limits: { perMinute: 600, perDay: 20000 } },
+      a2h: { db: database.db, feeRate: 0.2, clearingShare: 0.5, approvalKey: new Uint8Array(32).fill(9), webOrigin: "https://web.a2h.test", limits: { perMinute: 600, perDay: 20000 } },
     });
     await new Promise<void>((r) => app!.server.listen(port, "127.0.0.1", r));
     worker = await startWorker({ config: testConfig(stage.db, { signing: testSigningKey(`a2h-${STAGE}-passthrough01`) }), log: (l) => workerLogs.push(l), dispatchIntervalMs: 500, pollingIntervalSeconds: 1 });
@@ -124,7 +125,19 @@ describe("adversarial: token passthrough attempt (in-process, Postgres in Docker
         },
       });
       assert.equal(sent.isError, undefined, JSON.stringify(sent).slice(0, 400));
-      id = (sent.structuredContent as { request_id: string }).request_id;
+      const awaiting = sent.structuredContent as { request_id: string; approval_url: string };
+      id = awaiting.request_id;
+      // Send on the approval page (m2-approval-page): the page's shared decision, as this principal.
+      const link = new URL(awaiting.approval_url);
+      const decided = await decideApproval(database!.db, {
+        request_id: id,
+        token: link.searchParams.get("t") ?? "",
+        principal_id: PRINCIPAL,
+        now: new Date(),
+        fee_rate: 0.2,
+        decision: { kind: "send", question },
+      });
+      assert.equal(decided.kind, "sent", JSON.stringify(decided));
       // The worker delivers, the prompt persona answers within seconds.
       const deadline = Date.now() + 60_000;
       let status = "sent";

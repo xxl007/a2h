@@ -14,7 +14,10 @@ import assert from "node:assert/strict";
 import { ProtocolError } from "@modelcontextprotocol/client";
 import { generateKeyPair, SignJWT } from "jose";
 import { bearerToken, expectedStage, gateExpectation, healthUrl, issuer, mcpUrl, metadataUrl, noScopeToken, secondToken } from "../src/live-env.ts";
-import { approvalRound, assertNothingCreatedFor, checkOne, errorOf, grossReserve, listSince, manifest, principalClient, retryLeg, serverNow, texts, type A2hClient } from "./a2h.ts";
+import { approvalRound, assertNothingCreatedFor, checkOne, errorOf, firstLeg, grossReserve, listSince, manifest, principalClient, retryLeg, serverNow, texts, type A2hClient } from "./a2h.ts";
+
+// m2-approval-page task 3.1: request_human no longer asks through a client form (QA rewrites the form-driven case in 6.1).
+const FORM = "approval moves to the page, QA rewrites in 6.1";
 import { connectFresh } from "./mcp-client.ts";
 
 const MCP_URL = mcpUrl();
@@ -166,9 +169,9 @@ describe("Requirement: The principal of every tool call is the token's subject",
     if (existing[0]) return existing[0].request_id;
     const bid = grossReserve(NS, "knowledge", 20);
     const args = manifest(NS, "knowledge", bid, "Which fungal disease shows as orange pustules on the underside of pear leaves in late summer?");
-    const round = await approvalRound(a, args);
-    const result = await retryLeg(a, args, round.requestState, { action: "accept", content: { question: String(args["question"]) } });
-    assert.ok(!result.isError, texts(result));
+    // Recorded by request_human itself, awaiting approval (m2-approval-page): it is A's request either way.
+    const result = await firstLeg(a, args);
+    assert.ok(!("resultType" in result) && !result.isError, texts(result as never));
     return (result.structuredContent as { request_id: string }).request_id;
   }
 
@@ -184,7 +187,7 @@ describe("Requirement: The principal of every tool call is the token's subject",
     assert.ok(!bList.some((r) => r.request_id === id), "B's list never holds A's request");
   });
 
-  test("Scenario: Approval state used by another account: -32602 invalid_request_state, nothing created", async () => {
+  test("Scenario: Approval state used by another account: -32602 invalid_request_state, nothing created", { skip: FORM }, async () => {
     const since = serverNow();
     const args = manifest(MV, "judgment", 3200, QUESTION);
     const round = await approvalRound(a, args);

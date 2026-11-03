@@ -5,6 +5,7 @@
 // sooner, and at least 15 minutes; otherwise there is no link.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import {
   APPROVAL_LINK_MAX_SECONDS,
   APPROVAL_LINK_MIN_SECONDS,
@@ -12,6 +13,7 @@ import {
   approvalLinkExpiry,
   approvalTokenHash,
   approvalUrl,
+  deriveApprovalToken,
   formatApprovalToken,
 } from "../src/index.ts";
 
@@ -48,6 +50,25 @@ describe("approval token (D2)", () => {
     assert.throws(() => approvalUrl("http://dev.a2h-protocol.org", "A2H-7f3c", token), TypeError);
     assert.throws(() => approvalUrl("https://dev.a2h-protocol.org", "A2H-7F3C", token), TypeError);
     assert.throws(() => approvalUrl("https://dev.a2h-protocol.org", "A2H-7f3c", "short"), TypeError);
+  });
+});
+
+describe("derived token (group 3): HMAC-SHA256(stage key, request id), so check_requests can show the link again", () => {
+  const key = Uint8Array.from({ length: 32 }, (_, i) => i);
+  test("a valid token, the same for the same key and id, different for another id or key", async () => {
+    const a = await deriveApprovalToken(key, "A2H-7f3c");
+    assert.ok(ApprovalTokenSchema.safeParse(a).success, a);
+    assert.equal(await deriveApprovalToken(key, "A2H-7f3c"), a);
+    assert.notEqual(await deriveApprovalToken(key, "A2H-7f3d"), a);
+    assert.notEqual(await deriveApprovalToken(Uint8Array.from({ length: 32 }, (_, i) => i + 1), "A2H-7f3c"), a);
+  });
+  test("equals base64url(HMAC-SHA256(key, \"a2h-approval-link:\" + id)), computed independently with node:crypto", async () => {
+    const expected = createHmac("sha256", key).update("a2h-approval-link:A2H-7f3c").digest("base64url");
+    assert.equal(await deriveApprovalToken(key, "A2H-7f3c"), expected);
+  });
+  test("a short key or a malformed id is a caller error", async () => {
+    await assert.rejects(deriveApprovalToken(new Uint8Array(16), "A2H-7f3c"), TypeError);
+    await assert.rejects(deriveApprovalToken(key, "A2H-7F3C"), TypeError);
   });
 });
 

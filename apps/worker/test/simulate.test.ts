@@ -122,7 +122,7 @@ describe("simulate queue", { skip }, () => {
     const r = await createRequest(stage.admin, { handle: "sim-mv-7f3c", intent: "judgment", bid_minor: 3500 });
     await runSimulateStep(ctx(), { request_id: r.id, step: "act" });
     assert.equal(await statusOf(stage.admin, r.id), "answered");
-    assert.deepEqual((await eventsOf(stage.admin, r.id)).map((e) => [e.to_status, e.actor]), [["sent", "principal"], ["accepted", "participant"], ["answered", "participant"]]);
+    assert.deepEqual((await eventsOf(stage.admin, r.id)).map((e) => [e.to_status, e.actor]), [["awaiting_approval", "principal"], ["sent", "principal"], ["accepted", "participant"], ["answered", "participant"]]);
     const env = await storedEnvelope(r.id);
     assert.ok(answerEnvelopeSchemaFor("judgment").safeParse(env).success, "a body matching the request's intent");
     assert.notEqual((env.body as { verdict: string }).verdict, "cant_tell");

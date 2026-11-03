@@ -290,11 +290,6 @@ export const fixtures: Record<string, Fixture> = {
     fail: { status: "awaiting_approval", request_id: "A2H-7f3c", approval_url: "https://dev.a2h-protocol.org/approve/A2H-7f3c?t=abc", approval_expires_at: "tomorrow" },
     path: ["approval_expires_at"],
   },
-  RequestHumanOutputM1Schema: {
-    pass: { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 3500, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false },
-    fail: { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 35.5, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false },
-    path: ["held_minor"],
-  },
   NotSentReasonSchema: { pass: "expired", fail: "dismissed", path: [] },
   ApprovalTokenSchema: { pass: "A".repeat(42) + "w", fail: "A".repeat(43) + "=", path: [] },
   SigningKeyStatusSchema: { pass: "rotated", fail: "expired", path: [] },

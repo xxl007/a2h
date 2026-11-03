@@ -3,7 +3,7 @@
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult, FetchLike } from "@modelcontextprotocol/client";
 import type { Principal, ValidationPolicy } from "@a2h/protocol";
-import { ensurePrincipal } from "@a2h/db";
+import { decideApproval, ensurePrincipal, type ApprovalOutcome } from "@a2h/db";
 import type { DbConfig } from "../../src/config.ts";
 import { openDatabase } from "../../src/db.ts";
 import type { AuthConfig } from "../../src/auth.ts";
@@ -23,6 +23,8 @@ export const TEST_POLICY: ValidationPolicy = {
   throttled_daily_limit: 5,
 };
 export const TEST_APPROVAL_KEY = Uint8Array.from({ length: 32 }, (_, i) => 255 - i);
+/** The stage's web host in tests: where approval links point (from AUTH_ISSUER's origin in production). */
+export const TEST_WEB_ORIGIN = "https://web.a2h.test";
 /** Tuesday 27 Oct 2026, 10:00 in Paris: outside every seeded quiet window. */
 export const NOW = new Date("2026-10-27T09:00:00Z");
 
@@ -116,6 +118,7 @@ export async function startA2h(db: DbConfig, options: A2hOptions = {}): Promise<
       limits: options.limits ?? { perMinute: 60, perDay: 2000 },
       clearingShare: 0.5,
       approvalKey: options.approvalKey ?? TEST_APPROVAL_KEY,
+      webOrigin: TEST_WEB_ORIGIN,
       now: options.now ?? (() => NOW),
       ...(options.randomBytes ? { randomBytes: options.randomBytes } : {}),
     },
@@ -149,6 +152,45 @@ export async function modernClient(url: string, answer?: (params: ElicitParams) 
   if (answer) client.setRequestHandler("elicitation/create", (req) => Promise.resolve(answer(req.params as unknown as ElicitParams)));
   await client.connect(new StreamableHTTPClientTransport(new URL(url), fetch ? { fetch } : {}));
   return client;
+}
+
+/** A 2026-07-28 client that declares URL elicitation (and forms); the test plays the host, round by round. */
+export async function urlClient(url: string, fetch?: FetchLike): Promise<Client> {
+  const client = new Client(
+    { name: "a2h-test-url", version: "0.0.0" },
+    { versionNegotiation: { mode: { pin: "2026-07-28" } }, capabilities: { elicitation: { form: {}, url: {} } }, inputRequired: { autoFulfill: false } },
+  );
+  await client.connect(new StreamableHTTPClientTransport(new URL(url), fetch ? { fetch } : {}));
+  return client;
+}
+
+/**
+ * What the approval page does on Send or Don't send (apps/web, design D4):
+ * the shared `decideApproval` with the link's request id and token, as the
+ * signed-in principal. Send keeps the stored question unless `question` is given.
+ */
+export async function approveOnPage(
+  db: DbConfig,
+  approvalUrl: string,
+  o: { decision?: "send" | "dont_send"; question?: string; principal_id?: string; now?: Date; fee_rate?: number } = {},
+): Promise<ApprovalOutcome> {
+  const link = new URL(approvalUrl);
+  const id = link.pathname.split("/").at(-1)!;
+  const token = link.searchParams.get("t") ?? "";
+  const [row] = await sqlIn<{ question: string }>(db, "SELECT question FROM requests WHERE id = $1", [id]);
+  const database = openDatabase(db);
+  try {
+    return await decideApproval(database.db, {
+      request_id: id,
+      token,
+      principal_id: o.principal_id ?? TEST_PRINCIPAL.principal_id,
+      now: o.now ?? NOW,
+      fee_rate: o.fee_rate ?? TEST_POLICY.fee_rate,
+      decision: (o.decision ?? "send") === "send" ? { kind: "send", question: o.question ?? row?.question ?? "" } : { kind: "dont_send" },
+    });
+  } finally {
+    await database.close();
+  }
 }
 
 /** A 2025-era client (what Claude Code negotiates by default). */

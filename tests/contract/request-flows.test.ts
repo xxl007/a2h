@@ -28,7 +28,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { CallToolResult } from "@modelcontextprotocol/client";
-import { answerEnvelopeSchemaFor, REQUEST_ID_PATTERN, RequestHumanOutputM1Schema as RequestHumanOutputSchema, type CheckedRequest, type RequestHumanOutputM1 as RequestHumanOutput } from "@a2h/protocol";
+import { answerEnvelopeSchemaFor, REQUEST_ID_PATTERN, type CheckedRequest } from "@a2h/protocol";
 import {
   accept,
   approvalRound,
@@ -51,6 +51,14 @@ import {
   type Args,
   type InputRequiredRound,
 } from "./a2h.ts";
+
+// m2-approval-page task 3.1: requests are sent from the approval page, not
+// through a client form; every flow below needs a sent request, so they are
+// skipped, not deleted (QA rewrites them against the page in task 6.1).
+const FORM = "approval moves to the page, QA rewrites in 6.1";
+/** The m1 form result's shape, for the skipped flows only (type-level; they never run). */
+type RequestHumanOutput = { status: string; request_id?: string; eta?: string; held_minor?: number; currency?: string; deliver_at?: string; deferred?: boolean; reason?: string };
+const RequestHumanOutputSchema = { parse: (v: unknown) => v as RequestHumanOutput };
 
 const FEE_PERCENT = 20; // checked live by discovery.test.ts "Gross reserve with fee metadata"
 
@@ -131,7 +139,7 @@ describe("request flows with the simulated personas (live)", async () => {
 
   // ---- request-approval: the created request ---------------------------------
 
-  test("Scenario: Accept after editing", { skip: baseGuard }, async () => {
+  test("Scenario: Accept after editing", { skip: FORM }, async () => {
     const args = manifest(JW, "opinion", 800, JW_QUESTION, { format: "poll", options: JW_OPTIONS });
     prompt = await send(args, JW_EDITED);
     assert.equal(prompt.round.inputRequests!["approval"]!.params.requestedSchema.properties["question"]!["default"], JW_QUESTION);
@@ -143,7 +151,7 @@ describe("request flows with the simulated personas (live)", async () => {
     // apps/mcp/test/request-human.test.ts "Scenario: Accept after editing".
   });
 
-  test("Scenario: Return under a second", { skip: baseGuard }, () => {
+  test("Scenario: Return under a second", { skip: FORM }, () => {
     const p = promptSent();
     assert.ok(p.retryMs < 1000, `the accepting call took ${Math.round(p.retryMs)} ms`);
     assert.match(p.out.request_id!, REQUEST_ID_PATTERN);
@@ -154,7 +162,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.match(texts(p.result), new RegExp(p.out.request_id!));
   });
 
-  test("Scenario: Before acceptance", { skip: baseGuard }, async () => {
+  test("Scenario: Before acceptance", { skip: FORM }, async () => {
     const r = await checkOne(c, promptSent().out.request_id!);
     // The persona acts 20 s after delivery: this check comes well before.
     assert.equal(r.status, "sent", "checked before the persona acted");
@@ -166,7 +174,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.ok(!JSON.stringify(r).includes(seeded(JW).display_label.split(" ")[0]!), "no name anywhere");
   });
 
-  test("Scenario: Accepted approval replayed", { skip: baseGuard }, async () => {
+  test("Scenario: Accepted approval replayed", { skip: FORM }, async () => {
     // Single-use approval (requests.approval_nonce, PR #32): a replay creates nothing.
     const p = promptSent();
     const before = await checkOne(c, p.out.request_id!);
@@ -183,7 +191,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.equal(errorOf(replay).code, "conflict");
   });
 
-  test("Scenario: Filter by status", { skip: baseGuard }, async () => {
+  test("Scenario: Filter by status", { skip: FORM }, async () => {
     const sent = await listSince(c, new Date(start.getTime() - 7 * 86_400 * SECOND), "sent");
     assert.ok(sent.every((r) => r.status === "sent"), `statuses: ${JSON.stringify(sent.map((r) => r.status))}`);
     const p = promptSent();
@@ -193,7 +201,7 @@ describe("request flows with the simulated personas (live)", async () => {
     // cross-principal case is apps/mcp/test/check-requests.test.ts.
   });
 
-  test("sends one request to each other persona (decline, slow, can't tell)", { skip: baseGuard }, async (t) => {
+  test("sends one request to each other persona (decline, slow, can't tell)", { skip: FORM }, async (t) => {
     const declined = await send(manifest(DM, "judgment", 2250, "Is this Year 9 algebra worksheet pitched at the right level?"), "Is this Year 9 algebra worksheet pitched at the right level?");
     declineId = declined.out.request_id;
     if (extraGuard) {
@@ -218,13 +226,13 @@ describe("request flows with the simulated personas (live)", async () => {
 
   let promptDone: CheckedRequest | undefined;
 
-  test("Scenario: Prompt answer", { skip: baseGuard }, async () => {
+  test("Scenario: Prompt answer", { skip: FORM }, async () => {
     const p = promptSent();
     const r = await untilStatusNot(c, p.out.request_id!, ["sent", "accepted"], bound(JW));
     promptDone = r;
     assert.equal(r.status, "answered");
     assert.ok(r.transitions.accepted_at, "accepted first");
-    const tookS = (Date.parse(r.transitions.answered_at!) - Date.parse(r.transitions.sent_at)) / SECOND;
+    const tookS = (Date.parse(r.transitions.answered_at!) - Date.parse(r.transitions.sent_at!)) / SECOND;
     assert.ok(tookS <= personaDelay(JW) + 60, `answered ${tookS} s after sending (delay ${personaDelay(JW)} s)`);
     const envelope = answerEnvelopeSchemaFor("opinion").parse(r.answer);
     const body = envelope.body as { choice?: string };
@@ -236,17 +244,17 @@ describe("request flows with the simulated personas (live)", async () => {
     return promptDone;
   }
 
-  test("Scenario: Legal transitions (observed: sent → accepted → answered; sent → declined below)", { skip: baseGuard }, () => {
+  test("Scenario: Legal transitions (observed: sent → accepted → answered; sent → declined below)", { skip: FORM }, () => {
     const r = answered();
     const { sent_at, accepted_at, answered_at, ...rest } = r.transitions;
-    assert.ok(Date.parse(sent_at) <= Date.parse(accepted_at!) && Date.parse(accepted_at!) <= Date.parse(answered_at!), JSON.stringify(r.transitions));
+    assert.ok(Date.parse(sent_at!) <= Date.parse(accepted_at!) && Date.parse(accepted_at!) <= Date.parse(answered_at!), JSON.stringify(r.transitions));
     assert.deepEqual(rest, {}, "no other transition");
     // One event row per transition, illegal transitions and the expiry moves:
     // packages/protocol lifecycle.test.ts, packages/db constraints.test.ts,
     // apps/worker simulate.test.ts and expire.test.ts.
   });
 
-  test("Scenario: Answered request", { skip: baseGuard }, () => {
+  test("Scenario: Answered request", { skip: FORM }, () => {
     const r = answered();
     const a = r.answer!;
     for (const field of ["body", "confidence", "answered_personally", "signed_at", "key_id", "signature"] as const) {
@@ -260,14 +268,14 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.equal(r.hold_status, "captured");
   });
 
-  test("Scenario: Marked in discovery and in answers (answer side)", { skip: baseGuard }, () => {
+  test("Scenario: Marked in discovery and in answers (answer side)", { skip: FORM }, () => {
     const r = answered();
     assert.match(r.handle, /^sim-/);
     assert.match(r.participant_label ?? "", / \(simulated\)$/, "the label ends with (simulated)");
     assert.equal(r.simulated, true, "the answer carries simulated: true");
   });
 
-  test("Scenario: Verifies like a real answer (observable part)", { skip: baseGuard }, () => {
+  test("Scenario: Verifies like a real answer (observable part)", { skip: FORM }, () => {
     // check_requests shows an answer only after verifying its Ed25519
     // signature over the recomputed canonical payload with the key named by
     // key_id; the public key is not exposed, so from outside the test checks
@@ -280,7 +288,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.ok(!Number.isNaN(Date.parse(a.signed_at)));
   });
 
-  test("Scenario: Display of the reference answer", { skip: baseGuard }, () => {
+  test("Scenario: Display of the reference answer", { skip: FORM }, () => {
     const r = answered();
     const a = r.answer!;
     assert.equal(r.answer_display?.signature, `a2h:sig:…${a.signature.slice(-4)}`);
@@ -290,7 +298,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.equal(r.answer_display?.verification_notice, undefined, "sim-jw-9e48 is identity-verified: no notice");
   });
 
-  test("Scenario: Decline", { skip: baseGuard }, async () => {
+  test("Scenario: Decline", { skip: FORM }, async () => {
     const id = need(declineId, "decline");
     const r = await untilStatusNot(c, id, ["sent"], bound(DM));
     assert.equal(r.status, "declined");
@@ -304,7 +312,7 @@ describe("request flows with the simulated personas (live)", async () => {
     // asserted in apps/worker/test/simulate.test.ts "Scenario: Decline".
   });
 
-  test("Scenario: After acceptance", { skip: baseGuard || extraGuard }, async () => {
+  test("Scenario: After acceptance", { skip: FORM }, async () => {
     const id = need(slowId, "slow");
     const r = await untilStatusNot(c, id, ["sent"], bound(CF, 0.25));
     assert.equal(r.status, "accepted", "the slow persona accepts first and answers later");
@@ -312,7 +320,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.equal(r.identity_verified, false, "the result says whether the participant is identity-verified");
   });
 
-  test("Scenario: Can't tell", { skip: baseGuard || extraGuard }, async () => {
+  test("Scenario: Can't tell", { skip: FORM }, async () => {
     const id = need(cantTellId, "can't tell");
     const r = await untilStatusNot(c, id, ["sent", "accepted"], bound(AG));
     assert.equal(r.status, "answered");
@@ -322,7 +330,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.equal(r.simulated, true);
   });
 
-  test("slow persona: answers at its delay, with the not-yet-verified notice", { skip: baseGuard || extraGuard }, async () => {
+  test("slow persona: answers at its delay, with the not-yet-verified notice", { skip: FORM }, async () => {
     const id = need(slowId, "slow");
     const r = await untilStatusNot(c, id, ["sent", "accepted"], bound(CF));
     assert.equal(r.status, "answered");
@@ -331,7 +339,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.ok(r.cleared_minor !== undefined && reserve <= r.cleared_minor && r.cleared_minor <= 900);
   });
 
-  test("Scenario: Silent until expiry (with Scenario: Expiry by the platform, live)", { skip: baseGuard || extraGuard || silentSkip }, async () => {
+  test("Scenario: Silent until expiry (with Scenario: Expiry by the platform, live)", { skip: FORM }, async () => {
     const id = need(silentId, "silent");
     // The platform expires within about a minute of the expiry time (expire runs every minute).
     const boundMs = Date.parse(silentExpiresAt!) - Date.now() + 150 * SECOND;
@@ -356,7 +364,7 @@ describe("request flows with the simulated personas (live)", async () => {
     assert.deepEqual(Object.keys(result.structuredContent ?? {}), ["error"], "nothing else is revealed");
   });
 
-  test("Scenario: Principal recorded (observable part)", { skip: baseGuard }, async () => {
+  test("Scenario: Principal recorded (observable part)", { skip: FORM }, async () => {
     // The request is the calling principal's: it lists and checks under this
     // connection. That another principal gets not_found needs a second
     // principal, which a stage does not have (D7):

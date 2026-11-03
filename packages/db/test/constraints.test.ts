@@ -59,7 +59,7 @@ describe("database constraints (Postgres 17)", { skip }, () => {
         question, bid_minor, currency, expires_at, deliver_at, data_terms)
       VALUES ('A2H-7f3c', 'dev-principal-pr-7', 'p_sim_mv', 'judgment', 'named_individual', 'one_shot', 'single_field', 'paid',
         'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{"storage":"principal_workspace","attribution":"not_attributed","training":"off"}')`);
-    await db.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('A2H-7f3c', NULL, 'sent', 'principal')`);
+    await db.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('A2H-7f3c', NULL, 'awaiting_approval', 'principal'), ('A2H-7f3c', 'awaiting_approval', 'sent', 'principal')`);
   });
   after(async () => {
     await db?.query("ROLLBACK").catch(() => undefined);
@@ -129,31 +129,10 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     });
   });
 
-  describe("Accepted approval replayed: an approval nonce creates one request only", () => {
-    const N1 = "0123456789abcdef0123456789abcdef";
-    const ins = (id: string, nonce: string | null): [string, unknown[]] => [
-      `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane,
-          question, bid_minor, currency, expires_at, deliver_at, data_terms, approval_nonce)
-        VALUES ($1, 'dev-principal-pr-7', 'p_sim_mv', 'judgment', 'named_individual', 'one_shot', 'single_field', 'paid',
-          'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{}', $2)`,
-      [id, nonce],
-    ];
-    test("a nonce is used by at most one request", async () => {
-      await db.query("SAVEPOINT n");
-      await accepts(...ins("A2H-0a01", N1));
-      await rejects(...ins("A2H-0a02", N1), /requests_approval_nonce_unique/);
-      await db.query("ROLLBACK TO SAVEPOINT n");
-    });
-    test("requests without a nonce (none recorded) do not collide", async () => {
-      await db.query("SAVEPOINT n");
-      await accepts(...ins("A2H-0b01", null));
-      await accepts(...ins("A2H-0b02", null));
-      await db.query("ROLLBACK TO SAVEPOINT n");
-    });
-    test("the nonce is 32 lower-case hex characters, never text", async () => {
-      for (const bad of ["0123456789ABCDEF0123456789ABCDEF", "0123", "Is this leaflet alarming? yes it", `${N1}0`]) {
-        await rejects(...ins("A2H-0c01", bad));
-      }
+  describe("the m1 approval replay guard is gone (m2-approval-page D5)", () => {
+    test("requests has no approval_nonce column", async () => {
+      const { rows } = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'requests' AND column_name = 'approval_nonce'`, [SCHEMA]);
+      assert.equal(rows.length, 0);
     });
   });
 
@@ -240,6 +219,10 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       await accepts(ev("A2H-a006"), ["awaiting_approval", "not_sent", "principal"]);
       await accepts(awaitingRow("A2H-a007", "e".repeat(64)));
       await accepts(ev("A2H-a007"), ["awaiting_approval", "not_sent", "platform"]);
+    });
+    test("A request starts in awaiting_approval: creation straight into sent is refused (the m1 path is gone)", async () => {
+      await accepts(copy("A2H-a008", ", status", ", 'sent'"));
+      await rejects(ev("A2H-a008"), [null, "sent", "principal"], /request_events_legal/);
     });
     test("Illegal transition: not_sent → sent, awaiting_approval → accepted, the platform or the participant sending, creation by anyone but the principal", async () => {
       await rejects(ev("A2H-a006"), ["not_sent", "sent", "principal"]);
