@@ -6,14 +6,17 @@
 // limits themselves.
 import { randomBytes } from "node:crypto";
 import { bumpRateLimit, type McpDb, principalWithPolicy } from "@a2h/db";
-import { type ProtocolError, rateLimitedError, rateLimitWindowStart } from "@a2h/protocol";
+import { APPROVAL_LINK_MAX_SECONDS, type ProtocolError, rateLimitedError, rateLimitWindowStart } from "@a2h/protocol";
 import { createRequestStateCodec, type RequestStateCodec } from "@modelcontextprotocol/server";
 import type { Caller } from "./auth.ts";
 import type { Log } from "./logging.ts";
 import type { ApprovalState, ToolDeps } from "./tools/common.ts";
 
-/** Approval state lives 15 minutes (design D1); an older state is refused. */
-export const APPROVAL_TTL_SECONDS = 15 * 60;
+/**
+ * The URL elicitation's state lives as long as an approval link can
+ * (m2-approval-page D2, D3); an older state is refused by the SDK hook.
+ */
+export const APPROVAL_TTL_SECONDS = APPROVAL_LINK_MAX_SECONDS;
 
 /** Per-principal tool-call limits (stage configuration: RATE_LIMIT_PER_MINUTE, RATE_LIMIT_PER_DAY). */
 export interface RateLimits {
@@ -27,8 +30,10 @@ export interface A2hOptions {
   /** The platform fee rate `f` (FEE_RATE; ADR 0002): the stage's, never the principal's. */
   feeRate: number;
   clearingShare: number;
-  /** HMAC key of the approval state (32 bytes or more), the same on every instance of the stage. */
+  /** The stage's approval key (32 bytes or more), the same on every instance: signs the state, derives link tokens. */
   approvalKey: Uint8Array;
+  /** The stage's web host (https origin), where approval links point. */
+  webOrigin: string;
   limits: RateLimits;
   /** The clock; tests pin it. */
   now?: () => Date;
@@ -87,6 +92,8 @@ export function a2hSession(stage: string, o: A2hOptions, caller: Caller | undefi
           policy: { ...found.policy, fee_rate: o.feeRate },
           clearingShare: o.clearingShare,
           codec,
+          approvalKey: o.approvalKey,
+          webOrigin: o.webOrigin,
           now,
           randomBytes: random,
           log,

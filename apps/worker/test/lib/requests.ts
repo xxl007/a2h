@@ -1,5 +1,5 @@
-// Arranging requests the way apps/mcp creates them (a `requests` row in
-// `sent` and its first event), and moving them along the lifecycle as the
+// Arranging requests the way the approval page leaves them (a `requests` row
+// in `sent`, created awaiting approval and sent by the principal), and moving them along the lifecycle as the
 // participant would, directly in the database. Test-only.
 import { createHash } from "node:crypto";
 import type pg from "pg";
@@ -54,7 +54,11 @@ export async function createRequest(admin: pg.Client, r: NewRequest): Promise<{ 
       r.expires_in ?? 7 * 24 * 3600,
     ],
   );
-  await admin.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ($1, NULL, 'sent', 'principal')`, [id]);
+  // As the approval page leaves it (m2-approval-page): created awaiting approval, then sent by the principal.
+  await admin.query(
+    `INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ($1, NULL, 'awaiting_approval', 'principal'), ($1, 'awaiting_approval', 'sent', 'principal')`,
+    [id],
+  );
   if (r.status === "accepted") await accept(admin, id);
   return { id, participant_id };
 }

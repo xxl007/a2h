@@ -1,15 +1,15 @@
 // The A2H MCP server definition: one fresh instance per HTTP request
 // (createMcpHandler's stateless default). Nothing here may keep state across
 // requests (spec mcp-transport, "Endpoint is stateless across instances"):
-// the approval state travels with the client (design D1), requests live in
-// Postgres.
+// the URL elicitation's state travels with the client (m2-approval-page D3),
+// requests live in Postgres.
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   CheckRequestsOutputSchema,
   FindHumansOutputSchema,
   PING_MAX_HOLD_SECONDS,
   PingInputSchema,
-  RequestHumanOutputM1Schema,
+  RequestHumanOutputSchema,
   pingJsonSchemas,
   toolJsonSchemas,
 } from "@a2h/protocol";
@@ -54,9 +54,9 @@ export function createMcpServer(stage: string, options: McpServerOptions = {}): 
   const session = options.a2h;
   const server = new McpServer(
     { name: "a2h", version: PACKAGE_VERSION },
-    // Approval state we did not mint, that was altered or that expired is
-    // refused here, before any handler runs: JSON-RPC -32602
-    // `invalid_request_state` (design D1, spec "Forged or expired approval state").
+    // A requestState we did not mint, that was altered, that expired or that
+    // was minted for another principal is refused here, before any handler
+    // runs: JSON-RPC -32602 `invalid_request_state` (m2-approval-page D3).
     session ? { requestState: { verify: (state, ctx) => session.codec.verify(state, ctx) } } : {},
   );
   server.registerTool(
@@ -145,8 +145,7 @@ function registerA2hTools(server: McpServer, session: A2hSession): void {
     {
       description: REQUEST_HUMAN_DESCRIPTION,
       inputSchema: listedInput(json.request_human.input),
-      // Unchanged until m2-approval-page task 3.1: the m1 result shape (deprecated in the protocol).
-      outputSchema: listedOutput(RequestHumanOutputM1Schema, json.request_human.output),
+      outputSchema: listedOutput(RequestHumanOutputSchema, json.request_human.output),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (args, ctx) => run(session, "request_human", ctx, (deps): Promise<RequestHumanOutcome> => requestHuman(deps, args, ctx)),

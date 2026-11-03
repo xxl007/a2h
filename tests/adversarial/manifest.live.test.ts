@@ -16,7 +16,12 @@
 // Run: A2H_MCP_URL=http://<alb>/pr-<n>/mcp pnpm --filter @a2h/tests adversarial
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { RequestHumanOutputM1Schema as RequestHumanOutputSchema } from "@a2h/protocol";
+// m2-approval-page task 3.1: request_human no longer asks through a client
+// form. The form-driven parts below are skipped, not deleted; QA rewrites them
+// against the approval page in task 6.1. The first-leg refusals still run.
+const FORM = "approval moves to the page, QA rewrites in 6.1";
+/** The m1 form result's shape, for the skipped parts only (type-level; they never run). */
+const RequestHumanOutputSchema = { parse: (v: unknown) => v as { status: string } };
 import {
   accept,
   approvalRound,
@@ -102,14 +107,20 @@ describe("adversarial: manifest validation fails closed (live)", () => {
     [2, "request for third-party personal data", THIRD_PARTY],
     [3, "labour disguised as a question", LABOUR],
   ] as const) {
-    test(`case ${n}: ${name} → forbidden_content, at the first leg and through the approval form`, async () => {
+    test(`case ${n}: ${name} → forbidden_content at the first leg`, async () => {
       const since = serverNow();
       for (const q of questions) {
-        // Sent as the question: refused before any approval is shown.
+        // Sent as the question: refused before anything is recorded.
         forbidden(await refusedAtFirstLeg(mv({ question: q })), q);
         // Sent to a participant whose rules would otherwise let it through.
         forbidden(await refusedAtFirstLeg(manifest(TH, "knowledge", 6000, q)), q);
       }
+      await assertNothingCreatedFor(c, MV, since);
+      await assertNothingCreatedFor(c, TH, since);
+    });
+
+    test(`case ${n}: ${name} → forbidden_content through the approval form`, { skip: FORM }, async () => {
+      const since = serverNow();
       // Smuggled in through the approval form: a benign question approved,
       // then edited into each forbidden one on accept.
       for (const q of questions) {
@@ -137,7 +148,7 @@ describe("adversarial: manifest validation fails closed (live)", () => {
     });
   }
 
-  test("case 4: delivery inside quiet hours → deferred, or refused when the expiry does not allow it", async (t) => {
+  test("case 4: delivery inside quiet hours → deferred, or refused when the expiry does not allow it", { skip: FORM }, async (t) => {
     // sim-ep-5c07: quiet 22:00-07:00 Europe/London, latency 24 h. The
     // server's clock decides; by day this case cannot be provoked from
     // outside and is reported as such (local stage with a pinned clock:
@@ -166,7 +177,7 @@ describe("adversarial: manifest validation fails closed (live)", () => {
     await assertNothingCreatedFor(c, EP, since);
   });
 
-  test("case 5: over-interruption → blocked, also for approvals minted before the budget ran out", async () => {
+  test("case 5: over-interruption → blocked, also for approvals minted before the budget ran out", { skip: FORM }, async () => {
     // sim-bk-2e6f: two interruptions a UTC day. Mint three approvals first,
     // while the rules may still allow them, then redeem them: at most the
     // remaining budget is created, every other accept is refused on the
@@ -200,7 +211,7 @@ describe("adversarial: manifest validation fails closed (live)", () => {
     assert.ok(firstRefusals.length + retryRefusals.length >= 1, "the third mint or redeem of the day is refused");
   });
 
-  test("case 6: bid below reserve → outside_participant_rules, no approval, no request, no hold", async () => {
+  test("case 6: bid below reserve → outside_participant_rules at the first leg, no request, no hold", async () => {
     const since = serverNow();
     const cases: [string, Args, string | string[]][] = [
       ["one cent below the gross reserve", mv({ bid_minor: 3124 }), "outside_participant_rules"],
@@ -217,6 +228,12 @@ describe("adversarial: manifest validation fails closed (live)", () => {
       const text = JSON.stringify(error).toLowerCase();
       for (const leak of ["3125", "31.25", "2500", "25.00", "5625", "reserve is"]) assert.ok(!text.includes(leak), `${label}: the refusal states the reserve (${leak})`);
     }
+    await assertNothingCreatedFor(c, MV, since);
+    await assertNothingCreatedFor(c, TH, since);
+  });
+
+  test("case 6: bid below reserve through the approval form (approved at a valid bid, retried with a lower one)", { skip: FORM }, async () => {
+    const since = serverNow();
     // Approved at a valid bid, retried with a lower one: the approval does not cover it.
     const round = await approvalRound(c, mv());
     const lowered = await retryLeg(c, mv({ bid_minor: 3124 }), round.requestState, accept(BENIGN));

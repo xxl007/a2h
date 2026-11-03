@@ -147,6 +147,8 @@ export function mcpConfigFromEnv(env: Env = process.env): McpConfig {
     stage,
     db,
     approvalKey,
+    // The authorization server lives in the web app: its origin is the web host (approval links, m2-approval-page D2).
+    webOrigin: new URL(auth.issuer).origin,
     mcpBasePath,
     feeRate,
     clearingShare,

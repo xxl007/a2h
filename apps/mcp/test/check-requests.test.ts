@@ -1,6 +1,8 @@
 // Task 4.4: check_requests, one test per display scenario of
 // openspec/changes/archive/2026-10-29-m1-protocol-connector/specs/protocol/request-lifecycle and
-// .../protocol/answer-attestation. The worker's transitions are simulated by
+// .../protocol/answer-attestation; m2-approval-page task 3.2: "Awaiting
+// approval" and "Not sent" (requests are sent through the page's shared
+// decision, `approveOnPage`). The worker's transitions are simulated by
 // writing the rows it writes (events, answer, cleared amount); the answer is
 // a real Ed25519 envelope signed with the protocol package.
 import type { webcrypto } from "node:crypto";
@@ -9,7 +11,7 @@ import assert from "node:assert/strict";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import {
   CheckRequestsOutputSchema,
-  RequestHumanOutputM1Schema as RequestHumanOutputSchema,
+  RequestHumanOutputSchema,
   canonicalAnswerPayload,
   importPrivateKey,
   signAnswer,
@@ -18,7 +20,7 @@ import {
 } from "@a2h/protocol";
 import type { DbConfig } from "../src/config.ts";
 import { freshSchema, skipWithoutDocker, sqlIn, startPostgres, type PgContainer } from "./lib/db.ts";
-import { TEST_PRINCIPAL, modernClient, startA2h, texts, type RunningA2h } from "./lib/a2h.ts";
+import { NOW, TEST_PRINCIPAL, TEST_WEB_ORIGIN, approveOnPage, modernClient, startA2h, texts, urlClient, type RunningA2h } from "./lib/a2h.ts";
 import { BASE } from "./lib/fixtures.ts";
 
 const ANSWER_TEXT = "The dosage table reads as a warning; the rest is calm.";
@@ -55,15 +57,24 @@ describe("check_requests", { skip: skipWithoutDocker() }, () => {
     pgc?.stop();
   });
 
-  async function send(args: Record<string, unknown> = BASE): Promise<string> {
-    const client = await modernClient(server.url, (p) => ({ action: "accept", content: { question: String(p.requestedSchema.properties["question"]?.["default"]) } }));
+  /** request_human, then the link's approval; the awaiting result. */
+  async function ask(args: Record<string, unknown> = BASE) {
+    const client = await modernClient(server.url);
     try {
-      const result = (await client.callTool({ name: "request_human", arguments: args }));
+      const result = await client.callTool({ name: "request_human", arguments: args });
       assert.ok(!result.isError, texts(result).join(" | "));
-      return RequestHumanOutputSchema.parse(result.structuredContent).request_id!;
+      const out = RequestHumanOutputSchema.parse(result.structuredContent);
+      assert.equal(out.status, "awaiting_approval");
+      return out as { request_id: string; approval_url: string; approval_expires_at: string };
     } finally {
       await client.close();
     }
+  }
+
+  async function send(args: Record<string, unknown> = BASE): Promise<string> {
+    const out = await ask(args);
+    assert.equal((await approveOnPage(db, out.approval_url)).kind, "sent");
+    return out.request_id;
   }
 
   /** What the worker writes on a transition: the status and its event, together. */
@@ -117,7 +128,7 @@ describe("check_requests", { skip: skipWithoutDocker() }, () => {
     assert.equal(r.simulated, true);
     assert.equal(r.held_minor, 3200);
     assert.equal(r.hold_status, "held");
-    assert.equal(new Date(r.transitions.sent_at).toISOString(), "2026-10-27T09:00:00.000Z");
+    assert.equal(new Date(r.transitions.sent_at!).toISOString(), "2026-10-27T09:00:00.000Z");
     assert.ok(!JSON.stringify(result).includes("Margaret") && !JSON.stringify(result).includes("Vale"), "no name before acceptance");
   });
 
@@ -194,6 +205,68 @@ describe("check_requests", { skip: skipWithoutDocker() }, () => {
     } finally {
       await other.stop();
     }
+  });
+
+  test("Scenario: Awaiting approval: the approval link, its expiry and no held amount", async () => {
+    const out = await ask();
+    const { result, requests } = await check({ request_id: out.request_id });
+    const r = requests[0]!;
+    assert.equal(r.status, "awaiting_approval");
+    assert.equal(r.approval_url, out.approval_url, "the same link as request_human gave");
+    assert.equal(new URL(r.approval_url).origin, TEST_WEB_ORIGIN);
+    assert.equal(r.approval_expires_at, out.approval_expires_at);
+    assert.equal(r.held_minor, undefined);
+    assert.equal(r.hold_status, "none");
+    assert.equal(r.transitions.sent_at, undefined);
+    assert.equal(new Date(r.transitions.awaiting_approval_at!).toISOString(), NOW.toISOString());
+    const text = texts(result).join("\n");
+    assert.ok(text.includes(out.approval_url));
+    assert.match(text, /awaiting approval/i);
+    assert.match(text, /nothing held/i);
+    // In a list too, filtered by the new status.
+    const listed = (await check({ status: "awaiting_approval" })).requests;
+    assert.ok(listed.some((x) => x.request_id === out.request_id && x.approval_url === out.approval_url));
+  });
+
+  test("Scenario: Not sent: status not_sent, the reason declined or expired, and no held amount", async () => {
+    // declined on the page
+    const declined = await ask();
+    assert.equal((await approveOnPage(db, declined.approval_url, { decision: "dont_send" })).kind, "not_sent");
+    // declined by dismissing the URL elicitation
+    const client = await urlClient(server.url);
+    let dismissed: string;
+    try {
+      const round = (await client.callTool({ name: "request_human", arguments: BASE }, { allowInputRequired: true })) as unknown as { inputRequests: Record<string, unknown>; requestState: string };
+      const key = Object.keys(round.inputRequests)[0]!;
+      const done = await client.callTool({ name: "request_human", arguments: BASE, inputResponses: { [key]: { action: "cancel" } }, requestState: round.requestState } as never, { allowInputRequired: true });
+      dismissed = RequestHumanOutputSchema.parse(done.structuredContent).request_id;
+    } finally {
+      await client.close();
+    }
+    // expired link
+    const expired = await ask();
+    await sqlIn(db, "UPDATE requests SET status = 'not_sent', not_sent_reason = 'expired', updated_at = $2 WHERE id = $1", [expired.request_id, "2026-10-28T09:00:00Z"]);
+    await sqlIn(db, "INSERT INTO request_events (request_id, from_status, to_status, actor, at) VALUES ($1, 'awaiting_approval', 'not_sent', 'platform', '2026-10-28T09:00:00Z')", [expired.request_id]);
+    for (const [id, reason] of [[declined.request_id, "declined"], [dismissed, "declined"], [expired.request_id, "expired"]] as const) {
+      const { result, requests } = await check({ request_id: id });
+      const r = requests[0]!;
+      assert.equal(r.status, "not_sent");
+      assert.equal(r.reason, reason, id);
+      assert.equal(r.held_minor, undefined);
+      assert.equal(r.hold_status, "none");
+      assert.equal(r.approval_url, undefined, "no link once decided");
+      assert.ok(r.transitions.not_sent_at !== undefined);
+      assert.match(texts(result).join("\n"), new RegExp(`not sent \\(${reason}\\)`, "i"));
+    }
+    assert.equal(new Date((await check({ request_id: expired.request_id })).requests[0]!.transitions.not_sent_at!).toISOString(), "2026-10-28T09:00:00.000Z");
+  });
+
+  test("A link that can no longer be rebuilt (the stage key rotated) is left out; the expiry stays", async () => {
+    const out = await ask();
+    await sqlIn(db, "UPDATE requests SET approval_token_hash = $2 WHERE id = $1", [out.request_id, "0".repeat(64)]);
+    const r = (await check({ request_id: out.request_id })).requests[0]!;
+    assert.equal(r.approval_url, undefined);
+    assert.equal(r.approval_expires_at, out.approval_expires_at);
   });
 
   test("Scenario: Unknown id: not_found and nothing else", async () => {

@@ -137,6 +137,11 @@ describe("adversarial: tokens the stage did not issue for this resource (live)",
   });
 });
 
+// m2-approval-page task 3.1: request_human no longer asks through a client
+// form; A5 (form state across accounts) and A6 (its request_human leg now
+// records an awaiting request) are skipped, not deleted; QA rewrites them in 6.1.
+const FORM = "approval moves to the page, QA rewrites in 6.1";
+
 describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens }, () => {
   let a: A2hClient;
   let b: A2hClient;
@@ -149,7 +154,7 @@ describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens 
     await b?.close();
   });
 
-  test("case A5: forged state across accounts → -32602 invalid_request_state, nothing created (B redeems A's approval; A's state with B's arguments; B's own state after A's)", async () => {
+  test("case A5: forged state across accounts → -32602 invalid_request_state, nothing created (B redeems A's approval; A's state with B's arguments; B's own state after A's)", { skip: FORM }, async () => {
     const since = serverNow();
     const args = manifest(MV, "judgment", 3200, BENIGN);
     const roundA = await approvalRound(a, args);
@@ -171,7 +176,7 @@ describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens 
     await assertNothingCreatedFor(b, TH, since);
   });
 
-  test("case A6: token passthrough attempt → a token-shaped argument is never echoed back; the tools work on text, not credentials", async () => {
+  test("case A6: token passthrough attempt → a token-shaped argument is never echoed back; the tools work on text, not credentials", { skip: FORM }, async () => {
     const since = serverNow();
     const token = TOKEN!;
     const looksLikeToken = (s: string) => {
