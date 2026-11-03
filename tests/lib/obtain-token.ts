@@ -22,7 +22,7 @@
 // path), A2H_TEST_EMAIL (principal A), A2H_TEST_EMAIL_2 (principal B,
 // optional), A2H_MAIL_SINK_BUCKET or A2H_MAIL_SINK_DIR.
 // Run: pnpm --filter @a2h/tests obtain-token -- --out /path/tokens.env
-import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -298,6 +298,26 @@ export interface Obtained {
   A2H_TOKEN_NOSCOPE?: string;
 }
 
+/** Paths of the signed-in browser sessions (m2-approval-page 6.1): the files are secret, the paths are not. */
+export interface Sessions {
+  A2H_SESSION_STATE?: string;
+  A2H_SESSION_STATE_2?: string;
+}
+
+/**
+ * Writes the context's storage state (its session cookie) to `<dir>/session-<label>.json`,
+ * mode 0600, in a directory only this user can read; returns the path. The contract and
+ * adversarial suites open approval links with it (tests/lib/approval-page.ts). Never printed.
+ */
+export async function saveSession(context: BrowserContext, dir: string, label: string): Promise<string> {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
+  const path = join(dir, `session-${label}.json`);
+  await context.storageState({ path });
+  chmodSync(path, 0o600);
+  return path;
+}
+
 /**
  * Disconnects every app the signed-in principal has on /account/clients, so the
  * QA principals leave no consent behind: the web app's own e2e flows (same
@@ -332,7 +352,13 @@ export async function disconnectAll(context: BrowserContext, webUrl: string): Pr
 }
 
 /** Principal A (both scopes), principal B when given, and A again without `a2h` when the server lets a subset through. */
-export async function obtainAll(browser: Browser, target: SignInTarget, emails: { a: string; b?: string }, log: (line: string) => void): Promise<Obtained> {
+export async function obtainAll(
+  browser: Browser,
+  target: SignInTarget,
+  emails: { a: string; b?: string },
+  log: (line: string) => void,
+  sessionDir?: string,
+): Promise<Obtained & Sessions> {
   const { clientId, registration } = await clientIdFor(target.webUrl);
   log(`client: ${registration} (${clientId})`);
   // One browser context per principal, kept until the end: the session that signed in disconnects the apps again.
@@ -342,7 +368,7 @@ export async function obtainAll(browser: Browser, target: SignInTarget, emails: 
     const a = await obtainToken(browser, target, emails.a, { clientId, context: contextA, retry: { log }, diagnosticsLabel: "obtain-token-a" });
     log(`principal A: sub ${a.principalId}, scopes [${a.scopes.join(" ")}], expires in ${a.expiresAt - Math.floor(Date.now() / 1000)} s`);
     if (!a.scopes.includes("a2h")) throw new Error("principal A's token lacks the a2h scope");
-    const out: Obtained = { A2H_TOKEN: a.accessToken };
+    const out: Obtained & Sessions = { A2H_TOKEN: a.accessToken };
     if (emails.b && contextB) {
       const b = await obtainToken(browser, target, emails.b, { clientId, context: contextB, retry: { log }, diagnosticsLabel: "obtain-token-b" });
       log(`principal B: sub ${b.principalId}, scopes [${b.scopes.join(" ")}]`);
@@ -364,6 +390,12 @@ export async function obtainAll(browser: Browser, target: SignInTarget, emails: 
     const disconnectedA = await disconnectAll(contextA, target.webUrl).catch((e: Error) => `not done (${e.message.split("\n")[0]})`);
     const disconnectedB = contextB ? await disconnectAll(contextB, target.webUrl).catch((e: Error) => `not done (${e.message.split("\n")[0]})`) : "-";
     log(`connected apps disconnected again: principal A ${String(disconnectedA)}, principal B ${String(disconnectedB)} (the access tokens stay valid until they expire)`);
+    if (sessionDir) {
+      // The signed-in sessions, for the approval page (m2-approval-page 6.1); disconnecting apps does not sign out.
+      out.A2H_SESSION_STATE = await saveSession(contextA, sessionDir, "a");
+      if (contextB) out.A2H_SESSION_STATE_2 = await saveSession(contextB, sessionDir, "b");
+      log(`browser sessions kept for the approval page: ${contextB ? "principals A and B" : "principal A"} (files 0600, never printed)`);
+    }
     return out;
   } finally {
     await contextA.close().catch(() => undefined);
@@ -385,17 +417,23 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const b = process.env["A2H_TEST_EMAIL_2"]?.trim() || undefined;
   const log = (line: string) => process.stdout.write(`obtain-token: ${line}\n`);
   log(`stage ${target.stage}, web ${target.webUrl}, resource ${target.mcpUrl}`);
+  // Session files: the runner's temp directory in CI (removed with the job), next to --out by hand.
+  const sessionDir = join(process.env["RUNNER_TEMP"]?.trim() || dirname(out ?? "."), "a2h-sessions");
   const browser = await chromium.launch();
   try {
-    const tokens = await obtainAll(browser, target, b ? { a, b } : { a }, log);
+    const { A2H_SESSION_STATE, A2H_SESSION_STATE_2, ...tokens } = await obtainAll(browser, target, b ? { a, b } : { a }, log, sessionDir);
     const { masks, env } = githubEnvLines(tokens as unknown as Record<string, string>);
+    // Paths, not secrets: unmasked, so the logs stay readable.
+    const sessions = Object.entries({ A2H_SESSION_STATE, A2H_SESSION_STATE_2 }).filter((e): e is [string, string] => e[1] !== undefined);
+    const lines = env + sessions.map(([k, v]) => `${k}=${v}\n`).join("");
+    const names = [...Object.keys(tokens), ...sessions.map(([k]) => k)].join(", ");
     if (githubEnv) {
       for (const m of masks) process.stdout.write(`${m}\n`);
-      appendFileSync(githubEnv, env);
-      log(`wrote ${Object.keys(tokens).join(", ")} to GITHUB_ENV (masked)`);
+      appendFileSync(githubEnv, lines);
+      log(`wrote ${names} to GITHUB_ENV (tokens masked)`);
     } else {
-      writeFileSync(out!, env, { mode: 0o600 });
-      log(`wrote ${Object.keys(tokens).join(", ")} to ${out}`);
+      writeFileSync(out!, lines, { mode: 0o600 });
+      log(`wrote ${names} to ${out}`);
     }
   } finally {
     await browser.close();

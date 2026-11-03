@@ -6,7 +6,7 @@
 // passed since it began. Nothing it prints names an address.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { describePage, disconnectAll, signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
+import { describePage, disconnectAll, saveSession, signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
 
 const ADDRESS = "qa-principal-a@a2h-protocol.org";
 
@@ -242,6 +242,32 @@ describe("disconnectAll", () => {
     assert.deepEqual(rows, [], "every app was disconnected");
     for (let i = 0; i < calls.length; i++) {
       if (calls[i] === "confirm") assert.equal(calls[i + 1], "wait-notice", `after a confirm: ${calls.slice(i).join(", ")}`);
+    }
+  });
+});
+
+// m2-approval-page 6.1: the contract and adversarial suites approve requests on the
+// approval page as the QA principals, with the browser sessions this script signed in.
+// The session files hold session cookies: written 0600 in a private directory, named
+// in the environment by path only, never printed.
+describe("saveSession", () => {
+  test("writes the context's storage state 0600 in a private directory and returns its path", async () => {
+    const fs = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const parent = fs.mkdtempSync(join(tmpdir(), "a2h-session-"));
+    try {
+      const context = {
+        storageState: (o: { path: string }) => Promise.resolve(fs.writeFileSync(o.path, JSON.stringify({ cookies: [{ name: "s", value: "SECRET" }], origins: [] }))),
+      } as unknown as import("@playwright/test").BrowserContext;
+      const dir = join(parent, "sessions");
+      const path = await saveSession(context, dir, "a");
+      assert.equal(path, join(dir, "session-a.json"));
+      assert.equal(fs.statSync(path).mode & 0o777, 0o600);
+      assert.equal(fs.statSync(dir).mode & 0o077, 0, "the directory is private");
+      assert.match(fs.readFileSync(path, "utf8"), /SECRET/);
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
     }
   });
 });
