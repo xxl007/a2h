@@ -20,8 +20,8 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 
 ## 4. Design (DS, after Gate 1, parallel to 2)
 
-- [ ] 4.1 Screens section of design.md: the approval page and every state of spec "Every state of the page is stated", copy (EN), tokens used from the provisional set, the fee breakdown layout, keyboard order, the 320 px layout; verify a static HTML spec per state is linked from design.md and reviewed by the owner on the preview of this PR
-- [ ] 4.2 `packages/ui` components the page needs (question editor with count and restore, fact list, decision bar) with Storybook stories and their states; verify the a11y checks in Storybook pass and no colour value is written outside `packages/ui/tokens`
+- [x] 4.1 Screens section of design.md: the approval page and every state of spec "Every state of the page is stated", copy (EN), tokens used from the provisional set, the fee breakdown layout, keyboard order, the 320 px layout; verify a static HTML spec per state is linked from design.md and reviewed by the owner on the preview of this PR — done in PR #79 (merged 2026-11-03): Screens A0–A12 in design.md, static HTML specs per state in `screens/`, owner review page published; three copy questions open with the owner (fee breakdown, simulated note, link validity line). Storybook is not deployed on previews: the static specs are the review artifact
+- [x] 4.2 `packages/ui` components the page needs (question editor with count and restore, fact list, decision bar) with Storybook stories and their states; verify the a11y checks in Storybook pass and no colour value is written outside `packages/ui/tokens` — done in PR #79: QuestionEditor, FactList, DecisionBar, StatusPill, LocalTime; axe, 44 px targets and overflow over 34 stories at 320, 390, 1280 px, light and dark: 204 runs, no findings
 
 ## 5. Approval page (WD, after 2 and 4)
 
