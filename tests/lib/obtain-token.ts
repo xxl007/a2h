@@ -422,7 +422,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
   const browser = await chromium.launch();
   try {
     const { A2H_SESSION_STATE, A2H_SESSION_STATE_2, ...tokens } = await obtainAll(browser, target, b ? { a, b } : { a }, log, sessionDir);
-    const { masks, env } = githubEnvLines(tokens as unknown as Record<string, string>);
+    const { masks, env } = githubEnvLines(tokens);
     // Paths, not secrets: unmasked, so the logs stay readable.
     const sessions = Object.entries({ A2H_SESSION_STATE, A2H_SESSION_STATE_2 }).filter((e): e is [string, string] => e[1] !== undefined);
     const lines = env + sessions.map(([k, v]) => `${k}=${v}\n`).join("");

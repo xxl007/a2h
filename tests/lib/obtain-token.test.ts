@@ -253,19 +253,19 @@ describe("disconnectAll", () => {
 describe("saveSession", () => {
   test("writes the context's storage state 0600 in a private directory and returns its path", async () => {
     const fs = await import("node:fs");
-    const { tmpdir } = await import("node:os");
-    const { join } = await import("node:path");
-    const parent = fs.mkdtempSync(join(tmpdir(), "a2h-session-"));
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "a2h-session-"));
     try {
       const context = {
         storageState: (o: { path: string }) => Promise.resolve(fs.writeFileSync(o.path, JSON.stringify({ cookies: [{ name: "s", value: "SECRET" }], origins: [] }))),
       } as unknown as import("@playwright/test").BrowserContext;
-      const dir = join(parent, "sessions");
-      const path = await saveSession(context, dir, "a");
-      assert.equal(path, join(dir, "session-a.json"));
-      assert.equal(fs.statSync(path).mode & 0o777, 0o600);
+      const dir = path.join(parent, "sessions");
+      const saved = await saveSession(context, dir, "a");
+      assert.equal(saved, path.join(dir, "session-a.json"));
+      assert.equal(fs.statSync(saved).mode & 0o777, 0o600);
       assert.equal(fs.statSync(dir).mode & 0o077, 0, "the directory is private");
-      assert.match(fs.readFileSync(path, "utf8"), /SECRET/);
+      assert.match(fs.readFileSync(saved, "utf8"), /SECRET/);
     } finally {
       fs.rmSync(parent, { recursive: true, force: true });
     }
