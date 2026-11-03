@@ -10,7 +10,8 @@ import {
   QUESTION_MAX_LENGTH,
   type ProtocolError,
 } from "@a2h/protocol";
-import { copy, type ApprovalRefusal, type ApprovalRequest } from "@a2h/ui";
+// Types only: this module runs on the server, and @a2h/ui's entry also carries client components.
+import type { ApprovalFreeLane, ApprovalRefusal, ApprovalRequest } from "@a2h/ui";
 
 const SYMBOL: Record<string, string> = { EUR: "€", GBP: "£", USD: "$" };
 
@@ -61,7 +62,7 @@ export function approvalRequestView(r: StoredRequest, p: StoredParticipant, o: {
   const terms = r.data_terms as { attribution: ApprovalRequest["dataTerms"]["attribution"]; training: ApprovalRequest["dataTerms"]["training"] };
   const money: ApprovalRequest["money"] =
     r.lane === "free"
-      ? { lane: "free", freeLane: r.free_lane as keyof typeof copy.approval.freeLanes }
+      ? { lane: "free", freeLane: r.free_lane as ApprovalFreeLane }
       : {
           lane: "paid",
           hold: formatMoney(r.bid_minor, r.currency),
@@ -102,7 +103,20 @@ export function submittedQuestion(posted: unknown, agentDraft: string): string {
   return text === asTextarea(agentDraft) ? agentDraft : text;
 }
 
-const WORDED = new Set<string>(Object.keys(copy.approval.refused));
+/** The refusals the page has wording for (copy.approval.refused); the compiler holds the two lists equal. */
+const WORDING: Record<ApprovalRefusal, true> = {
+  persuasion_disguised: true,
+  third_party_personal_data: true,
+  labour_disguised: true,
+  forbidden_content: true,
+  outside_participant_rules: true,
+  over_budget: true,
+  over_cap: true,
+  rate_limited: true,
+  principal_not_verified_for_lane: true,
+  schema_invalid: true,
+};
+const WORDED = new Set<string>(Object.keys(WORDING));
 
 /**
  * The wording of a refused Send (design.md A4): the error's code, or for
