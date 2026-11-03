@@ -57,10 +57,12 @@ export async function approvalFacts(
   i: { principal: Principal; currency: string; participant: Pick<PublishedParticipant, "participant_id" | "handle" | "rules">; now: Date; approval: ValidationFacts["approval"] },
 ): Promise<ValidationFacts> {
   const dayStart = utcDayStart(i.now);
-  const [interruptions, usage] = await Promise.all([
-    countDeliveries(db, i.participant.participant_id, dayStart, new Date(dayStart.getTime() + DAY_MS)),
-    principalUsage(db, i.principal.principal_id, utcMonthStart(i.now), dayStart),
-  ]);
+  // One after the other, never Promise.all: `decideApproval` passes its
+  // transaction, and the Aurora Data API refuses a second statement on a
+  // transaction while one is running ("Transaction is still running a query",
+  // pr-82). node-postgres would queue them silently.
+  const interruptions = await countDeliveries(db, i.participant.participant_id, dayStart, new Date(dayStart.getTime() + DAY_MS));
+  const usage = await principalUsage(db, i.principal.principal_id, utcMonthStart(i.now), dayStart);
   return {
     now: i.now.toISOString(),
     principal: i.principal,
