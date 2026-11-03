@@ -128,7 +128,7 @@ Prerequisite for both parts: the signing-in address on the preview's own allow-l
 
 | Client | Version | How the link was shown | Outcome reached `check_requests` | Date / notes |
 |---|---|---|---|---|
-| Contract client, no elicitation (verify job) | @modelcontextprotocol/client 2.4.0 | link in the result text | yes: `sent`, then `answered`; `not_sent` `declined` | PR #85 verify, see below |
-| Contract client, URL elicitation (verify job) | same | `elicitation/create`, `mode: url` | accept: still `awaiting_approval`; decline and cancel: `not_sent` `declined` | PR #85 verify |
-| Claude Code | see below | pending | pending | QA, PR #85 |
+| Contract client, no elicitation (verify job) | @modelcontextprotocol/client 2.4.0 | link in the result text | yes: `sent`, then `answered`; `not_sent` `declined` | pr-85, run 41693893838 (commit 1c93bdc), 2026-11-03 |
+| Contract client, URL elicitation (verify job) | same | `elicitation/create`, `mode: url` | accept: still `awaiting_approval`; decline and cancel: `not_sent` `declined` | pr-85, run 41693893838, 2026-11-03 |
+| Claude Code | 2.1.226 | not run | not run | **Blocked, 2026-11-03 (QA):** sign-in on pr-85 after the verify run, with qa-principal-a@a2h-protocol.org through the mail sink, got the neutral "Check your email" page and no link in 10 attempts over 330 s: the preview's allow-list holds the QA addresses only during the verify job, and QA makes no SSM write. `/mcp` → Authenticate also needs an interactive terminal and a browser. Part A needs an allow-listed address on the preview (owner), then the steps above |
 | claude.ai | - | - | - | owner, pending |
