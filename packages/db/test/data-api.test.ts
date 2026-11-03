@@ -31,7 +31,7 @@ import {
   type A2hDb,
 } from "../src/index.ts";
 import { SEED_SQL_PATH } from "../seed/sql.ts";
-import { dataApiStandIn, type DataApiStandIn } from "./lib/data-api.ts";
+import { DatabaseErrorException, dataApiStandIn, type DataApiStandIn } from "./lib/data-api.ts";
 import { migrate, skipWithoutDocker, startPostgres, statementsOf, type PgContainer } from "./lib/postgres.ts";
 
 const skip = skipWithoutDocker();
@@ -93,6 +93,27 @@ describe("packages/db queries through the Data API driver (Postgres 17)", { skip
         return true;
       },
     );
+  });
+
+  test("the stand-in reproduces pr-82 (run 41667737147): two statements in flight on one transaction fail as on Aurora", async () => {
+    const isBusy = (e: unknown) => {
+      const err = (e as Error).cause ?? e;
+      assert.ok(err instanceof DatabaseErrorException, String(e));
+      assert.equal(err.message, "Transaction is still running a query");
+      return true;
+    };
+    await assert.rejects(
+      db.transaction(async (tx) => {
+        await Promise.all([tx.execute(sql`SELECT pg_sleep(0.05)`), tx.execute(sql`SELECT 1`)]);
+      }),
+      isBusy,
+    );
+    // One after the other on the same transaction, and concurrently outside one, are fine.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_sleep(0.01)`);
+      await tx.execute(sql`SELECT 1`);
+    });
+    await Promise.all([db.execute(sql`SELECT pg_sleep(0.01)`), db.execute(sql`SELECT 1`)]);
   });
 
   test("principals: ensurePrincipal, principalWithPolicy, bumpRateLimit, pruneRateLimitWindows", async () => {
@@ -171,6 +192,16 @@ describe("packages/db queries through the Data API driver (Postgres 17)", { skip
   test("recordBlockedManifest", async () => {
     const participant = (await findPublishedParticipant(db, "sim-mv-7f3c"))!;
     await recordBlockedManifest(db, { participant_id: participant.participant_id, principal_id: P, stage: "rules", code: "bid_below_reserve", at: NOW.toISOString() });
+  });
+
+  test("decideApproval Send reads its validation facts one statement at a time on its transaction (pr-82, run 41667737147)", async () => {
+    await ensurePrincipal(db, P, { policy: POLICY });
+    const t = await awaiting("A2H-da10");
+    // On Aurora the second fact query failed with "Transaction is still running a query"; surface that cause if it recurs.
+    const sent = await decideApproval(db, decision("A2H-da10", t, "send")).catch((e: unknown) => {
+      throw new Error(`decideApproval rejected: ${String((e as Error).cause ?? e)}`);
+    });
+    assert.equal(sent.kind, "sent", JSON.stringify(sent));
   });
 
   test("no statement sent a Date or an ISO date-time as an untyped (text) parameter", () => {

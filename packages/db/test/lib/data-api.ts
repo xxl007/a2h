@@ -10,7 +10,13 @@
 //   timestamptz passes there and fails here, as on Aurora;
 // - results come back as Data API field objects (strings, longs, doubles,
 //   booleans, nulls, string arrays) with column metadata;
-// - transactions are Begin/Execute(transactionId)/Commit/Rollback commands.
+// - transactions are Begin/Execute(transactionId)/Commit/Rollback commands,
+//   and a transaction runs one statement at a time: an ExecuteStatement on a
+//   transactionId that already has one in flight is refused with Aurora's
+//   DatabaseErrorException "Transaction is still running a query" (pr-82,
+//   2026-11-03: `approvalFacts` ran two queries through Promise.all inside
+//   `decideApproval`'s transaction). node-postgres queues them on its client
+//   instead, so only this stand-in sees it;
 // It is driven by Drizzle's own `drizzle-orm/aws-data-api/pg` driver, so the
 // statements, placeholders (`:1`) and type hints are exactly what the web
 // Lambda sends. Test-only: no AWS call is made.
@@ -26,6 +32,11 @@ type Field = { isNull?: true; stringValue?: string; longValue?: number; doubleVa
 interface Command {
   constructor: { name: string };
   input: { sql?: string; parameters?: Param[]; transactionId?: string };
+}
+
+/** What Aurora's Data API throws (no SQLState) for a second statement on a busy transaction. */
+export class DatabaseErrorException extends Error {
+  override name = "DatabaseErrorException";
 }
 
 const HINT_TYPE: Record<string, string> = { TIMESTAMP: "timestamp", DATE: "date", DECIMAL: "numeric", JSON: "json", UUID: "uuid", TIME: "time" };
@@ -93,6 +104,7 @@ export interface DataApiStandIn {
 export function dataApiStandIn(connectionString: string, schema: string): DataApiStandIn {
   const pool = new pg.Pool({ connectionString, max: 6, options: `-c search_path=${schema} -c timezone=UTC` });
   const open = new Map<string, pg.PoolClient>();
+  const busy = new Set<string>();
   const statements: DataApiStandIn["statements"] = [];
   // A class instance, not a plain object: Drizzle's `drizzle()` reads a plain object as its config.
   class StandInRdsDataClient {
@@ -125,7 +137,14 @@ export function dataApiStandIn(connectionString: string, schema: string): DataAp
           const id = command.input.transactionId;
           const runner = id ? open.get(id) : pool;
           if (!runner) throw new Error("data-api stand-in: unknown transaction");
-          const result = await runner.query({ text, values, rowMode: "array", types: raw });
+          if (id && busy.has(id)) throw new DatabaseErrorException("Transaction is still running a query");
+          if (id) busy.add(id);
+          let result: pg.QueryResult;
+          try {
+            result = await runner.query({ text, values, rowMode: "array", types: raw });
+          } finally {
+            if (id) busy.delete(id);
+          }
           const records = (result.rows as unknown[][]).map((row) => row.map((v, i) => field(v, result.fields[i]!.dataTypeID)));
           return {
             numberOfRecordsUpdated: result.command === "SELECT" ? 0 : (result.rowCount ?? 0),
