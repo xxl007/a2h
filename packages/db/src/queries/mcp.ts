@@ -15,12 +15,27 @@ import {
   type TypeRule,
   type WhoMayAsk,
 } from "@a2h/protocol";
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import type { PrincipalsDb } from "./principals.ts";
 import { answers, blockedManifests, participants, profiles, requestEvents, requests, rules, ruleTypes, signingKeys } from "../schema.ts";
 
 /** The database handle the mcp service uses (Drizzle over node-postgres). */
 export type McpDb = NodePgDatabase<Record<string, unknown>>;
+
+/**
+ * Any Drizzle Postgres database or transaction: the readers and the approval
+ * queries shared by apps/mcp (node-postgres), apps/web (Data API) and
+ * apps/worker take this (m2-approval-page design D4).
+ */
+export type A2hDb = PrincipalsDb;
+
+/**
+ * Statuses of requests that never left their principal: they hold nothing,
+ * reach nobody, and count against neither the participant's interruptions
+ * nor the principal's day (m2-approval-page design D1).
+ */
+export const UNSENT_STATUSES = ["awaiting_approval", "not_sent"] as const satisfies readonly RequestStatus[];
 
 /** A participant as published: what discovery and validation need. No name, no contact. */
 export interface PublishedParticipant {
@@ -35,7 +50,7 @@ export interface PublishedParticipant {
 
 const TopicsSchema = TopicSchema.array().min(1);
 
-async function loadPublished(db: McpDb, where?: ReturnType<typeof eq>): Promise<PublishedParticipant[]> {
+async function loadPublished(db: A2hDb, where?: ReturnType<typeof eq>): Promise<PublishedParticipant[]> {
   const rows = await db
     .select({
       participant_id: participants.id,
@@ -101,26 +116,38 @@ export function listPublishedParticipants(db: McpDb): Promise<PublishedParticipa
 }
 
 /** One published participant by handle, or null. Reads only. */
-export async function findPublishedParticipant(db: McpDb, handle: string): Promise<PublishedParticipant | null> {
+export async function findPublishedParticipant(db: A2hDb, handle: string): Promise<PublishedParticipant | null> {
   return (await loadPublished(db, eq(participants.handle, handle)))[0] ?? null;
 }
 
-/** Deliveries to a participant scheduled in [from, to), whatever their status (deferred ones included). */
-export async function countDeliveries(db: McpDb, participantId: string, from: Date, to: Date): Promise<number> {
+/**
+ * Deliveries to a participant scheduled in [from, to): every sent request,
+ * whatever its later status (deferred ones included); never one awaiting
+ * approval or not sent.
+ */
+export async function countDeliveries(db: A2hDb, participantId: string, from: Date, to: Date): Promise<number> {
   const [row] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(requests)
-    .where(and(eq(requests.participant_id, participantId), gte(requests.deliver_at, from), lt(requests.deliver_at, to)));
+    .where(
+      and(
+        eq(requests.participant_id, participantId),
+        gte(requests.deliver_at, from),
+        lt(requests.deliver_at, to),
+        notInArray(requests.status, [...UNSENT_STATUSES]),
+      ),
+    );
   return row?.n ?? 0;
 }
 
 /**
  * What a principal has committed: the gross amount still held or cleared by
  * requests created since `monthStart` (released holds count for nothing), and
- * how many requests it created since `dayStart`.
+ * how many requests it sent that were created since `dayStart`. Requests
+ * awaiting approval or not sent count for neither.
  */
 export async function principalUsage(
-  db: McpDb,
+  db: A2hDb,
   principalId: string,
   monthStart: Date,
   dayStart: Date,
@@ -131,7 +158,7 @@ export async function principalUsage(
         WHEN ${requests.status} IN ('sent', 'accepted') THEN ${requests.bid_minor}
         WHEN ${requests.status} = 'answered' THEN coalesce(${requests.cleared_minor}, ${requests.bid_minor})
         ELSE 0 END), 0)::int`,
-      today: sql<number>`count(*) FILTER (WHERE ${requests.created_at} >= ${dayStart.toISOString()})::int`,
+      today: sql<number>`count(*) FILTER (WHERE ${requests.created_at} >= ${dayStart.toISOString()} AND ${requests.status} NOT IN ('awaiting_approval', 'not_sent'))::int`,
     })
     .from(requests)
     .where(and(eq(requests.principal_id, principalId), gte(requests.created_at, monthStart)));
@@ -139,7 +166,7 @@ export async function principalUsage(
 }
 
 /** Count a manifest blocked by a participant's rules: ids, stage, code and time only. */
-export async function recordBlockedManifest(db: McpDb, b: BlockedManifest): Promise<void> {
+export async function recordBlockedManifest(db: A2hDb, b: BlockedManifest): Promise<void> {
   await db.insert(blockedManifests).values({
     request_id: b.request_id ?? null,
     participant_id: b.participant_id,
@@ -225,7 +252,7 @@ export async function createRequest(db: McpDb, r: NewRequest): Promise<void> {
   }
 }
 
-function isUniqueViolation(error: unknown, constraint: string): boolean {
+export function isUniqueViolation(error: unknown, constraint: string): boolean {
   for (let e: unknown = error; e instanceof Error; e = e.cause) {
     const pgError = e as Error & { code?: string; constraint?: string };
     if (pgError.code === "23505" && pgError.constraint === constraint) return true;

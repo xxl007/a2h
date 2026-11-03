@@ -7,11 +7,10 @@
 // not stored anywhere: it travels as HMAC-signed state bound to the principal.
 import {
   ApprovalAlreadyUsed,
+  approvalFacts,
   approvalNonceUsed,
-  countDeliveries,
   createRequest,
   findPublishedParticipant,
-  principalUsage,
   recordBlockedManifest,
   RequestIdTaken,
 } from "@a2h/db";
@@ -61,16 +60,6 @@ type LogFields = Omit<ToolLogFields, "tool" | "http_request_id" | "principal_id"
 export interface RequestHumanOutcome {
   result: CallToolResult | InputRequiredResult;
   log: LogFields;
-}
-
-const DAY_MS = 86_400_000;
-
-function utcDayStart(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
-function utcMonthStart(d: Date): Date {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
 
 function envelopeOf(ctx: ServerContext): Record<string, unknown> {
@@ -171,6 +160,7 @@ function outsideThisChange(input: RequestHumanInput): ProtocolError | null {
   return null;
 }
 
+/** The approval-phase facts from the loader both apps share (packages/db, m2-approval-page D4). */
 async function loadFacts(
   deps: ToolDeps,
   participant: NonNullable<Awaited<ReturnType<typeof findPublishedParticipant>>>,
@@ -178,23 +168,8 @@ async function loadFacts(
   approval: ValidationFacts["approval"],
   binding?: ValidationFacts["approval_binding"],
 ): Promise<ValidationFacts> {
-  const dayStart = utcDayStart(now);
-  const [interruptions, usage] = await Promise.all([
-    countDeliveries(deps.db, participant.participant_id, dayStart, new Date(dayStart.getTime() + DAY_MS)),
-    principalUsage(deps.db, deps.principal.principal_id, utcMonthStart(now), dayStart),
-  ]);
-  return {
-    now: now.toISOString(),
-    principal: deps.principal,
-    participant: { participant_id: participant.participant_id, handle: participant.handle, rules: participant.rules },
-    interruptions_today: interruptions,
-    budget: { used_minor: usage.committed_minor, currency: deps.policy.currency },
-    requests_today: usage.requests_today,
-    // No internal ratings exist before M6: nobody is throttled yet.
-    principal_throttled: false,
-    approval,
-    ...(binding ? { approval_binding: binding } : {}),
-  };
+  const facts = await approvalFacts(deps.db, { principal: deps.principal, currency: deps.policy.currency, participant, now, approval });
+  return binding ? { ...facts, approval_binding: binding } : facts;
 }
 
 /** Validate; on a rules-stage failure, count the block for the participant (ids, code, time: never the question). */
