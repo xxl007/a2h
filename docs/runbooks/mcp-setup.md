@@ -74,7 +74,7 @@ claude          # then, in the session:
 /mcp            # select a2h-pr<n>, "Authenticate"
 ```
 
-Claude Code opens the stage's sign-in page in the browser with a loopback redirect (the consent screen shows "a program on this computer"); after the magic link and **Connect**, `/mcp` shows the server connected and `find_humans`, `request_human`, `check_requests`, `ping` are available. Claude Code negotiates the 2025 revision by default; the approval form needs `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto claude` (M1 note), which does not change the sign-in.
+Claude Code opens the stage's sign-in page in the browser with a loopback redirect (the consent screen shows "a program on this computer"); after the magic link and **Connect**, `/mcp` shows the server connected and `find_humans`, `request_human`, `check_requests`, `ping` are available. Since m2-approval-page there is no approval form: `request_human` returns a link to the hosted approval page in every revision (the 2025 one Claude Code negotiates by default included), so the M1 launch flags `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto` are no longer needed. With them, a client that declares URL elicitation is asked to open the link through its own prompt instead.
 
 ### claude.ai
 
@@ -97,3 +97,38 @@ The web app re-reads the list within five minutes. The magic link for that addre
 | MCP Inspector (sign-in) | 2.13.0 | pending | **Pending an allow-listed address on the preview (owner)**: the line above, then the procedure here. Procedure: `npx -y @modelcontextprotocol/inspector@2.13.0`, Streamable HTTP, the preview URL, **Authentication → Quick OAuth flow**; sign in with the address; read the link from the sink (`tests/lib/mail-sink.ts` with read access to the uploads bucket); consent; the four tools list | pending |
 | Claude Code (`claude mcp add --transport http`, `/mcp`) | 2.1.226 | pending | **Pending an allow-listed address on the preview (owner)**, plus an interactive terminal for `/mcp` → Authenticate (no non-interactive path in 2.1.226; `--client-id` and `--callback-port` exist, the consent still opens a browser) | pending |
 | claude.ai | - | - | owner's row (Gate 2) | owner, pending |
+
+## Approval page: hosted-client check (m2-approval-page, task 6.3)
+
+What must hold in each hosted client: `request_human` shows the principal a link to `https://<web host>/approve/A2H-xxxx` (in the client's own "open this page" prompt where it declares URL elicitation, in the agent's reply everywhere else); the page opens signed in as the principal; after Send (or Don't send) on the page, `check_requests` reports `sent` (or `not_sent`, reason `declined`) to the agent. The automated proof of the same path, without a hosted client, is the preview's verify job (`tests/contract/request-approval.test.ts`, `request-flows.test.ts`, `tests/e2e/approval-page.spec.ts`; README "Scenario to test map: m2-approval-page").
+
+Prerequisite for both parts: the signing-in address on the preview's own allow-list (`/a2h/pr-<n>/principal-allowlist`, the line in the preview comment; the web app re-reads it within five minutes). QA makes no SSM write; the owner adds an address before the check and sets the value back to `none` after. On a preview the magic link is in the stage's mail sink (`aws s3 ls s3://<uploads bucket>/tmp/pr-<n>/mail/`), not in a mailbox.
+
+### Part A: Claude Code
+
+1. `claude mcp add --transport http a2h-pr<n> https://mcp.dev.a2h-protocol.org/pr-<n>/mcp`
+2. `claude`, then `/mcp`, select `a2h-pr<n>`, **Authenticate**; sign in with the allow-listed address (link from the sink), **Connect**.
+3. Ask: "Use a2h to ask sim-jw-9e48 which of two routes into central Bristol feels safer to cycle at rush hour, as a poll with options 'Route A along the harbourside' and 'Route B through Stokes Croft', €8.00 bid, opinion, expiring in six hours."
+4. Expect: the reply shows a link `https://pr-<n>.dev.a2h-protocol.org/approve/A2H-xxxx?t=…` and says nothing is sent until you choose Send (if Claude Code was started with `MCP_SDK_GENERATION=v2 MCP_PROTOCOL_NEGOTIATION=auto` and declares URL elicitation, its own prompt offers to open the link first).
+5. Open the link in the browser signed in with the same address: "Review this question before it is sent", the question, "Send · hold €8.00". Choose **Send**: "Question sent".
+6. Ask: "Check that request." Expect `sent` with €8.00 held, then within a minute `answered` (the simulated prompt persona).
+7. Repeat steps 3 to 5 choosing **Don't send**; "check that request" reports `not_sent`, reason `declined`.
+
+### Part B: claude.ai (owner's account)
+
+1. Settings → Connectors → **Add custom connector**: URL `https://mcp.dev.a2h-protocol.org/pr-<n>/mcp`, then **Connect**; sign in with your allow-listed address (link from the preview's sink), **Connect** on the consent screen.
+2. In a new chat with the connector enabled, ask the same question as Part A step 3.
+3. Expect: either claude.ai's own "open this page" prompt (if it declares URL elicitation; choosing to open it does not send anything), or the link in Claude's reply.
+4. Open the link (signed in as the same address on the web page): edit the question once to see "Restore agent draft", then **Send**.
+5. Back in the chat: "Check that request." Expect `sent`, then `answered`.
+6. Repeat with **Don't send**: expect `not_sent`, `declined`. If claude.ai showed its own prompt, also dismiss it once: expect `not_sent`, `declined` at once, and the link then opens "This request was not sent".
+7. Note for the record: whether claude.ai showed its own prompt (URL elicitation) or the link in text, and the claude.ai date.
+
+### Results
+
+| Client | Version | How the link was shown | Outcome reached `check_requests` | Date / notes |
+|---|---|---|---|---|
+| Contract client, no elicitation (verify job) | @modelcontextprotocol/client 2.4.0 | link in the result text | yes: `sent`, then `answered`; `not_sent` `declined` | PR #85 verify, see below |
+| Contract client, URL elicitation (verify job) | same | `elicitation/create`, `mode: url` | accept: still `awaiting_approval`; decline and cancel: `not_sent` `declined` | PR #85 verify |
+| Claude Code | see below | pending | pending | QA, PR #85 |
+| claude.ai | - | - | - | owner, pending |
