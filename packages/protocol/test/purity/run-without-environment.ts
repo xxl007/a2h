@@ -33,6 +33,10 @@ const pub = await protocol.importPublicKey(RAW_PUBLIC);
 const signature = await protocol.signAnswer(referenceUnsigned, priv);
 
 const calls: Record<string, () => unknown> = {
+  approvalLinkExpiry: () => protocol.approvalLinkExpiry({ now: "2026-11-03T10:00:00Z", expires_at: "2026-11-05T10:00:00Z", latency_promise_seconds: 3600 }),
+  approvalTokenHash: () => protocol.approvalTokenHash("A".repeat(43)),
+  approvalUrl: () => protocol.approvalUrl("https://dev.a2h-protocol.org", "A2H-7f3c", "A".repeat(43)),
+  formatApprovalToken: () => protocol.formatApprovalToken(new Uint8Array(32)),
   answerEnvelopeSchemaFor: () => protocol.answerEnvelopeSchemaFor("judgment").parse(referenceEnvelope),
   canonicalAnswerPayload: () => protocol.canonicalAnswerPayload(referenceEnvelope),
   canonicalJson: () => protocol.canonicalJson({ b: 1, a: [2] }),

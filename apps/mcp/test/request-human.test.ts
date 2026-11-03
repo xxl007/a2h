@@ -5,7 +5,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { ProtocolError, type CallToolResult, type FetchLike } from "@modelcontextprotocol/client";
-import { REQUEST_ID_PATTERN, RequestHumanOutputSchema, gross } from "@a2h/protocol";
+import { REQUEST_ID_PATTERN, RequestHumanOutputM1Schema as RequestHumanOutputSchema, gross } from "@a2h/protocol";
 import type { DbConfig } from "../src/config.ts";
 import { freshSchema, skipWithoutDocker, sqlIn, startPostgres, writeCounts, type PgContainer } from "./lib/db.ts";
 import {

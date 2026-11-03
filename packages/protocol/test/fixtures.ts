@@ -126,7 +126,7 @@ export const fixtures: Record<string, Fixture> = {
   AudienceSchema: { pass: "named_individual", fail: "everyone", path: [] },
   TimeShapeSchema: { pass: "one_shot", fail: "once", path: [] },
   FormatSchema: { pass: "single_field", fail: "essay", path: [] },
-  RequestStatusSchema: { pass: "sent", fail: "pending", path: [] },
+  RequestStatusSchema: { pass: "awaiting_approval", fail: "pending", path: [] },
   SignedMinorAmountSchema: { pass: -3000, fail: -30.5, path: [] },
   SecondsSchema: { pass: 21600, fail: -1, path: [] },
   OpaqueIdSchema: { pass: "p_sim_mv", fail: "ana@example.org", path: [] },
@@ -286,10 +286,17 @@ export const fixtures: Record<string, Fixture> = {
     path: ["results", 0],
   },
   RequestHumanOutputSchema: {
+    pass: { status: "awaiting_approval", request_id: "A2H-7f3c", approval_url: "https://dev.a2h-protocol.org/approve/A2H-7f3c?t=abc", approval_expires_at: "2026-11-04T10:00:00+00:00" },
+    fail: { status: "awaiting_approval", request_id: "A2H-7f3c", approval_url: "https://dev.a2h-protocol.org/approve/A2H-7f3c?t=abc", approval_expires_at: "tomorrow" },
+    path: ["approval_expires_at"],
+  },
+  RequestHumanOutputM1Schema: {
     pass: { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 3500, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false },
     fail: { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 35.5, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false },
     path: ["held_minor"],
   },
+  NotSentReasonSchema: { pass: "expired", fail: "dismissed", path: [] },
+  ApprovalTokenSchema: { pass: "A".repeat(42) + "w", fail: "A".repeat(43) + "=", path: [] },
   SigningKeyStatusSchema: { pass: "rotated", fail: "expired", path: [] },
   PublicSigningKeySchema: {
     pass: { key_id: "stage-dev-2026-10", status: "rotated", public_key: "A".repeat(43) + "=", created_at: "2026-10-01T09:00:00+02:00", rotated_at: "2026-10-21T09:00:00+02:00" },

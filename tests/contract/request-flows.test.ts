@@ -28,7 +28,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import type { CallToolResult } from "@modelcontextprotocol/client";
-import { answerEnvelopeSchemaFor, REQUEST_ID_PATTERN, RequestHumanOutputSchema, type CheckedRequest, type RequestHumanOutput } from "@a2h/protocol";
+import { answerEnvelopeSchemaFor, REQUEST_ID_PATTERN, RequestHumanOutputM1Schema as RequestHumanOutputSchema, type CheckedRequest, type RequestHumanOutputM1 as RequestHumanOutput } from "@a2h/protocol";
 import {
   accept,
   approvalRound,

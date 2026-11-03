@@ -201,6 +201,56 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     });
   });
 
+  describe("awaiting approval (m2-approval-page design D1)", () => {
+    const HASH = "a".repeat(64);
+    const copy = (id: string, extra: string, values: string) => `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane, question, bid_minor, currency, expires_at, deliver_at, data_terms${extra})
+      SELECT '${id}', principal_id, participant_id, intent, audience, time_shape, format, lane, question, bid_minor, currency, expires_at, deliver_at, data_terms${values} FROM requests WHERE id = 'A2H-7f3c'`;
+    const awaitingRow = (id: string, hash = HASH) =>
+      copy(id, ", status, agent_draft, approval_token_hash, approval_expires_at", `, 'awaiting_approval', question, '${hash}', now() + interval '1 hour'`);
+    const ev = (id: string) => `INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('${id}', $1, $2, $3)`;
+
+    test("Closed status set: awaiting_approval and not_sent are known statuses", async () => {
+      await accepts(awaitingRow("A2H-a001"));
+      await accepts(ev("A2H-a001"), [null, "awaiting_approval", "principal"]);
+    });
+    test("an awaiting request carries the agent's draft, the token's hash and the link's expiry", async () => {
+      await rejects(copy("A2H-a002", ", status", ", 'awaiting_approval'"), [], /requests_awaiting_approval_complete/);
+      await rejects(copy("A2H-a002", ", status, agent_draft, approval_expires_at", ", 'awaiting_approval', question, now()"), [], /requests_awaiting_approval_complete/);
+      await rejects(copy("A2H-a002", ", status, approval_token_hash, approval_expires_at", `, 'awaiting_approval', '${HASH}', now()`), [], /requests_awaiting_approval_complete/);
+    });
+    test("the token is stored as its SHA-256 only: 64 lower-case hex characters, unique", async () => {
+      await rejects(awaitingRow("A2H-a003", "A".repeat(43)), [], /requests_approval_token_hash_format/);
+      await rejects(awaitingRow("A2H-a003", "A".repeat(64)), [], /requests_approval_token_hash_format/);
+      await rejects(awaitingRow("A2H-a003"), [], /requests_approval_token_hash_unique|duplicate key/);
+    });
+    test("the agent's draft obeys the question's length limit", async () => {
+      await rejects(copy("A2H-a004", ", status, agent_draft, approval_token_hash, approval_expires_at", `, 'awaiting_approval', repeat('x', 2001), '${"b".repeat(64)}', now()`), [], /requests_agent_draft_length/);
+    });
+    test("not_sent has a reason, declined or expired; no other status has one", async () => {
+      await rejects(`UPDATE requests SET status = 'not_sent' WHERE id = 'A2H-a001'`, [], /requests_not_sent_reason/);
+      await rejects(`UPDATE requests SET status = 'not_sent', not_sent_reason = 'refused' WHERE id = 'A2H-a001'`, [], /requests_not_sent_reason/);
+      await rejects(`UPDATE requests SET not_sent_reason = 'declined' WHERE id = 'A2H-a001'`, [], /requests_not_sent_reason/);
+      await accepts(`UPDATE requests SET status = 'not_sent', not_sent_reason = 'expired' WHERE id = 'A2H-a001'`);
+      await accepts(`UPDATE requests SET status = 'not_sent', not_sent_reason = 'declined' WHERE id = 'A2H-a001'`);
+    });
+    test("Legal transitions: awaiting_approval → sent by the principal, → not_sent by the principal or the platform", async () => {
+      await accepts(awaitingRow("A2H-a005", "c".repeat(64)));
+      await accepts(ev("A2H-a005"), ["awaiting_approval", "sent", "principal"]);
+      await accepts(awaitingRow("A2H-a006", "d".repeat(64)));
+      await accepts(ev("A2H-a006"), ["awaiting_approval", "not_sent", "principal"]);
+      await accepts(awaitingRow("A2H-a007", "e".repeat(64)));
+      await accepts(ev("A2H-a007"), ["awaiting_approval", "not_sent", "platform"]);
+    });
+    test("Illegal transition: not_sent → sent, awaiting_approval → accepted, the platform or the participant sending, creation by anyone but the principal", async () => {
+      await rejects(ev("A2H-a006"), ["not_sent", "sent", "principal"]);
+      await rejects(ev("A2H-a007"), ["awaiting_approval", "accepted", "participant"]);
+      await rejects(ev("A2H-a007"), ["awaiting_approval", "sent", "platform"]);
+      await rejects(ev("A2H-a007"), ["awaiting_approval", "not_sent", "participant"]);
+      await rejects(ev("A2H-a007"), [null, "awaiting_approval", "platform"]);
+      await rejects(ev("A2H-a007"), [null, "not_sent", "principal"]);
+    });
+  });
+
   describe("answers (Envelope is complete or rejected)", () => {
     const insert = `INSERT INTO answers (request_id, participant_id, body, confidence, answered_personally, signed_at, key_id, signature)
       VALUES ('A2H-7f3c', 'p_sim_mv', '{"verdict":"yes"}', $1, $2, $3, $4, $5)`;

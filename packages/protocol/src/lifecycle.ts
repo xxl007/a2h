@@ -7,6 +7,11 @@ import type { Actor, LifecycleEvent, RequestStatus } from "./request.ts";
 
 /** The legal transitions: from-state → actor → event → to-state. Everything else is invalid. */
 const TRANSITIONS: Readonly<Partial<Record<RequestStatus, Partial<Record<Actor, Partial<Record<LifecycleEvent, RequestStatus>>>>>>> = {
+  // Only the approval page (the principal) and the approval link's expiry (the platform) leave it.
+  awaiting_approval: {
+    principal: { approve: "sent", decline: "not_sent" },
+    platform: { expire: "not_sent" },
+  },
   sent: {
     participant: { accept: "accepted", decline: "declined" },
     platform: { expire: "expired" },
@@ -19,14 +24,20 @@ const TRANSITIONS: Readonly<Partial<Record<RequestStatus, Partial<Record<Actor, 
   },
 };
 
-/** Which state each (actor, event) leads to, for recognising replays. */
-const TARGET: Readonly<Record<string, RequestStatus>> = {
-  "participant|accept": "accepted",
-  "participant|decline": "declined",
-  "participant|answer": "answered",
-  "platform|expire": "expired",
-  "principal|cancel": "cancelled",
-};
+/** Which states each (actor, event) leads to, for recognising replays. */
+const TARGETS: ReadonlyMap<string, ReadonlySet<RequestStatus>> = (() => {
+  const m = new Map<string, Set<RequestStatus>>();
+  for (const byActor of Object.values(TRANSITIONS)) {
+    for (const [actor, byEvent] of Object.entries(byActor ?? {})) {
+      for (const [event, to] of Object.entries(byEvent ?? {})) {
+        const key = `${actor}|${event}`;
+        if (!m.has(key)) m.set(key, new Set());
+        m.get(key)!.add(to);
+      }
+    }
+  }
+  return m;
+})();
 
 export type TransitionResult =
   | { ok: true; from: RequestStatus; to: RequestStatus; changed: boolean }
@@ -41,7 +52,7 @@ export type TransitionResult =
 export function transition(state: RequestStatus, actor: Actor, event: LifecycleEvent): TransitionResult {
   const to = TRANSITIONS[state]?.[actor]?.[event];
   if (to) return { ok: true, from: state, to, changed: true };
-  if (TARGET[`${actor}|${event}`] === state) return { ok: true, from: state, to: state, changed: false };
+  if (TARGETS.get(`${actor}|${event}`)?.has(state)) return { ok: true, from: state, to: state, changed: false };
   return {
     ok: false,
     error: { code: "invalid_transition", stage: "lifecycle", retryable: false, detail: "This change is not possible in the request's current state." },
@@ -52,6 +63,10 @@ export function transition(state: RequestStatus, actor: Actor, event: LifecycleE
 export function holdStatusAfter(state: RequestStatus, { paid }: { paid: boolean }): HoldStatus {
   if (!paid) return "none";
   switch (state) {
+    // Nothing is held before the principal sends it, nor when it was never sent.
+    case "awaiting_approval":
+    case "not_sent":
+      return "none";
     case "sent":
     case "accepted":
       return "held";

@@ -9,7 +9,7 @@ import {
   FindHumansOutputSchema,
   PING_MAX_HOLD_SECONDS,
   PingInputSchema,
-  RequestHumanOutputSchema,
+  RequestHumanOutputM1Schema,
   pingJsonSchemas,
   toolJsonSchemas,
 } from "@a2h/protocol";
@@ -145,7 +145,8 @@ function registerA2hTools(server: McpServer, session: A2hSession): void {
     {
       description: REQUEST_HUMAN_DESCRIPTION,
       inputSchema: listedInput(json.request_human.input),
-      outputSchema: listedOutput(RequestHumanOutputSchema, json.request_human.output),
+      // Unchanged until m2-approval-page task 3.1: the m1 result shape (deprecated in the protocol).
+      outputSchema: listedOutput(RequestHumanOutputM1Schema, json.request_human.output),
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async (args, ctx) => run(session, "request_human", ctx, (deps): Promise<RequestHumanOutcome> => requestHuman(deps, args, ctx)),
