@@ -16,26 +16,29 @@ export interface AuthShellProps {
 export function AuthShell({ children, stageName, account, width = "narrow" }: AuthShellProps) {
   return (
     <div className={styles.page}>
-      <header className={styles.header}>
-        <span className={styles.wordmark}>A2H</span>
-        {account && (
-          <div className={styles.account}>
-            <span>
-              Signed in as <span className={styles.email}>{account.email}</span>
-            </span>
-            <form method="post" {...formActionProps(account.signOutAction)}>
-              <Button type="submit" variant="ghost">
-                Sign out
-              </Button>
-            </form>
-          </div>
+      {/* One banner landmark holds the bar and, on non-production stages, the stage line (axe `region`). */}
+      <header className={styles.banner}>
+        <div className={styles.header}>
+          <span className={styles.wordmark}>A2H</span>
+          {account && (
+            <div className={styles.account}>
+              <span>
+                Signed in as <span className={styles.email}>{account.email}</span>
+              </span>
+              <form method="post" {...formActionProps(account.signOutAction)}>
+                <Button type="submit" variant="ghost">
+                  Sign out
+                </Button>
+              </form>
+            </div>
+          )}
+        </div>
+        {stageName !== undefined && (
+          <p className={styles.stage} role="note">
+            Test stage {stageName}. Not the live service.
+          </p>
         )}
       </header>
-      {stageName !== undefined && (
-        <p className={styles.stage}>
-          Test stage {stageName}. Not the live service.
-        </p>
-      )}
       <main className={`${styles.main} ${width === "wide" ? styles.wide : ""}`}>{children}</main>
     </div>
   );

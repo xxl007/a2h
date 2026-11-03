@@ -73,13 +73,8 @@ async function axe(page: Page, label: string): Promise<void> {
   const violations = await page.evaluate(async () => {
     const w = window as unknown as { axe: { run: (ctx: Document, o: unknown) => Promise<{ violations: { id: string; nodes: { target: unknown[] }[] }[] }> } };
     const r = await w.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] } });
-    // Known, reported to Design (packages/ui AuthShell): the non-production stage line sits outside
-    // any landmark (best-practice `region`; prod has no stage line). Only that rule on only that
-    // node is set aside; every other rule still runs on it, and any other `region` node fails.
-    const stageLineOnly = (v: { id: string; nodes: { target: unknown[] }[] }) =>
-      v.id === "region" && v.nodes.every((n) => /AuthShell_stage/.test(JSON.stringify(n.target)));
     // Rule id and the selectors of its nodes (no text content: a failure message never carries the question).
-    return r.violations.filter((v) => !stageLineOnly(v)).map((v) => `${v.id}: ${v.nodes.map((n) => JSON.stringify(n.target)).join(", ")}`);
+    return r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => JSON.stringify(n.target)).join(", ")}`);
   });
   expect.soft(violations, label).toEqual([]);
 }
