@@ -19,12 +19,12 @@ function volumeExists(name: string): boolean {
 
 test("stop() removes the container's anonymous volume with it", { skip: skipWithoutDocker() }, async () => {
   const pg = await startPostgres();
-  let volumes: string[] = [];
+  const volumes: string[] = [];
   try {
     const port = new URL(pg.url).port;
     const id = execFileSync("docker", ["ps", "-q", "--filter", `publish=${port}`], { encoding: "utf8" }).trim().split("\n")[0]!;
     assert.ok(id, "the helper's container is running");
-    volumes = execFileSync("docker", ["inspect", "-f", "{{range .Mounts}}{{if eq .Type \"volume\"}}{{.Name}} {{end}}{{end}}", id], { encoding: "utf8" }).trim().split(/\s+/).filter(Boolean);
+    volumes.push(...execFileSync("docker", ["inspect", "-f", "{{range .Mounts}}{{if eq .Type \"volume\"}}{{.Name}} {{end}}{{end}}", id], { encoding: "utf8" }).trim().split(/\s+/).filter(Boolean));
     assert.ok(volumes.length > 0, "postgres:17 gets an anonymous data volume");
   } finally {
     pg.stop();
