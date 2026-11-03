@@ -62,12 +62,17 @@ describe.skipIf(!adminUrl)("POST /test-fixtures/approval", () => {
     expect(r).toEqual({ principal_id: "user-fixture-qa", simulated: true, bid_minor: 3500 });
   });
 
-  test("a poll with options and a scale", async () => {
+  test("a poll with options and a scale, €10.00, to a simulated participant who takes opinions", async () => {
     const res = await handleApprovalFixture(deps(), post({ variant: "poll" }));
     expect(res.status).toBe(201);
     const { request_id } = (await res.json()) as { request_id: string };
-    const [r] = await d.sql<{ format: string; options: unknown; scale: unknown }>("SELECT format, options, scale FROM requests WHERE id = $1", [request_id]);
+    const [r] = await d.sql<{ format: string; options: unknown; scale: unknown; bid_minor: number; handle: string }>(
+      "SELECT r.format, r.options, r.scale, r.bid_minor, p.handle FROM requests r JOIN participants p ON p.id = r.participant_id WHERE r.id = $1",
+      [request_id],
+    );
     expect(r!.format).toBe("poll");
+    expect(r!.bid_minor).toBe(1000);
+    expect(["sim-jw-9e48", "sim-cf-4c5e", "sim-ep-5c07"]).toContain(r!.handle);
     expect(Array.isArray(r!.options)).toBe(true);
     expect(r!.scale).toEqual({ min: 1, max: 5 });
   });

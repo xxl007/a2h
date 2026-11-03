@@ -50,7 +50,14 @@ const BodySchema = z.strictObject({ variant: z.enum(["paid", "poll", "expired"])
 
 export const FIXTURE_QUESTION = "Would a patient newly diagnosed with type 2 diabetes find the leaflet's section on insulin alarming?";
 
-function manifestFor(variant: "paid" | "poll" | "expired", principalId: string, now: Date): Manifest {
+/**
+ * The poll goes to the first of these whose rules take it now: three
+ * simulated participants accept opinions at €10.00 gross, so the flows'
+ * Sends spread over three daily interruption limits (10 each, seed).
+ */
+const POLL_PARTICIPANTS = ["sim-jw-9e48", "sim-cf-4c5e", "sim-ep-5c07"] as const;
+
+function manifestFor(variant: "paid" | "poll" | "expired", principalId: string, now: Date, to?: string): Manifest {
   const base = {
     audience: "named_individual",
     time_shape: "one_shot",
@@ -63,7 +70,7 @@ function manifestFor(variant: "paid" | "poll" | "expired", principalId: string, 
   if (variant === "poll") {
     return {
       ...base,
-      to: "sim-ep-5c07",
+      to: to ?? POLL_PARTICIPANTS[0],
       intent: "opinion",
       format: "poll",
       question: "Which cover would make you pick this picture book up first?",
@@ -73,7 +80,7 @@ function manifestFor(variant: "paid" | "poll" | "expired", principalId: string, 
         { id: "c", label: "The two hens & the umbrella" },
       ],
       scale: { min: 1, max: 5 },
-      bid_minor: 1500,
+      bid_minor: 1000,
     };
   }
   return { ...base, to: "sim-mv-7f3c", intent: "judgment", format: "single_field", question: FIXTURE_QUESTION, bid_minor: 3500 };
@@ -94,12 +101,23 @@ export async function handleApprovalFixture(deps: FixtureDeps, request: Request)
   const now = deps.now?.() ?? new Date();
   const owner = await ensurePrincipal(deps.db, principalId, { policy: deps.defaultPolicy });
   const policy = { ...owner.policy, fee_rate: deps.feeRate };
-  const manifest = manifestFor(variant, principalId, now);
-  const participant = await findPublishedParticipant(deps.db, manifest.to);
-  if (!participant?.simulated) return json(409, { error: "the simulated participants are not seeded on this stage" });
-  const facts = await approvalFacts(deps.db, { principal: owner.principal, currency: policy.currency, participant, now, approval: "recorded" });
-  const v = validateManifest(manifest, facts, policy);
-  if (!v.ok) return json(409, { error: v.error.code });
+  let chosen: { manifest: Manifest; participant_id: string; deliver_at: string } | undefined;
+  let refusal = "no_simulated_participant";
+  for (const to of variant === "poll" ? POLL_PARTICIPANTS : [undefined]) {
+    const manifest = manifestFor(variant, principalId, now, to);
+    const participant = await findPublishedParticipant(deps.db, manifest.to);
+    if (!participant?.simulated) continue;
+    const facts = await approvalFacts(deps.db, { principal: owner.principal, currency: policy.currency, participant, now, approval: "recorded" });
+    // Not recorded as a block: this is a test helper looking for a participant whose rules take it.
+    const v = validateManifest(manifest, facts, policy);
+    if (v.ok) {
+      chosen = { manifest, participant_id: participant.participant_id, deliver_at: v.deliver_at };
+      break;
+    }
+    refusal = v.error.code;
+  }
+  if (!chosen) return json(409, { error: refusal });
+  const { manifest } = chosen;
 
   const token = formatApprovalToken(crypto.getRandomValues(new Uint8Array(32)));
   if (!ApprovalTokenSchema.safeParse(token).success) throw new Error("token format");
@@ -111,8 +129,8 @@ export async function handleApprovalFixture(deps: FixtureDeps, request: Request)
       await createAwaitingRequest(deps.db, {
         id,
         manifest,
-        participant_id: participant.participant_id,
-        deliver_at: new Date(v.deliver_at),
+        participant_id: chosen.participant_id,
+        deliver_at: new Date(chosen.deliver_at),
         approval_token_hash: await approvalTokenHash(token),
         approval_expires_at: linkExpiry,
         now: created,
