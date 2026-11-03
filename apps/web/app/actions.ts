@@ -5,7 +5,7 @@
 // flash cookie that /sign-in/sent reads (never the URL).
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { listConnectedClients, revokeClient } from "../src/auth/account";
+import { revokeForSession } from "../src/auth/account";
 import { ROUTES } from "../src/auth/auth";
 import { ConsentError, decideConsent } from "../src/auth/consent";
 import { checkEmail, requestMagicLink, safeNext } from "../src/auth/sign-in";
@@ -115,14 +115,11 @@ export async function consentAction(_prev: ConsentActionState, form: FormData): 
   redirect(url);
 }
 
-/** Connected apps: revoke one client (spec "Client revoked"). Rejects when it did not go through. */
+/** Connected apps: revoke one client (spec "Client revoked", "Revoke repeated"). Rejects when it did not go through. */
 export async function revokeAction(clientId: string): Promise<void> {
   const runtime = await getRuntime();
   const session = await runtime.auth.api.getSession({ headers: await requestHeaders() });
-  if (!session) throw new Error("not signed in");
-  const mine = await listConnectedClients(runtime.db, session.user.id);
-  if (!mine.some((c) => c.id === clientId)) throw new Error("not connected");
-  await revokeClient(runtime.db, runtime.logger, session.user.id, clientId);
+  await revokeForSession({ db: runtime.db, logger: runtime.logger, userId: session?.user.id }, clientId);
 }
 
 /** Header "Sign out": the session is revoked; consents held by apps stay (S6). */

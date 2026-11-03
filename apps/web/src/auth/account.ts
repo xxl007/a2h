@@ -52,6 +52,23 @@ export async function revokeClient(db: PrincipalsDb, logger: Logger, userId: str
       .where(and(eq(oauthRefreshToken.userId, userId), eq(oauthRefreshToken.clientId, clientId), isNull(oauthRefreshToken.revoked)));
     return deleted.length > 0;
   });
-  logger.info("client revoked", { code: removed ? "client_revoked" : "client_revoke_noop", principal_id: userId, client_id: clientId });
+  if (removed) logger.info("client revoked", { code: "client_revoked", principal_id: userId, client_id: clientId });
+  else logger.info("client already revoked", { code: "client_already_revoked", principal_id: userId, client_id: clientId });
   return removed;
+}
+
+/**
+ * The Disconnect action of the signed-in principal (scenarios "Client revoked"
+ * and "Revoke repeated"). A client that is no longer connected, for example
+ * after a revoke in another tab, is a success: the outcome the principal asked
+ * for already holds. The revoke is scoped to the session's own principal, so
+ * any client id changes nothing of anyone else. Rejects only without a session
+ * or when the database call fails.
+ */
+export async function revokeForSession(
+  deps: { db: PrincipalsDb; logger: Logger; userId: string | undefined },
+  clientId: string,
+): Promise<"revoked" | "already_revoked"> {
+  if (deps.userId === undefined) throw new Error("not signed in");
+  return (await revokeClient(deps.db, deps.logger, deps.userId, clientId)) ? "revoked" : "already_revoked";
 }
