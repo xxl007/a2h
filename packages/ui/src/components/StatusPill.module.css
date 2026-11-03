@@ -1,0 +1,14 @@
+.pill {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  line-height: calc(var(--leading-xs) + 4px);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.success { background: var(--success-bg); border-color: var(--success-border); color: var(--success-text); }
+.pending { background: var(--pending-bg); border-color: var(--pending-border); color: var(--pending-text); }
+.danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger-text); }
+.neutral { background: var(--neutral-bg); border-color: var(--neutral-border); color: var(--neutral-text); }

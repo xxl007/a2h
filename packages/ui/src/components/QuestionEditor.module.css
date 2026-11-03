@@ -1,0 +1,52 @@
+.field { display: flex; flex-direction: column; gap: var(--space-2); }
+.label { font-size: var(--text-md); line-height: var(--leading-md); font-weight: var(--weight-strong); color: var(--text); }
+.description { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); max-width: var(--measure); }
+/* The question is plain text on the input surface: no tint, no accent border (skill §3). */
+.textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: calc(var(--leading-md) * 6 + var(--space-3) * 2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md); /* 16 px: no zoom on focus in mobile Safari */
+  line-height: var(--leading-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: vertical;
+}
+@supports (field-sizing: content) {
+  .textarea { field-sizing: content; max-height: 70vh; }
+}
+.textarea:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.textarea[aria-invalid="true"] { border-width: 2px; border-color: var(--danger-border); }
+.textarea[readonly] { color: var(--text-muted); }
+.meta {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-3);
+  min-height: var(--target-min);
+  font-size: var(--text-sm); line-height: var(--leading-sm);
+}
+.origin { display: inline-flex; align-items: center; min-height: var(--target-min); }
+.restore {
+  min-height: var(--target-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: var(--weight-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.restore:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+.count { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.countOver { color: var(--danger-text); font-weight: var(--weight-strong); }
+.error { margin: 0; min-height: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--danger-text); font-weight: var(--weight-strong); }
+.visuallyHidden {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0;
+}
