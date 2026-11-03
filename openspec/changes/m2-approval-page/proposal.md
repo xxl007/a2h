@@ -40,7 +40,9 @@ The principal approves every request before anything leaves (the one rule), but 
 
 On the change's preview, signed in with your allow-listed address: from claude.ai and from Claude Code, ask for a question to a simulated participant; open the link the client shows; edit the question, see "Restore agent draft", send; ask the agent to check it. Repeat with "Don't send", and once leaving the link to expire. Open someone else's link: refused. Open the page on a phone.
 
-## Decisions needed at Gate 1
+## Decisions at Gate 1
+
+Gate 1 passed 2026-11-03: the owner accepted every recommendation below ("Let's go with your recommendations. Carry on.").
 
 1. **Attachments in this change or the next.** Recommended: next change. Manifests with attachments stay refused here; this change builds the page so a file list slots in. Attachments need uploads, storage rules, scanning and a viewer on the participant side too; bundling them doubles the change.
 2. **What the agent sees before approval.** Recommended: a request id at once, status `awaiting_approval`, and the link; `check_requests` follows it. Alternative: no id until Send (the approval has its own id); simpler lifecycle, but the agent tracks two kinds of id.

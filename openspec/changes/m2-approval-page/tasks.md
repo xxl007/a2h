@@ -2,7 +2,7 @@
 
 Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/worker), **WD** web-dev (apps/web), **DS** design (packages/ui, Screens in design.md), **QA** qa (tests/, workflows), **PM**, **Owner**. One PR for the change into `main`, built from one PR per task group into the change branch `feat/m2-approval-page`. Every task: failing test first, then the code, then green. Nothing starts before Gate 1.
 
-## 1. Spike: URL elicitation in the two clients (PD with Owner, before group 4)
+## 1. Spike: URL elicitation in the two clients (PD with Owner, before group 3)
 
 - [ ] 1.1 PD: a throwaway branch where `request_human` on a preview answers with a URL-mode elicitation pointing at a static page; verify with MCP Inspector that the elicitation is well-formed and the retry completes, and record the Inspector version
 - [ ] 1.2 Owner: from claude.ai and Claude Code, call it once each; report whether the client declared `elicitation.url`, what it showed, and what happened on accept and decline; PD pastes the preview log lines (methods, capabilities, outcome; no bodies) into this file; PM records the result and adjusts D3's wording if needed
