@@ -134,7 +134,6 @@ export const copy = {
 
     questionLabel: "Your question, sent exactly as written",
     questionDescription: "This is the text they will read. Edit it here if you want; line breaks are kept.",
-    agentDraft: "Agent draft",
     restore: "Restore agent draft",
     restored: "Agent draft restored.",
     count: "{count} / {max}",
@@ -179,6 +178,7 @@ export const copy = {
     freeLanes: { own_publications: "their own publications", facts_about_self: "facts about themselves" },
     expires: "Expires",
     expiresNote: "If they have not answered by then, the request ends and the hold is released.",
+    expiresNoteFree: "If they have not answered by then, the request ends. Nothing is charged.",
     dataTerms: "Their answer",
     dataTermsText: "Stored in your workspace, {attribution}, {training}.",
     attribution: { not_attributed: "not attributed to them", attributed: "attributed to them" },

@@ -50,7 +50,7 @@ export const pollRequest: ApprovalRequest = {
   options: [
     { id: "a", label: "The fox in the rain (cover A)" },
     { id: "b", label: "Night garden, «lanterns» & owls — cover B" },
-    { id: "c", label: "ZZ-OPTION-LABEL-3 中文" },
+    { id: "c", label: "A quiet street at dusk (cover C)" },
   ],
   scale: { min: 1, max: 7 },
   money: { lane: "free", freeLane: "own_publications" },
@@ -71,3 +71,15 @@ export const realParticipantRequest: ApprovalRequest = {
 
 /** Stories show times in Paris so the offset is visible; pages use the viewer's zone. */
 export const storyTimeZone = "Europe/Paris";
+
+/** Stress case: labels with quotes, guillemets, mixed scripts and a long unbroken word (story only). */
+export const pollStressRequest: ApprovalRequest = {
+  ...pollRequest,
+  id: "A2H-5e0a",
+  options: [
+    { id: "a", label: "“Cover A” — the fox in the rain" },
+    { id: "b", label: "Night garden, «lanterns» & owls — cover B" },
+    { id: "c", label: "封面 C：黄昏的安静街道" },
+    { id: "d", label: "Supercalifragilisticexpialidocious-cover-D-with-a-very-long-unbroken-label" },
+  ],
+};

@@ -42,8 +42,8 @@ export interface QuestionEditorProps {
 
 /**
  * The question, editable in place (PRD §6, skill §4a): a native textarea, so Enter inserts a
- * line break and never submits; the count and limit beneath it; "Agent draft" while unchanged,
- * "Restore agent draft" once the text differs. No edit mode, no model, no autosave elsewhere.
+ * line break and never submits; the count and limit beneath it; "Restore agent draft" once the
+ * text differs, nothing in its place while unchanged (the lead already says the agent drafted it). No edit mode, no model, no autosave elsewhere.
  */
 export function QuestionEditor({
   value: valueProp,
@@ -101,9 +101,7 @@ export function QuestionEditor({
       />
       <div className={styles.meta}>
         <span className={styles.origin}>
-          {!s.edited ? (
-            <span className={styles.agentDraft}>{c.agentDraft}</span>
-          ) : hydrated && !isReadOnly ? (
+          {s.edited && hydrated && !isReadOnly ? (
             <button type="button" className={styles.restore} onClick={restore}>
               {c.restore}
             </button>

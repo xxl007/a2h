@@ -30,8 +30,6 @@
   font-size: var(--text-sm); line-height: var(--leading-sm);
 }
 .origin { display: inline-flex; align-items: center; min-height: var(--target-min); }
-/* "Agent draft" names the machine origin in words; the accent is the platform's (skill §3.1). */
-.agentDraft { color: var(--accent); font-weight: var(--weight-strong); }
 .restore {
   min-height: var(--target-min);
   padding: 0;

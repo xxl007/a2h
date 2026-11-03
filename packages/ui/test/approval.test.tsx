@@ -95,9 +95,8 @@ describe("approval page: awaiting decision", () => {
     expect(text(renderToStaticMarkup(<ApprovalScreen {...base} request={realParticipantRequest} />))).not.toContain("no person will be asked");
   });
 
-  it("marks the unchanged text as the agent draft and states the count", () => {
-    expect(t).toContain("Agent draft");
-    expect(t).not.toContain("Restore agent draft");
+  it("shows no draft marker while unchanged, and states the count", () => {
+    expect(t).not.toMatch(/Agent draft|Restore agent draft/);
     expect(t).toContain(`${agentDraft.length} of 2000 characters`);
   });
 
@@ -117,6 +116,10 @@ describe("approval page: poll, free lane, deferred delivery (spec 'Poll request'
   it("Send carries no amount on a free lane", () => {
     expect(buttons(html)).toEqual(["Sign out", "Send", "Don't send"]);
     expect(t).toContain("free lane for questions about their own publications");
+  });
+  it("says nothing is charged at expiry, never that a hold is released", () => {
+    expect(t).toContain("If they have not answered by then, the request ends. Nothing is charged.");
+    expect(t).not.toMatch(/hold is released|held when you send/);
   });
   it("names when delivery happens", () => {
     expect(t).toContain("At 08:00 on 4 Nov 2026 (UTC+01:00), the earliest their rules allow.");

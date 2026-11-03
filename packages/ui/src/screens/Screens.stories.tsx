@@ -8,6 +8,7 @@ import {
   connectedClients,
   longName,
   pollRequest,
+  pollStressRequest,
   principalEmail,
   realParticipantRequest,
   storyTimeZone,
@@ -109,6 +110,8 @@ export const ApprovalOverLimit: Story = {
 };
 export const ApprovalEmpty: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} question="" /> };
 export const ApprovalPollFreeDeferred: Story = { render: () => <ApprovalScreen {...approve} request={pollRequest} /> };
+/** Stress case for option labels (not a reviewed spec state). */
+export const ApprovalPollStressLabels: Story = { render: () => <ApprovalScreen {...approve} request={pollStressRequest} /> };
 export const ApprovalRealParticipant: Story = { render: () => <ApprovalScreen email={principalEmail} timeZone={storyTimeZone} request={realParticipantRequest} /> };
 export const ApprovalSending: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="sending" /> };
 export const ApprovalCancelling: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="not-sending" /> };

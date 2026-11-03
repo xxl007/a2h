@@ -309,7 +309,7 @@ function AwaitingDecision({ state, request, question: initial, onQuestionChange,
             </Fact>
             <Fact term={c.expires}>
               <span>{time(request.expiresAt)}</span>
-              <FactNote>{c.expiresNote}</FactNote>
+              <FactNote>{m.lane === "paid" ? c.expiresNote : c.expiresNoteFree}</FactNote>
             </Fact>
             <Fact term={c.dataTerms}>
               {fill(c.dataTermsText, { attribution: c.attribution[request.dataTerms.attribution], training: c.training[request.dataTerms.training] })}
