@@ -33,6 +33,25 @@ export function formatApprovalToken(bytes: Uint8Array): ApprovalToken {
   return out;
 }
 
+const KEY_MIN_BYTES = 32;
+const DERIVATION_CONTEXT = "a2h-approval-link:";
+
+/**
+ * The token of a request's approval link: HMAC-SHA256 of the request id under
+ * the stage's approval key (32 bytes or more), base64url. Unguessable without
+ * the key, still stored only as its hash, and reproducible by the mcp service,
+ * so `check_requests` can show the same link again.
+ */
+export async function deriveApprovalToken(key: Uint8Array, requestId: string): Promise<ApprovalToken> {
+  if (key.length < KEY_MIN_BYTES) throw new TypeError(`the approval key is at least ${KEY_MIN_BYTES} bytes`);
+  if (!RequestIdSchema.safeParse(requestId).success) throw new TypeError("not a request id");
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) throw new TypeError("WebCrypto (crypto.subtle) is not available");
+  const k = await subtle.importKey("raw", key.slice(), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = await subtle.sign("HMAC", k, new TextEncoder().encode(DERIVATION_CONTEXT + requestId));
+  return formatApprovalToken(new Uint8Array(mac));
+}
+
 /** What is stored for a token: its SHA-256, lower-case hex. Compare hashes, never tokens. */
 export async function approvalTokenHash(token: string): Promise<string> {
   const subtle = globalThis.crypto?.subtle;

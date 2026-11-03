@@ -4,6 +4,7 @@
 // clock included. Ordered: schema → principal → content → rules → budget →
 // throttle; the first failure is returned.
 import * as z from "zod";
+import { approvalLinkExpiry } from "./approval.ts";
 import { classifyForbiddenContent, type ForbiddenContentClass } from "./content-rules.ts";
 import type { BlockedManifest, ParticipantBlockCode, ProtocolError, ProtocolErrorCode, ProtocolStage } from "./errors.ts";
 import { type Manifest, ManifestSchema, PrincipalSchema } from "./manifest.ts";
@@ -40,8 +41,6 @@ export const ValidationFactsSchema = z.strictObject({
   principal_throttled: z.boolean(),
   /** `pending`: the approval will be asked next; `recorded`: the principal accepted; `none`: no approval on this path. */
   approval: z.enum(["none", "pending", "recorded"]),
-  /** On an approval retry: the manifest hash the approval was issued for, and the hash of the retried arguments. */
-  approval_binding: z.strictObject({ issued_for: z.string().min(1), presented: z.string().min(1) }).optional(),
 });
 export type ValidationFacts = z.infer<typeof ValidationFactsSchema>;
 
@@ -164,10 +163,7 @@ export function validateManifest(manifest: unknown, factsIn: ValidationFacts, po
   if (expires <= now) return fail("schema_invalid", "schema", "Invalid field: expires_at (must be later than now).");
   if (m.to !== facts.participant.handle) throw new TypeError("facts describe another participant than the manifest's");
 
-  // 2. principal (the approval binding first: an approval covers one manifest only)
-  if (facts.approval_binding && facts.approval_binding.issued_for !== facts.approval_binding.presented) {
-    return fail("conflict", "principal", DETAIL.conflict);
-  }
+  // 2. principal
   if (m.principal_id !== facts.principal.principal_id || !facts.principal.verified) {
     return fail("principal_not_accountable", "principal", DETAIL.principal_not_accountable);
   }
@@ -206,6 +202,11 @@ export function validateManifest(manifest: unknown, factsIn: ValidationFacts, po
   if (deferred && deliverAt + latency > expires) return block(facts, "quiet_hours", true);
   if (facts.interruptions_today >= rules.max_interruptions_per_day) return block(facts, "interruption_budget");
   if (deliverAt + latency > expires) return block(facts, "latency_mismatch");
+  // request_human (approval pending): the approval link must stay open at least
+  // 15 minutes before the participant's latency promise no longer fits (m2-approval-page D2).
+  if (phase === "approval" && facts.approval === "pending" && approvalLinkExpiry({ now: facts.now, expires_at: m.expires_at, latency_promise_seconds: rules.latency_promise_seconds }) === null) {
+    return block(facts, "latency_mismatch");
+  }
 
   if (phase === "approval") {
     // 5. budget, cap, autonomy
