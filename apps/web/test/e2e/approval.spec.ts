@@ -387,7 +387,8 @@ test.describe("Requirement: The page is accessible", () => {
         await check("edited");
         await question(page).fill(PUSH_POLL);
         await send(page).click();
-        await expect(page.getByRole("main").getByRole("alert")).toBeVisible();
+        // The refusal itself, not any alert: the error state is an alert too (pr-82 run 41662927651).
+        await expect(page.getByRole("main").getByRole("alert")).toContainText("This wording can't be sent");
         await check("refused");
         if (scheme === "light") {
           // One Send per width (budget and daily limits, see "Send on the page").

@@ -23,17 +23,42 @@ export interface LogFields {
   cause?: string;
   /** Five-character Postgres SQLSTATE of a failed statement (e.g. `42883`), never the statement or its parameters. */
   sql_state?: string;
+  /** The database driver's message reduced to its first clause, quoted values and parentheses removed (`dbErrorSummary`). */
+  db_error?: string;
 }
 
 /**
- * What a log line may say about a thrown error: its class, its cause's class, and the
- * Postgres SQLSTATE when the driver reports one. Never a message: a database message
- * can quote the statement, its parameters or a row (a question, an address).
+ * The first clause of a database driver's message with every value taken out: cut at the
+ * first `;`, line break or "Detail", quoted segments and parenthesised parts replaced by "…",
+ * at most 160 characters. What is left names the error and the identifiers it is about
+ * ("ERROR: new row violates check constraint …", "Transaction … is not found …"); a value
+ * a statement carried (a question, an address) sits in quotes, parentheses or the Detail.
  */
-export function errorFields(e: unknown): Pick<LogFields, "code" | "cause" | "sql_state"> {
-  const out: Pick<LogFields, "code" | "cause" | "sql_state"> = { code: e instanceof Error ? e.name : "error" };
+export function dbErrorSummary(message: string): string {
+  const first = message.split(/;|\r?\n| Detail\b/)[0] ?? "";
+  return first
+    .replace(/"[^"]*"|'[^']*'|«[^»]*»|“[^”]*”/g, "…")
+    .replace(/\([^()]*\)/g, "…")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+/**
+ * What a log line may say about a thrown error: its class, its cause's class, the Postgres
+ * SQLSTATE when the driver reports one, and the cause's message with its values taken out
+ * (`dbErrorSummary`). Never a message as is: a database message can quote the statement,
+ * its parameters or a row (a question, an address).
+ */
+export function errorFields(e: unknown): Pick<LogFields, "code" | "cause" | "sql_state" | "db_error"> {
+  const out: Pick<LogFields, "code" | "cause" | "sql_state" | "db_error"> = { code: e instanceof Error ? e.name : "error" };
   const cause = e instanceof Error ? (e as Error & { cause?: unknown }).cause : undefined;
-  if (cause instanceof Error) out.cause = cause.name;
+  if (cause instanceof Error) {
+    out.cause = cause.name;
+    // Only the driver's own message (the cause): the outer one is drizzle's "Failed query: <sql> params: <values>".
+    const summary = dbErrorSummary(cause.message);
+    if (summary) out.db_error = summary;
+  }
   for (const candidate of [cause, e]) {
     if (!(candidate instanceof Error)) continue;
     // node-postgres puts it on `code`; the Data API only in its message ("...; SQLState: 42883").
@@ -82,6 +107,7 @@ const FIELD_NAMES: readonly (keyof LogFields)[] = [
   "stage",
   "cause",
   "sql_state",
+  "db_error",
 ];
 
 const ORDER: Record<LogLevel, number> = { debug: 10, info: 20, warn: 30, error: 40 };
