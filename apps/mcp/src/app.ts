@@ -75,6 +75,7 @@ export function createApp(options: AppOptions): App {
       createMcpServer(stage, {
         signal: stopping.signal,
         heldPings,
+        issuer: auth.issuer,
         ...(a2h ? { a2h: a2hSession(stage, a2h, fallback ?? callerOf(ctx.authInfo), log) } : {}),
       }));
 

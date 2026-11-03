@@ -236,7 +236,7 @@ describe("Requirement: Open paths stay open", () => {
       for (const era of ["legacy", "modern"] as const) {
         const client = await connect(`${s.origin}/mcp`, { era });
         const { tools } = await client.listTools();
-        assert.deepEqual(tools.map((t) => t.name).sort(), ["check_requests", "find_humans", "ping", "request_human"]);
+        assert.deepEqual(tools.map((t) => t.name).sort(), ["approval_link_spike", "check_requests", "find_humans", "ping", "request_human"]);
         const pong = await client.callTool({ name: "ping" });
         assert.deepEqual(pong.content, [{ type: "text", text: "pong from stage test" }]);
         await client.close();
@@ -269,7 +269,7 @@ describe("Requirement: Open paths stay open", () => {
     const s = await start({ auth: { ...auth(false), required: false } });
     try {
       const client = await connect(`${s.origin}/mcp`);
-      assert.ok((await client.listTools()).tools.length === 4);
+      assert.ok((await client.listTools()).tools.length === 5);
       await client.close();
     } finally {
       await s.stop();

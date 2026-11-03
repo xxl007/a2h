@@ -22,6 +22,7 @@ import { findHumans } from "./tools/find-humans.ts";
 import { CHECK_REQUESTS_DESCRIPTION, FIND_HUMANS_DESCRIPTION, REQUEST_HUMAN_DESCRIPTION } from "./tools/policy.ts";
 import { requestHuman, type RequestHumanOutcome } from "./tools/request-human.ts";
 import { PACKAGE_VERSION } from "./version.ts";
+import { registerApprovalLinkSpike } from "./approval-link.spike.ts";
 
 export { PING_MAX_HOLD_SECONDS };
 
@@ -40,6 +41,8 @@ export interface McpServerOptions {
   a2h?: A2hSession;
   /** The instance's cap on held pings (PING_MAX_CONCURRENT). Without it holds are not capped (tests). */
   heldPings?: HeldPings;
+  /** THROWAWAY SPIKE (m2-approval-page 1.1): the stage's authorization server, whose origin is the web host. */
+  issuer?: string;
 }
 
 /** A held ping refused because the instance already holds its cap (spec hosted-endpoint "Cap reached"). */
@@ -83,6 +86,7 @@ export function createMcpServer(stage: string, options: McpServerOptions = {}): 
     },
   );
   if (session) registerA2hTools(server, session);
+  if (session && options.issuer) registerApprovalLinkSpike(server, session, options.issuer);
   return server;
 }
 

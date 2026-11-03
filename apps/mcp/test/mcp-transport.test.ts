@@ -55,7 +55,7 @@ for (const era of ERAS) {
       const client = await connect(`${s.origin}/mcp`, { era });
       try {
         const { tools } = await client.listTools();
-        assert.deepEqual(tools.map((t) => t.name).sort(), ["check_requests", "find_humans", "ping", "request_human"]);
+        assert.deepEqual(tools.map((t) => t.name).sort(), ["approval_link_spike", "check_requests", "find_humans", "ping", "request_human"]);
         for (const t of tools) {
           assert.ok((t.description ?? "").trim().length > 0, `${t.name} has a description`);
           assert.equal(t.inputSchema.type, "object", `${t.name} has an object input schema`);
