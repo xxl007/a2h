@@ -376,7 +376,7 @@ jobs:
           A2H_LONG_FLOWS: "1"
         run: |
           cd tests
-          nohup bash -c 'node --test --test-reporter=spec contract/approval-expiry.test.ts adversarial/approval-expiry.live.test.ts > "$RUNNER_TEMP/expiry-flows.log" 2>&1; echo $? > "$RUNNER_TEMP/expiry-flows.exit"' > /dev/null 2>&1 &
+          ( node --test --test-reporter=spec contract/approval-expiry.test.ts adversarial/approval-expiry.live.test.ts > "$RUNNER_TEMP/expiry-flows.log" 2>&1; echo $? > "$RUNNER_TEMP/expiry-flows.exit" ) > /dev/null 2>&1 &
           echo "expiry flows started in the background"
 
       - name: Smoke (health, dev health, routing)
