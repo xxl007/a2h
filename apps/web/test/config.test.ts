@@ -16,6 +16,7 @@ const base = {
   PRINCIPAL_ASK_FIRST_ABOVE_MINOR: "none",
   PRINCIPAL_DAILY_REQUEST_LIMIT: "50",
   PRINCIPAL_THROTTLED_DAILY_LIMIT: "5",
+  FEE_RATE: "0.2",
 };
 
 describe("webConfigFromEnv", () => {
@@ -37,6 +38,16 @@ describe("webConfigFromEnv", () => {
     expect(c.allowlist).toEqual({ parameter: undefined, fallback: "" });
     expect(c.clients).toEqual([]);
     expect(c.stageName).toBe("pr-12");
+    expect(c.feeRate).toBe(0.2);
+  });
+
+  test("FEE_RATE is required, a decimal in [0, 1) (m2-approval-page: fee breakdown and Send's re-validation)", () => {
+    const { FEE_RATE: _drop, ...rest } = base;
+    void _drop;
+    expect(() => webConfigFromEnv(rest)).toThrow(/FEE_RATE is not set/);
+    expect(() => webConfigFromEnv({ ...base, FEE_RATE: "20%" })).toThrow(/FEE_RATE is not a decimal number/);
+    expect(() => webConfigFromEnv({ ...base, FEE_RATE: "1" })).toThrow(/FEE_RATE is not below 1/);
+    expect(webConfigFromEnv({ ...base, FEE_RATE: "0" }).feeRate).toBe(0);
   });
 
   test("prod shows no stage name and needs a sender", () => {

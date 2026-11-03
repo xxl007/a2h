@@ -23,7 +23,7 @@ function online(): boolean {
   return typeof navigator === "undefined" || navigator.onLine !== false;
 }
 
-export function SignInForm(props: { action: Action<SignInActionState>; next?: string; stageName?: string }) {
+export function SignInForm(props: { action: Action<SignInActionState>; next?: string; nextPurpose?: "connect" | "approve"; stageName?: string }) {
   const [state, dispatch, pending] = useActionState(props.action, { state: "idle" });
   const [offlineEmail, setOfflineEmail] = useState<string | undefined>(undefined);
   const submit = (form: FormData) => {
@@ -45,6 +45,7 @@ export function SignInForm(props: { action: Action<SignInActionState>; next?: st
       state={screenState}
       {...(email !== undefined ? { email } : {})}
       {...(props.next !== undefined ? { next: props.next } : {})}
+      {...(props.nextPurpose !== undefined ? { nextPurpose: props.nextPurpose } : {})}
       {...(state.reference !== undefined ? { reference: state.reference } : {})}
       {...(state.invalidReason !== undefined ? { invalidReason: state.invalidReason } : {})}
       {...(props.stageName !== undefined ? { stageName: props.stageName } : {})}

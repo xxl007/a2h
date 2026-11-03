@@ -15,6 +15,9 @@
 //   policy given to a principal at first consent (D4), the names the mcp
 //   service uses (infra/service-env.ts).
 // - AUTH_CLIENTS_JSON (optional): pre-registered clients (D8).
+// - FEE_RATE: the stage's fee rate `f` (ADR 0002), the mcp service's value:
+//   the approval page's fee breakdown and Send's re-validation
+//   (m2-approval-page D4).
 import { ValidationPolicySchema } from "@a2h/protocol";
 import * as z from "zod";
 
@@ -52,6 +55,8 @@ export interface WebConfig {
     throttled_daily_limit: number;
   };
   clients: PreRegisteredClient[];
+  /** ADR 0002 `f`, in [0, 1). */
+  feeRate: number;
 }
 
 const PR_STAGE = /^pr-[1-9][0-9]*$/;
@@ -77,6 +82,14 @@ function integer(env: Env, name: string): number {
   const text = required(env, name);
   if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text))) fail(`${name} is not a non-negative integer`);
   return Number(text);
+}
+
+function rate(env: Env, name: string): number {
+  const text = required(env, name);
+  if (!/^\d+(\.\d+)?$/.test(text)) fail(`${name} is not a decimal number`);
+  const value = Number(text);
+  if (value >= 1) fail(`${name} is not below 1`);
+  return value;
 }
 
 export function isLoopbackHost(hostname: string): boolean {
@@ -189,5 +202,6 @@ export function webConfigFromEnv(env: Env = process.env): WebConfig {
     allowlist: { parameter: optional(env, "ALLOWLIST_PARAMETER"), fallback: optional(env, "PRINCIPAL_ALLOWLIST") ?? "" },
     defaultPolicy: policy.data,
     clients: clientsFromEnv(env),
+    feeRate: rate(env, "FEE_RATE"),
   };
 }
