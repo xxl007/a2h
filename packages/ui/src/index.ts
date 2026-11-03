@@ -11,6 +11,18 @@ export { ClientIdentity, originLabel, provenanceText, isLocalOrigin } from "./co
 export { ClientRow } from "./components/ClientRow.js";
 export type { ClientRowProps, ClientRowState, ConnectedClient } from "./components/ClientRow.js";
 export { Skeleton } from "./components/Skeleton.js";
+export { QuestionEditor, questionStatus, characters } from "./components/QuestionEditor.js";
+export type { QuestionEditorProps, QuestionStatus } from "./components/QuestionEditor.js";
+export { Fact, FactList, FactNote, Mono, OptionList } from "./components/FactList.js";
+export type { FactListProps, FactProps, OptionListProps } from "./components/FactList.js";
+export { DecisionBar } from "./components/DecisionBar.js";
+export type { DecisionBarProps } from "./components/DecisionBar.js";
+export { StatusPill } from "./components/StatusPill.js";
+export type { StatusPillProps, StatusPillTone } from "./components/StatusPill.js";
+export { LocalTime } from "./components/LocalTime.js";
+export type { LocalTimeProps } from "./components/LocalTime.js";
+export { formatDateTime, viewerTimeZone } from "./components/datetime.js";
+export { fillNodes } from "./components/fillNodes.js";
 export type { ClientRegistration, ClientSummary, DisplayDate, FormAction, ScopeName } from "./components/types.js";
 
 export { SignInScreen } from "./screens/SignInScreen.js";
@@ -23,4 +35,15 @@ export { ConnectedClientsScreen } from "./screens/ConnectedClientsScreen.js";
 export type { ConnectedClientsScreenProps, ConnectedClientsState } from "./screens/ConnectedClientsScreen.js";
 export { SignedOutScreen } from "./screens/SignedOutScreen.js";
 export type { SignedOutScreenProps } from "./screens/SignedOutScreen.js";
+export { ApprovalScreen } from "./screens/ApprovalScreen.js";
+export type {
+  ApprovalFormat,
+  ApprovalFreeLane,
+  ApprovalIntent,
+  ApprovalMoney,
+  ApprovalRefusal,
+  ApprovalRequest,
+  ApprovalScreenProps,
+  ApprovalState,
+} from "./screens/ApprovalScreen.js";
 export { copy, fill } from "./screens/copy.js";

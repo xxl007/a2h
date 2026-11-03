@@ -1,0 +1,17 @@
+.reference { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.money { font-weight: var(--weight-strong); font-variant-numeric: tabular-nums; }
+/* The question as sent: plain text, line breaks kept, on the secondary surface like a quote block (skill §4e). */
+.questionAsSent {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--text-md);
+  line-height: var(--leading-md);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: var(--measure);
+}
+/* Holds the status notices without adding a flex gap when there are none. */
+.notices { display: contents; }
