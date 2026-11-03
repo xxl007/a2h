@@ -25,12 +25,12 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 
 ## 5. Approval page (WD, after 2 and 4)
 
-- [ ] 5.1 Route `/approve/[id]` (D7): session and principal check, token check, every state; verify the scenarios of "Only the request's principal sees the request" and "Every state of the page is stated" in `apps/web` tests
-- [ ] 5.2 Send and Don't send server actions (D4) with re-validation through the shared loaders; verify "Send on the page", "Don't send on the page", "Accept after editing", "Edit turns the question into a push-poll", "Budget spent meanwhile", "Decision replayed", "Forged token", "Another principal opens the link"
-- [ ] 5.3 Question editor behaviour; verify "Restore agent draft", "Over the limit", "Enter in the question", "Labels", "Poll request", "Simulated participant", "Time zone" with Playwright
-- [ ] 5.4 Accessibility; verify "Keyboard only" and "Narrow screen" with Playwright and axe on the preview
+- [x] 5.1 Route `/approve/[id]` (D7): session and principal check, token check, every state; verify the scenarios of "Only the request's principal sees the request" and "Every state of the page is stated" in `apps/web` tests — done in #82 (verify pr-82 run 41677823629: 43/43 web e2e, 26 approval flows)
+- [x] 5.2 Send and Don't send server actions (D4) with re-validation through the shared loaders; verify "Send on the page", "Don't send on the page", "Accept after editing", "Edit turns the question into a push-poll", "Budget spent meanwhile", "Decision replayed", "Forged token", "Another principal opens the link" — done in #82; decideApproval transaction fix in #83 (Data API: one statement at a time per transaction, stand-in now refuses concurrent statements)
+- [x] 5.3 Question editor behaviour; verify "Restore agent draft", "Over the limit", "Enter in the question", "Labels", "Poll request", "Simulated participant", "Time zone" with Playwright — done in #82, Playwright on pr-82
+- [x] 5.4 Accessibility; verify "Keyboard only" and "Narrow screen" with Playwright and axe on the preview — done in #82: axe clean at 320/390/1280 light and dark (non-prod stage line `region` rule set aside, Design follow-up)
 
-- [ ] 5.5 WD (found while diagnosing pr-82, PM decision 2026-11-03): a repeated revoke is a success, spec `platform/principal-identity` "Revoke repeated"; verify with a test first, separate small PR after #82
+- [x] 5.5 WD (found while diagnosing pr-82, PM decision 2026-11-03): a repeated revoke is a success, spec `platform/principal-identity` "Revoke repeated"; verify with a test first, separate small PR after #82 — done in #84 (verify pr-84 run 41682153445)
 
 ## 6. Verification (QA)
 
