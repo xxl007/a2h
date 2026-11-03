@@ -30,9 +30,11 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 - [ ] 5.3 Question editor behaviour; verify "Restore agent draft", "Over the limit", "Enter in the question", "Labels", "Poll request", "Simulated participant", "Time zone" with Playwright
 - [ ] 5.4 Accessibility; verify "Keyboard only" and "Narrow screen" with Playwright and axe on the preview
 
+- [ ] 5.5 WD (found while diagnosing pr-82, PM decision 2026-11-03): a repeated revoke is a success, spec `platform/principal-identity` "Revoke repeated"; verify with a test first, separate small PR after #82
+
 ## 6. Verification (QA)
 
-- [ ] 6.1 Contract tests for every scenario of the four deltas, named after them, against the preview; the table in `tests/README.md` updated; the suites that drove the old form (`request-approval`, `request-flows`) rewritten to approve through the page with the QA principal's session
+- [ ] 6.1 (also: `tests/lib/obtain-token.ts` `disconnectAll` waits for the row's disconnected notice instead of `waitForLoadState`, the race seen on pr-82) Contract tests for every scenario of the four deltas, named after them, against the preview; the table in `tests/README.md` updated; the suites that drove the old form (`request-approval`, `request-flows`) rewritten to approve through the page with the QA principal's session
 - [ ] 6.2 Adversarial: approving another principal's request, replaying a decision, forging and guessing tokens, sending after the link expired, an agent trying to move a request out of `awaiting_approval` through any tool; each red against a weakened check locally, then green on the preview
 - [ ] 6.3 Hosted-client check: claude.ai and Claude Code each show the link and the outcome reaches `check_requests`; record in `docs/runbooks/mcp-setup.md`
 
