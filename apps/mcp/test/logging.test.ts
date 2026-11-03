@@ -5,7 +5,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { ProtocolError } from "@modelcontextprotocol/client";
-import { RequestHumanOutputSchema, importPrivateKey, signAnswer } from "@a2h/protocol";
+import { RequestHumanOutputM1Schema as RequestHumanOutputSchema, importPrivateKey, signAnswer } from "@a2h/protocol";
 import type { webcrypto } from "node:crypto";
 import type { DbConfig } from "../src/config.ts";
 import type { LogLine } from "../src/logging.ts";

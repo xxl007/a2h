@@ -16,7 +16,7 @@
 // Run: A2H_MCP_URL=http://<alb>/pr-<n>/mcp pnpm --filter @a2h/tests adversarial
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { RequestHumanOutputSchema } from "@a2h/protocol";
+import { RequestHumanOutputM1Schema as RequestHumanOutputSchema } from "@a2h/protocol";
 import {
   accept,
   approvalRound,

@@ -23,7 +23,7 @@ import {
   type ProtocolError,
   RequestHumanInputSchema,
   type RequestHumanInput,
-  type RequestHumanOutput,
+  type RequestHumanOutputM1 as RequestHumanOutput,
   validateManifest,
   type ValidationFacts,
 } from "@a2h/protocol";

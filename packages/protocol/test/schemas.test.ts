@@ -217,6 +217,12 @@ describe("request_human result (m2-approval-page): awaiting_approval carries the
   test("sent is no longer a request_human result (the page sends)", () => {
     assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "sent", request_id: "A2H-7f3c" }).success, false);
   });
+  test("its JSON Schema is a closed top-level object, ready to be registered as outputSchema in task 3.1", () => {
+    const json = protocol.toJsonSchema(protocol.RequestHumanOutputSchema);
+    assert.equal(json["type"], "object");
+    assert.equal(json["additionalProperties"], false);
+    assert.deepEqual((json["properties"] as Record<string, { enum?: string[] }>)["status"]?.enum, ["awaiting_approval", "not_sent"]);
+  });
   test("the M1 result shape stays only for the unchanged request_human until task 3.1 (deprecated)", () => {
     assert.ok(protocol.RequestHumanOutputM1Schema.safeParse({ status: "not_sent", reason: "dismissed" }).success);
   });

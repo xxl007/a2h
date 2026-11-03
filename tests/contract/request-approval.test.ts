@@ -13,7 +13,7 @@
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { ProtocolError } from "@modelcontextprotocol/client";
-import { RequestHumanOutputSchema } from "@a2h/protocol";
+import { RequestHumanOutputM1Schema as RequestHumanOutputSchema } from "@a2h/protocol";
 import {
   accept,
   approvalRound,

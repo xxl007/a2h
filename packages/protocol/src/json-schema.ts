@@ -8,7 +8,7 @@ import {
   FindHumansOutputSchema,
   PingInputSchema,
   RequestHumanInputSchema,
-  RequestHumanOutputSchema,
+  RequestHumanOutputM1Schema,
 } from "./tools.ts";
 
 export type JsonSchema = Record<string, unknown>;
@@ -25,7 +25,9 @@ export function toJsonSchema(schema: z.ZodType, io: "input" | "output" = "output
 /** The Zod schemas of each A2H tool, for registration in apps/mcp. */
 export const TOOL_SCHEMAS = {
   find_humans: { input: FindHumansInputSchema, output: FindHumansOutputSchema },
-  request_human: { input: RequestHumanInputSchema, output: RequestHumanOutputSchema },
+  // What the tool registers and clients validate against: the m1 shape until
+  // m2-approval-page task 3.1 switches the tool and this line to RequestHumanOutputSchema.
+  request_human: { input: RequestHumanInputSchema, output: RequestHumanOutputM1Schema },
   check_requests: { input: CheckRequestsInputSchema, output: CheckRequestsOutputSchema },
 } as const;
 export type ToolName = keyof typeof TOOL_SCHEMAS;

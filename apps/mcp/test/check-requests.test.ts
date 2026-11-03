@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import {
   CheckRequestsOutputSchema,
-  RequestHumanOutputSchema,
+  RequestHumanOutputM1Schema as RequestHumanOutputSchema,
   canonicalAnswerPayload,
   importPrivateKey,
   signAnswer,
