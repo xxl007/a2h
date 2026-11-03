@@ -13,7 +13,7 @@ import {
   RequestIdSchema,
   SecondsSchema,
 } from "./primitives.ts";
-import { RequestStatusSchema } from "./request.ts";
+import { NotSentReasonSchema, RequestStatusSchema } from "./request.ts";
 
 export { RequestHumanInputSchema } from "./manifest.ts";
 
@@ -60,11 +60,44 @@ export type FindHumansOutput = z.infer<typeof FindHumansOutputSchema>;
 // ---- request_human -------------------------------------------------------
 
 /**
+ * The result of `request_human` (m2-approval-page, spec protocol/schemas
+ * "Request outcome and lane are explicit"). `awaiting_approval`: the request
+ * is recorded, nothing is held or delivered, and its principal decides on
+ * the approval page at `approval_url` until `approval_expires_at`.
+ * `not_sent`: the principal refused to open the link where the client asked
+ * through URL elicitation (`declined`), or the link expired (`expired`); the
+ * request id stays, nothing was held or delivered.
+ */
+export const RequestHumanOutputSchema = z
+  .strictObject({
+    status: z.enum(["awaiting_approval", "not_sent"]),
+    request_id: RequestIdSchema,
+    approval_url: z.url({ protocol: /^https$/ }).max(500).optional(),
+    approval_expires_at: DatetimeSchema.optional(),
+    reason: NotSentReasonSchema.optional(),
+  })
+  .superRefine((o, ctx) => {
+    const awaiting = o.status === "awaiting_approval";
+    for (const f of ["approval_url", "approval_expires_at"] as const) {
+      if (awaiting && o[f] === undefined) ctx.addIssue({ code: "custom", path: [f], message: `an awaiting result carries ${f}` });
+      if (!awaiting && o[f] !== undefined) ctx.addIssue({ code: "custom", path: [f], message: `a not-sent result has no ${f}` });
+    }
+    if (awaiting && o.reason !== undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "an awaiting result has no reason" });
+    if (!awaiting && o.reason === undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "a not-sent result says why" });
+  });
+export type RequestHumanOutput = z.infer<typeof RequestHumanOutputSchema>;
+
+/**
+ * @deprecated The m1 result of `request_human` (approval in the client's
+ * form), kept only so the unchanged tool and its suites keep validating
+ * until m2-approval-page task 3.1 switches the tool to
+ * `RequestHumanOutputSchema` and deletes this. Nothing new may use it.
+ *
  * `status: "sent"`: the request exists (`request_id`, `eta`, `held_minor`
  * gross, `deliver_at`, `deferred`). `status: "not_sent"`: the principal
  * declined or dismissed the approval; nothing exists.
  */
-export const RequestHumanOutputSchema = z
+export const RequestHumanOutputM1Schema = z
   .strictObject({
     status: z.enum(["sent", "not_sent"]),
     request_id: RequestIdSchema.optional(),
@@ -85,7 +118,7 @@ export const RequestHumanOutputSchema = z
       if (o.reason === undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "a not-sent result says why" });
     }
   });
-export type RequestHumanOutput = z.infer<typeof RequestHumanOutputSchema>;
+export type RequestHumanOutputM1 = z.infer<typeof RequestHumanOutputM1Schema>;
 
 // ---- check_requests ------------------------------------------------------
 
