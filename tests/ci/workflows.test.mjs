@@ -341,7 +341,11 @@ function assertVerifyJob(f) {
   assert.equal(j.permissions?.contents, "read", `${f} verify contents permission`);
   // Task 8.3 asked for ten minutes; measured on pr-59 (run 41430407485) the contract suite alone takes 6 min 49 s
   // (simulated-persona delays and a platform expiry) and the whole job about 10.5 min: 15 is the bound, recorded in PR #59.
-  assert.equal(j["timeout-minutes"] <= 15, true, `${f} verify must stay under fifteen minutes`);
+  // m2-approval-page 6.1/6.2: on previews the expiry flows (an approval link lasts at least fifteen minutes,
+  // design D2) run in the background for about 23 minutes alongside the suites: 30 is the preview's bound.
+  // dev keeps 15 (no expiry flows after a merge).
+  const bound = f === "preview.yml" ? 30 : 15;
+  assert.equal(j["timeout-minutes"] <= bound, true, `${f} verify must stay under ${bound} minutes`);
   const creds = indexOf(j, isCreds, `${f} verify AWS credentials`);
   assert.equal(steps(j).filter(isCreds).length, 1, `${f} verify: one credentials step`);
   assert.ok(!steps(j).some((s) => runs(s, "sst deploy") || runs(s, "sst remove") || runs(s, "db-migrate")), `${f} verify must not deploy, remove or migrate`);
@@ -444,6 +448,43 @@ function assertSignIn(f, j, creds, at) {
   assert.ok(writer, `${f}: no outcome writer`);
   assert.match(String(writer.env?.TOKENS ?? ""), /steps\.tokens\.outcome/, `${f}: the outcome reads the token step`);
   assert.match(String(writer.env?.WEB_E2E ?? ""), /steps\.web-e2e\.outcome/, `${f}: the outcome reads the web e2e step`);
+  assertExpiryFlows(f, j, tokens, at, writer);
+}
+
+// --- m2-approval-page 6.1, 6.2: the expiry flows ---------------------------------
+// An approval link lasts at least fifteen minutes (design D2): "Link expires unused", "Approval link
+// expiry by the platform", "Expiry by the platform", "Silent until expiry" and adversarial case 4
+// (Send after the link expired) take about 23 minutes. On previews they start in the background right
+// after the sign-in (they need the tokens and the sessions) and are collected before the allow-list is
+// cleared (their pages need the QA principal still allowed). Opt-in by A2H_LONG_FLOWS on the start step
+// only; a failure fails the job. dev runs none (its verify stays under fifteen minutes).
+const LONG_FILES = ["contract/approval-expiry.test.ts", "adversarial/approval-expiry.live.test.ts"];
+
+function assertExpiryFlows(f, j, tokens, at, writer) {
+  for (const s of steps(j)) {
+    if (s.id !== "long-start") assert.equal(s.env?.A2H_LONG_FLOWS, undefined, `${f} verify ${s.name}: only the background start opts in`);
+  }
+  if (f !== "preview.yml") {
+    assert.ok(!steps(j).some((s) => LONG_FILES.some((x) => runs(s, x))), `${f} verify: no expiry flows on dev`);
+    return;
+  }
+  const start = indexOf(j, (s) => s.id === "long-start", `${f} verify expiry flows start`);
+  const collect = indexOf(j, (s) => s.id === "long", `${f} verify expiry flows collect`);
+  const remove = indexOf(j, (s) => runs(s, `${ALLOWLIST} remove`), `${f} verify allow-list remove`);
+  const s = steps(j)[start];
+  const c = steps(j)[collect];
+  for (const file of LONG_FILES) assert.ok(runs(s, file), `${f}: the background start runs ${file}`);
+  assert.equal(String(s.env?.A2H_LONG_FLOWS), "1", `${f}: the start step opts in`);
+  assert.match(String(s.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/, `${f} expiry flows A2H_MCP_URL`);
+  assert.match(String(s.env?.A2H_WEB_URL ?? ""), /needs\.deploy\.outputs\.web/, `${f} expiry flows A2H_WEB_URL`);
+  assert.match(s.run, /&\s*$/m, `${f}: the expiry flows run in the background`);
+  assert.ok(tokens < start && start < at[0], `${f}: the expiry flows start after the sign-in and before the suites`);
+  assert.ok(Math.max(...at) < collect && collect < remove, `${f}: collected after the suites, before the allow-list is cleared`);
+  assert.match(String(c.if ?? ""), /steps\.long-start\.outcome == 'success'/, `${f}: collected whenever they were started`);
+  assert.equal(c["continue-on-error"], undefined, `${f}: a failing expiry flow fails the job`);
+  assert.match(c.run, /exit/, `${f}: the collect step exits with the flows' status`);
+  assert.match(String(writer.env?.LONG ?? ""), /steps\.long\.outcome/, `${f}: the outcome reads the expiry flows`);
+  assert.match(writer.run, /FAILED \(expiry flows\)/, `${f}: an expiry-flow failure is named in the Verification line`);
 }
 
 test("allowlist.sh names the same parameter per stage as infra/config.ts allowlistParameterName, and refuses prod", async () => {
