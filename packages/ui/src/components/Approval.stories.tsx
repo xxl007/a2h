@@ -4,6 +4,7 @@ import { agentDraft, pollRequest } from "../fixtures.js";
 import { copy, fill } from "../screens/copy.js";
 import { DecisionBar } from "./DecisionBar.js";
 import { Fact, FactList, FactNote, Mono, OptionList } from "./FactList.js";
+import { LinkValidity } from "./LinkValidity.js";
 import { LocalTime } from "./LocalTime.js";
 import { QuestionEditor } from "./QuestionEditor.js";
 import { StatusPill } from "./StatusPill.js";
@@ -68,10 +69,23 @@ export const Facts: Story = {
 const bar = { sendPendingLabel: c.sendPending, dontSendLabel: c.dontSend, dontSendPendingLabel: c.dontSendPending };
 const Bar = (props: Partial<Parameters<typeof DecisionBar>[0]>) => (
   <form style={column} onSubmit={(e) => e.preventDefault()}>
-    <DecisionBar sendLabel="Send · hold €35.00" {...bar} note="Nothing is sent and nothing is held until you choose." {...props} />
+    <DecisionBar sendLabel="Send · hold €35.00" {...bar} note={c.decisionNote} {...props} />
   </form>
 );
 export const DecisionPaid: Story = { render: () => <Bar /> };
+/** Less than an hour of the link left: the validity line joins the note (owner decision 2026-11-05). */
+export const DecisionLinkEnding: Story = {
+  render: () => (
+    <Bar
+      note={
+        <>
+          {c.decisionNote}
+          <LinkValidity until="2026-11-04T10:20:00+01:00" now="2026-11-04T09:35:00+01:00" timeZone="Europe/Paris" />
+        </>
+      }
+    />
+  ),
+};
 export const DecisionFree: Story = { render: () => <Bar sendLabel={c.sendFree} /> };
 export const DecisionSendUnavailable: Story = { render: () => <Bar sendDisabled /> };
 export const DecisionSending: Story = { render: () => <Bar pending="send" /> };

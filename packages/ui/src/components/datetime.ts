@@ -25,6 +25,22 @@ export function formatDateTime(iso: string, timeZone: string): string {
   return `${get("hour")}:${get("minute")} on ${Number(get("day"))} ${MONTHS[Number(get("month")) - 1]} ${get("year")} (${offset})`;
 }
 
+export const HOUR_MS = 3_600_000;
+
+/**
+ * Whether less than an hour of an approval link is left at `now` (ISO string or epoch
+ * milliseconds): the one rule for showing "This link works until …" (m2-approval-page
+ * design.md, decision bar; owner decision 2026-11-05). True once the link has ended too:
+ * the line then states when it stopped working.
+ */
+export function linkEndsSoon(until: string, now: string | number): boolean {
+  const end = Date.parse(until);
+  const at = typeof now === "number" ? now : Date.parse(now);
+  if (Number.isNaN(end)) throw new RangeError(`not a date-time: ${until}`);
+  if (Number.isNaN(at)) throw new RangeError(`not a date-time: ${now}`);
+  return end - at < HOUR_MS;
+}
+
 /** The browser's zone, or UTC where it cannot be read (server render, old engines). */
 export function viewerTimeZone(): string {
   try {

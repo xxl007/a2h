@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { agentDraft, approvalRequest, pollRequest, principalEmail, realParticipantRequest, storyTimeZone } from "../src/fixtures.js";
-import { ApprovalScreen, copy, formatDateTime, questionStatus, SignInScreen, type ApprovalState } from "../src/index.js";
+import { agentDraft, approvalRequest, pollRequest, principalEmail, realParticipantRequest, storyNow, storyNowLinkEnding, storyTimeZone } from "../src/fixtures.js";
+import { ApprovalScreen, copy, formatDateTime, linkEndsSoon, questionStatus, SignInScreen, type ApprovalState } from "../src/index.js";
 
 const text = (html: string) =>
   html
@@ -14,7 +14,7 @@ const text = (html: string) =>
     .replaceAll("&gt;", ">")
     .replace(/\s+/g, " ");
 
-const base = { email: principalEmail, timeZone: storyTimeZone };
+const base = { email: principalEmail, timeZone: storyTimeZone, now: storyNow };
 const render = (state: ApprovalState, extra: Record<string, unknown> = {}) =>
   renderToStaticMarkup(<ApprovalScreen {...base} state={state} request={approvalRequest} {...extra} />);
 const buttons = (html: string) => [...html.matchAll(/<button[^>]*>([\s\S]*?)<\/button>/g)].map((m) => text(m[1] ?? "").trim());
@@ -90,9 +90,10 @@ describe("approval page: awaiting decision", () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 
-  it("says a simulated participant is simulated and that no person will be asked (spec 'Simulated participant')", () => {
-    expect(t).toContain("no person will be asked");
-    expect(text(renderToStaticMarkup(<ApprovalScreen {...base} request={realParticipantRequest} />))).not.toContain("no person will be asked");
+  it("says a simulated participant is a test participant and that no one real will be asked (spec 'Simulated participant'; owner decision 2026-11-05)", () => {
+    expect(t).toContain("Test participant. No one real will be asked.");
+    expect(t).not.toContain("Simulated participant:");
+    expect(text(renderToStaticMarkup(<ApprovalScreen {...base} request={realParticipantRequest} />))).not.toContain("No one real will be asked");
   });
 
   it("shows no draft marker while unchanged, and states the count", () => {
@@ -100,8 +101,38 @@ describe("approval page: awaiting decision", () => {
     expect(t).toContain(`${agentDraft.length} of 2000 characters`);
   });
 
-  it("states how long the link works", () => {
-    expect(t).toContain("This link works until 10:20 on 4 Nov 2026 (UTC+01:00).");
+  it("under the buttons: nothing moves until you choose; the link validity only within its last hour (owner decision 2026-11-05)", () => {
+    // storyNow is 1 h 50 min before the link's end: the validity line is absent.
+    expect(t).toContain("Nothing is sent and nothing is held until you choose.");
+    expect(t).not.toContain("This link works until");
+    const soon = text(render("awaiting", { now: storyNowLinkEnding }));
+    expect(soon).toContain("Nothing is sent and nothing is held until you choose. This link works until 10:20 on 4 Nov 2026 (UTC+01:00).");
+  });
+
+  it("without a clock from the caller, the server render leaves the validity line out (no hydration mismatch, JavaScript off stays correct)", () => {
+    const html = renderToStaticMarkup(<ApprovalScreen email={principalEmail} timeZone={storyTimeZone} request={approvalRequest} />);
+    expect(text(html)).not.toContain("This link works until");
+    expect(text(html)).toContain("Nothing is sent and nothing is held until you choose.");
+  });
+
+  it("the validity line is a polite live region, present before it fills, so its appearance is announced", () => {
+    expect(html).toMatch(/<span[^>]*aria-live="polite"[^>]*><\/span>/);
+    expect(render("awaiting", { now: storyNowLinkEnding })).toMatch(/<span[^>]*aria-live="polite"[^>]*>\s*This link works until/);
+  });
+});
+
+describe("linkEndsSoon (design.md decision bar; owner decision 2026-11-05)", () => {
+  const until = "2026-11-04T10:20:00+01:00";
+  it("is true with less than an hour left, false at exactly an hour or more", () => {
+    expect(linkEndsSoon(until, "2026-11-04T09:21:00+01:00")).toBe(true);
+    expect(linkEndsSoon(until, "2026-11-04T09:20:00+01:00")).toBe(false);
+    expect(linkEndsSoon(until, "2026-11-04T08:30:00+01:00")).toBe(false);
+  });
+  it("stays true once the link has ended, so the line still states when it stopped working", () => {
+    expect(linkEndsSoon(until, "2026-11-04T10:21:00+01:00")).toBe(true);
+  });
+  it("takes a millisecond clock too (the browser's Date.now)", () => {
+    expect(linkEndsSoon(until, Date.parse("2026-11-04T09:50:00+01:00"))).toBe(true);
   });
 });
 
