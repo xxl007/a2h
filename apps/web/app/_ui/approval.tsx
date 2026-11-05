@@ -56,7 +56,7 @@ function shell(p: Common) {
 
 export function ApprovalForm(props: ApprovalFormProps) {
   const { model } = props;
-  if (model.kind === "awaiting") return <Deciding {...props} request={model.request} />;
+  if (model.kind === "awaiting") return <Deciding {...props} request={model.request} now={model.now} />;
   const state: ApprovalState = model.kind;
   return (
     <>
@@ -77,7 +77,7 @@ export function ApprovalForm(props: ApprovalFormProps) {
  * nearest error boundary; the boundary remounts the form in the error state
  * (A5) with the text as it was.
  */
-function Deciding(props: ApprovalFormProps & { request: ApprovalRequest }) {
+function Deciding(props: ApprovalFormProps & { request: ApprovalRequest; now: string }) {
   const latest = useRef<string | undefined>(undefined);
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
@@ -114,7 +114,7 @@ function questionOf(s: ApprovalActionState): string | undefined {
   return "question" in s ? s.question : undefined;
 }
 
-function Decision(props: ApprovalFormProps & { request: ApprovalRequest; initial: ApprovalActionState; latest: { current: string | undefined } }) {
+function Decision(props: ApprovalFormProps & { request: ApprovalRequest; now: string; initial: ApprovalActionState; latest: { current: string | undefined } }) {
   const { request, latest } = props;
   const [state, dispatch, pending] = useActionState(props.action, props.initial);
   const [question, setQuestion] = useState(() => (state.state === "refused" || state.state === "error" ? questionOf(state) : undefined) ?? latest.current ?? request.agentDraft);
@@ -170,6 +170,8 @@ function Decision(props: ApprovalFormProps & { request: ApprovalRequest; initial
       <ApprovalScreen
         state={screen}
         request={request}
+        // The server's clock at render: the link validity line's first paint (design.md decision bar).
+        now={props.now}
         question={outcome ? (questionOf(state) ?? question) : question}
         onQuestionChange={change}
         // The dispatch itself, not a wrapper: React then renders the server action's

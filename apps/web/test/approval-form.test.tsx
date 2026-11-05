@@ -24,6 +24,9 @@ const request: ApprovalRequest = {
   approvalExpiresAt: "2026-11-04T09:20:00.000Z",
 };
 
+/** The server's clock at render: 2 h 20 min before the link ends, so the validity line is absent. */
+const NOW = "2026-11-04T07:00:00.000Z";
+
 const noop = (s: ApprovalActionState) => Promise.resolve(s);
 
 function render(model: ApprovalPageModel, initial?: ApprovalActionState): string {
@@ -37,7 +40,7 @@ const decisionForm = (html: string) => forms(html).find((f) => f.includes('name=
 
 describe("Requirement: Two actions, money on the send action", () => {
   test("Labels: a paid request of €35.00 reads 'Send · hold €35.00' and 'Don't send'", () => {
-    const html = render({ kind: "awaiting", request });
+    const html = render({ kind: "awaiting", now: NOW, request });
     expect(html).toContain("Send · hold €35.00");
     expect(html).toContain("Don&#x27;t send");
     const buttons = decisionForm(html).match(/<button[^>]*>/g) ?? [];
@@ -52,13 +55,13 @@ describe("Requirement: Two actions, money on the send action", () => {
   });
 
   test("free lane: 'Send', nothing held", () => {
-    const html = render({ kind: "awaiting", request: { ...request, money: { lane: "free", freeLane: "facts_about_self" } } });
+    const html = render({ kind: "awaiting", now: NOW, request: { ...request, money: { lane: "free", freeLane: "facts_about_self" } } });
     expect(decisionForm(html)).toMatch(/>Send<\/button>|>Send</);
     expect(html).not.toContain("Send · hold");
   });
 
   test("Enter in the question: the form holds no single-line field, so the browser never submits implicitly", () => {
-    const form = decisionForm(render({ kind: "awaiting", request }));
+    const form = decisionForm(render({ kind: "awaiting", now: NOW, request }));
     expect(form).toMatch(/<textarea[^>]*name="question"/);
     const inputs = (form.match(/<input[^>]*>/g) ?? []).filter((i) => !/type="hidden"/.test(i));
     expect(inputs).toEqual([]);
@@ -67,7 +70,7 @@ describe("Requirement: Two actions, money on the send action", () => {
 
 describe("Requirement: The question is editable in place", () => {
   test("the field holds the agent's draft, with no maxlength (a pasted text is kept whole) and its count", () => {
-    const html = render({ kind: "awaiting", request });
+    const html = render({ kind: "awaiting", now: NOW, request });
     const textarea = html.match(/<textarea[^>]*>[\s\S]*?<\/textarea>/)?.[0] ?? "";
     expect(textarea).toContain("Would a patient find this alarming?\nSecond line.");
     expect(textarea).not.toMatch(/maxlength/i);
@@ -78,11 +81,20 @@ describe("Requirement: The question is editable in place", () => {
 });
 
 describe("Requirement: The page shows what the participant will receive", () => {
-  test("Simulated participant: said next to the label, and that no person will be asked", () => {
-    const html = render({ kind: "awaiting", request });
+  test("Simulated participant: said next to the label, and that no one real will be asked (owner decision 2026-11-05)", () => {
+    const html = render({ kind: "awaiting", now: NOW, request });
     expect(html).toContain("Margaret Vale (simulated)");
     expect(html).toContain("sim-mv-7f3c");
-    expect(html).toContain("Simulated participant: no person will be asked.");
+    expect(html).toContain("Test participant. No one real will be asked.");
+    expect(html).not.toContain("Simulated participant:");
+  });
+
+  test("the link validity line only in the link's last hour, from the server's clock (owner decision 2026-11-05)", () => {
+    const calm = render({ kind: "awaiting", now: NOW, request });
+    expect(calm).toContain("Nothing is sent and nothing is held until you choose.");
+    expect(calm).not.toContain("This link works until");
+    const soon = render({ kind: "awaiting", now: "2026-11-04T08:35:00.000Z", request });
+    expect(soon).toContain('This link works until <time dateTime="2026-11-04T09:20:00.000Z">09:20 on 4 Nov 2026 (UTC)</time>.');
   });
 
   test("Poll request: options and scale verbatim, in order", () => {
@@ -90,7 +102,7 @@ describe("Requirement: The page shows what the participant will receive", () => 
       { id: "b", label: "Second <b>first</b>" },
       { id: "a", label: "Ça va — «oui»" },
     ];
-    const html = render({ kind: "awaiting", request: { ...request, intent: "opinion", format: "poll", options, scale: { min: 1, max: 7 } } });
+    const html = render({ kind: "awaiting", now: NOW, request: { ...request, intent: "opinion", format: "poll", options, scale: { min: 1, max: 7 } } });
     const i = html.indexOf("Second &lt;b&gt;first&lt;/b&gt;");
     const j = html.indexOf("Ça va — «oui»");
     expect(i).toBeGreaterThan(-1);
@@ -99,7 +111,7 @@ describe("Requirement: The page shows what the participant will receive", () => 
   });
 
   test("the hold with its breakdown, and times rendered in UTC with their offset before the browser's zone takes over", () => {
-    const html = render({ kind: "awaiting", request });
+    const html = render({ kind: "awaiting", now: NOW, request });
     expect(html).toContain("€35.00, held when you send");
     expect(html).toContain("Includes the A2H fee (20%): at your full bid, €28.00 goes to them and €7.00 to A2H.");
     expect(html).toContain('<time dateTime="2026-11-04T11:20:00.000Z">11:20 on 4 Nov 2026 (UTC)</time>');
@@ -107,7 +119,7 @@ describe("Requirement: The page shows what the participant will receive", () => 
   });
 
   test("the stage line shows off prod", () => {
-    expect(render({ kind: "awaiting", request })).toContain("Test stage pr-12.");
+    expect(render({ kind: "awaiting", now: NOW, request })).toContain("Test stage pr-12.");
   });
 });
 
@@ -142,7 +154,7 @@ describe("Requirement: Every state of the page is stated", () => {
   });
 
   test("Validation failed after an edit: the edited text kept, the category named, both actions available", () => {
-    const html = render({ kind: "awaiting", request }, { state: "refused", refusal: "persuasion_disguised", question: "Edited push-poll text" });
+    const html = render({ kind: "awaiting", now: NOW, request }, { state: "refused", refusal: "persuasion_disguised", question: "Edited push-poll text" });
     expect(html).toContain("This wording can&#x27;t be sent");
     expect(html).toContain("reads as persuasion");
     expect(html).toContain("Nothing was sent and nothing is held.");
@@ -153,26 +165,26 @@ describe("Requirement: Every state of the page is stated", () => {
   });
 
   test("error: not recorded, with the reference, edits kept", () => {
-    const html = render({ kind: "awaiting", request }, { state: "error", reference: "ref_0123456789abcdef", question: "Kept edit" });
+    const html = render({ kind: "awaiting", now: NOW, request }, { state: "error", reference: "ref_0123456789abcdef", question: "Kept edit" });
     expect(html).toContain("Your choice was not recorded");
     expect(html).toContain("ref_0123456789abcdef");
     expect(html).toContain("Kept edit");
   });
 
   test("sent and not sent after the action", () => {
-    const sent = render({ kind: "awaiting", request }, { state: "sent", decidedAt: "2026-11-03T10:00:00.000Z", question: "Final text" });
+    const sent = render({ kind: "awaiting", now: NOW, request }, { state: "sent", decidedAt: "2026-11-03T10:00:00.000Z", question: "Final text" });
     expect(sent).toContain("Question sent");
     expect(sent).toContain("€35.00");
     expect(sent).toContain("Final text");
     expect(sent).not.toContain('name="decision"');
-    const notSent = render({ kind: "awaiting", request }, { state: "not-sent" });
+    const notSent = render({ kind: "awaiting", now: NOW, request }, { state: "not-sent" });
     expect(notSent).toContain("Margaret Vale (simulated) was not contacted");
     expect(notSent).not.toContain('name="decision"');
   });
 
   test("an action that finds the link expired or the account wrong shows those states", () => {
-    expect(render({ kind: "awaiting", request }, { state: "expired" })).toContain("This approval link has expired");
-    expect(render({ kind: "awaiting", request }, { state: "wrong-principal" })).toContain("This link belongs to another account");
+    expect(render({ kind: "awaiting", now: NOW, request }, { state: "expired" })).toContain("This approval link has expired");
+    expect(render({ kind: "awaiting", now: NOW, request }, { state: "wrong-principal" })).toContain("This link belongs to another account");
   });
 
   test("document titles per state", () => {
@@ -187,7 +199,7 @@ describe("Requirement: Every state of the page is stated", () => {
 
 describe("Never on this page", () => {
   test("no ISO string as text, no protocol values, no 'development', no model call", () => {
-    const html = render({ kind: "awaiting", request });
+    const html = render({ kind: "awaiting", now: NOW, request });
     const text = html.replace(/<[^>]+>/g, " ");
     expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
     expect(text).not.toMatch(/single_field|not_attributed|principal_workspace|_minor/);

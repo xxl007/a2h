@@ -84,6 +84,17 @@ describe.skipIf(!adminUrl)("POST /test-fixtures/approval", () => {
     expect(r!.approval_expires_at.getTime()).toBeLessThan(Date.now());
   });
 
+  test("a link in its last hour (for the validity line, design.md decision bar)", async () => {
+    const before = Date.now();
+    const res = await handleApprovalFixture(deps(), post({ variant: "ending" }));
+    expect(res.status).toBe(201);
+    const { request_id } = (await res.json()) as { request_id: string };
+    const [r] = await d.sql<{ approval_expires_at: Date; status: string }>("SELECT approval_expires_at, status FROM requests WHERE id = $1", [request_id]);
+    expect(r!.status).toBe("awaiting_approval");
+    expect(r!.approval_expires_at.getTime()).toBeGreaterThan(Date.now());
+    expect(r!.approval_expires_at.getTime()).toBeLessThan(before + 3_600_000);
+  });
+
   test("an unknown variant: 400", async () => {
     expect((await handleApprovalFixture(deps(), post({ variant: "real-person" }))).status).toBe(400);
   });
