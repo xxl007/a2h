@@ -40,7 +40,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY['own_publications']::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'anyone_verified', ARRAY['own_publications']::varchar[], NULL, NULL, NULL, 1000, 21600
 FROM participants WHERE handle = 'sim-mv-7f3c'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -80,7 +80,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 43200
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 43200
 FROM participants WHERE handle = 'sim-th-2a91'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -114,7 +114,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], '22:00', '07:00', 'Europe/London', 10, 86400
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], '22:00', '07:00', 'Europe/London', 1000, 86400
 FROM participants WHERE handle = 'sim-ep-5c07'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -148,7 +148,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
 FROM participants WHERE handle = 'sim-rc-8d14'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -182,7 +182,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
 FROM participants WHERE handle = 'sim-ag-3b62'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -216,7 +216,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY['facts_about_self']::varchar[], NULL, NULL, NULL, 10, 14400
+SELECT id, 'anyone_verified', ARRAY['facts_about_self']::varchar[], NULL, NULL, NULL, 1000, 14400
 FROM participants WHERE handle = 'sim-jw-9e48'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -250,7 +250,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 300
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 300
 FROM participants WHERE handle = 'sim-hb-1f7d'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -284,7 +284,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
 FROM participants WHERE handle = 'sim-ol-6a23'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -324,7 +324,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 86400
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 86400
 FROM participants WHERE handle = 'sim-cf-4c5e'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -358,7 +358,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
 FROM participants WHERE handle = 'sim-dm-7b80'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
@@ -398,7 +398,7 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
 INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 10, 21600
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
 FROM participants WHERE handle = 'sim-ns-0d39'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
