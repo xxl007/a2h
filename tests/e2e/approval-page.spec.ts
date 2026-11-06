@@ -109,7 +109,8 @@ test.describe("platform/approval-page from real request_human links", () => {
       const page = await as(browser, "a");
       await open(page, await paid());
       await expect(page.getByText("Margaret Vale (simulated)").first()).toBeVisible();
-      await expect(page.getByText("Simulated participant: no person will be asked. A script answers on this test stage.")).toBeVisible();
+      // Owner decision 2026-11-05 (m2-approval-page design.md A1, "To" row).
+      await expect(page.getByText("Test participant. No one real will be asked.")).toBeVisible();
     });
 
     test("Scenario: Time zone", async ({ browser }) => {
