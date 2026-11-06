@@ -5,7 +5,7 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 ## 1. Spike: URL elicitation in the two clients (PD with Owner, before group 3)
 
 - [x] 1.1 PD: a throwaway branch where `request_human` on a preview answers with a URL-mode elicitation pointing at a static page; verify with MCP Inspector that the elicitation is well-formed and the retry completes, and record the Inspector version — done (PR #78, draft, never merged): throwaway tool `approval_link_spike` on pr-78; Inspector 2.13.0 web client declares `elicitation.url`, shows the link, retry returns accept or cancel (no decline button); Inspector CLI declares no elicitation; the verify job's official client passed accept, decline and cancel on the preview; finding: no `elicitationId` on 2026-07-28, request id goes in `requestState` (D3 amended)
-- [ ] 1.2 Owner: from claude.ai and Claude Code, call it once each; report whether the client declared `elicitation.url`, what it showed, and what happened on accept and decline; PD pastes the preview log lines (methods, capabilities, outcome; no bodies) into this file; PM records the result and adjusts D3's wording if needed
+- [ ] 1.2 Owner: from claude.ai and Claude Code, call it once each; report whether the client declared `elicitation.url`, what it showed, and what happened on accept and decline; PD pastes the preview log lines (methods, capabilities, outcome; no bodies) into this file; PM records the result and adjusts D3's wording if needed — **Deferred by the owner on 2026-11-05**: the hosted-client test happens at a more mature stage, against the real `request_human` on the change preview (folds into 6.3). Spike PR #78 closed; its branch `spike/m2-url-elicitation` stays on origin and can be reopened. D3 stands as written until then.
 
 ## 2. Protocol and data (PD)
 
@@ -36,7 +36,7 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 
 - [ ] 6.1 (also: `tests/lib/obtain-token.ts` `disconnectAll` waits for the row's disconnected notice instead of `waitForLoadState`, the race seen on pr-82) Contract tests for every scenario of the four deltas, named after them, against the preview; the table in `tests/README.md` updated; the suites that drove the old form (`request-approval`, `request-flows`) rewritten to approve through the page with the QA principal's session
 - [ ] 6.2 Adversarial: approving another principal's request, replaying a decision, forging and guessing tokens, sending after the link expired, an agent trying to move a request out of `awaiting_approval` through any tool; each red against a weakened check locally, then green on the preview
-- [ ] 6.3 Hosted-client check: claude.ai and Claude Code each show the link and the outcome reaches `check_requests`; record in `docs/runbooks/mcp-setup.md`
+- [ ] 6.3 Hosted-client check: claude.ai and Claude Code each show the link and the outcome reaches `check_requests`; record in `docs/runbooks/mcp-setup.md` — owner's claude.ai run deferred to a more mature stage (2026-11-05); QA does the Claude Code part and writes the owner's steps
 
 ## 7. Docs and gate (PM)
 
