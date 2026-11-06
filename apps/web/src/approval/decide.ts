@@ -10,7 +10,7 @@ import { decideApproval, eq, requests, type A2hDb } from "@a2h/db";
 import type { ApprovalRefusal } from "@a2h/ui";
 import { errorFields, type Logger } from "../log";
 import { decidedAt } from "./page-data";
-import { refusalOf, submittedQuestion } from "./view";
+import { refusalOf } from "./view";
 
 export type ApprovalActionState =
   | { state: "awaiting" }
@@ -55,27 +55,25 @@ export async function decide(deps: DecideDeps, i: DecideInput): Promise<Approval
   if (i.token === undefined) return { state: "expired" };
 
   try {
-    let question = "";
-    if (decision === "send") {
-      // Unchanged up to the browser's line breaks: the agent's draft byte for byte.
-      const [draft] = await deps.db.select({ agent_draft: requests.agent_draft, question: requests.question }).from(requests).where(eq(requests.id, i.requestId));
-      question = submittedQuestion(posted, draft?.agent_draft ?? draft?.question ?? "");
-    }
+    // The posted text as the browser sent it: `decideApproval` settles it against the
+    // agent's draft under its lock, after the token and principal checks (review F2).
     const outcome = await decideApproval(deps.db, {
       request_id: i.requestId,
       token: i.token,
       principal_id: i.principalId,
       now,
       fee_rate: deps.feeRate,
-      decision: decision === "send" ? { kind: "send", question } : { kind: "dont_send" },
+      decision: decision === "send" ? { kind: "send", question: typeof posted === "string" ? posted : "" } : { kind: "dont_send" },
     });
     deps.logger.info("approval decision", { ...fields, code: `approval_${outcome.kind}` });
     switch (outcome.kind) {
       case "sent":
-        return { state: "sent", decidedAt: now.toISOString(), question };
+        return { state: "sent", decidedAt: now.toISOString(), question: outcome.question };
       case "not_sent":
         return { state: "not-sent" };
       case "invalid": {
+        // A refused question is not echoed by the decision; the editor keeps what was posted, as the field held it.
+        const question = kept ?? "";
         const refusal = refusalOf(outcome.error, question);
         if (refusal === undefined) {
           deps.logger.warn("approval send refused without wording", { ...fields, code: outcome.error.code });
@@ -95,7 +93,7 @@ export async function decide(deps: DecideDeps, i: DecideInput): Promise<Approval
         return { state: "wrong-principal" };
     }
   } catch (e) {
-    deps.logger.error(`approval decision not recorded for ${i.requestId}`, { request_id: i.reference, principal_id: i.principalId, ...errorFields(e) });
+    deps.logger.error(`approval decision not recorded for ${i.requestId}`, { ...fields, reference: i.reference, ...errorFields(e) });
     return { state: "error", reference: i.reference, ...(kept !== undefined ? { question: kept } : {}) };
   }
 }

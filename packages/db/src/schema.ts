@@ -302,7 +302,8 @@ export const requests = pgTable(
     /** Gross cleared amount, set once when the request is answered. */
     cleared_minor: integer("cleared_minor"),
     currency: currency(),
-    status: code("status", REQUEST_STATUSES).notNull().default("sent"),
+    /** A request starts awaiting its principal's approval (spec protocol/request-lifecycle; review F3, migration 0011). */
+    status: code("status", REQUEST_STATUSES).notNull().default("awaiting_approval"),
     deliver_at: timestamp("deliver_at", { withTimezone: true }).notNull(),
     expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
     created_at: createdAt(),

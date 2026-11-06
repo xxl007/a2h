@@ -6,7 +6,7 @@
 // canonical payload recomputed from the stored fields. Since m2-approval-page
 // (task 3.2): while a request awaits approval, its link and the link's
 // expiry; when it was not sent, why; before sending, no held amount.
-import { findRequests, type RequestRecord } from "@a2h/db";
+import { findRequests, type RequestRecord, UNSENT_STATUSES } from "@a2h/db";
 import {
   answerEnvelopeSchemaFor,
   approvalTokenHash,
@@ -89,7 +89,8 @@ async function linkOf(r: RequestRecord, deps: ToolDeps): Promise<string | undefi
   return (await approvalTokenHash(token)) === r.approval_token_hash ? approvalUrl(deps.webOrigin, r.id, token) : undefined;
 }
 
-const UNSENT = new Set(["awaiting_approval", "not_sent"]);
+/** The statuses before a send (@a2h/db, one definition): no `sent_at`, no hold, the link while awaiting. */
+const UNSENT = new Set<string>(UNSENT_STATUSES);
 
 async function toChecked(r: RequestRecord, deps: ToolDeps): Promise<CheckedRequest | null> {
   const intent = IntentSchema.parse(r.intent);

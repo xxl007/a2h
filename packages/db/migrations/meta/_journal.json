@@ -78,6 +78,13 @@
       "when": 1793707354317,
       "tag": "0010_requests_drop_m1_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793997058924,
+      "tag": "0011_requests_default_awaiting_approval",
+      "breakpoints": true
     }
   ]
 }

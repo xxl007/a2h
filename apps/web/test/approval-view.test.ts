@@ -1,8 +1,10 @@
 // m2-approval-page task 5.1-5.3: what the approval page shows, formatted at
 // the edge from the stored request (design.md Screens A0 "Data the web dev
 // passes"), and how a refused Send maps to its wording (A4). Pure.
-import { describe, expect, test } from "vitest";
-import { approvalRequestView, formatMoney, formatRate, refusalOf, submittedQuestion } from "../src/approval/view";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import type { Format, Intent } from "@a2h/protocol";
+import type { ApprovalRequest } from "@a2h/ui";
+import { approvalRequestView, formatMoney, formatRate, refusalOf } from "../src/approval/view";
 
 const NOW = new Date("2026-11-03T09:00:00Z");
 
@@ -93,19 +95,6 @@ describe("Requirement: The page shows what the participant will receive", () => 
   });
 });
 
-describe("the submitted question", () => {
-  test("Accept after editing: the browser's CR LF line breaks become the LF the principal's field held", () => {
-    expect(submittedQuestion("Line one\r\nLine two", "Draft")).toBe("Line one\nLine two");
-  });
-  test("unchanged (up to line breaks): the agent's draft byte for byte", () => {
-    expect(submittedQuestion("One\r\nTwo", "One\r\nTwo")).toBe("One\r\nTwo");
-    expect(submittedQuestion("One\nTwo", "One\r\nTwo")).toBe("One\r\nTwo");
-  });
-  test("anything but text is no question", () => {
-    expect(submittedQuestion(null, "Draft")).toBe("");
-  });
-});
-
 describe("Validation failed after an edit: the category of a refused Send", () => {
   const error = (code: string) => ({ code, stage: "content", retryable: false }) as Parameters<typeof refusalOf>[0];
   test("forbidden content names its class when the edited question shows it", () => {
@@ -120,5 +109,12 @@ describe("Validation failed after an edit: the category of a refused Send", () =
   test("a code the page has no wording for is no refusal (the page shows the error state)", () => {
     expect(refusalOf(error("principal_not_accountable"), "q")).toBeUndefined();
     expect(refusalOf(error("conflict"), "q")).toBeUndefined();
+  });
+});
+
+describe("the page has copy for every protocol intent and format (review F7, compile time)", () => {
+  test("a new intent or format in packages/protocol fails `pnpm typecheck` here, not as `intents[undefined]` at render", () => {
+    expectTypeOf<Intent>().toEqualTypeOf<ApprovalRequest["intent"]>();
+    expectTypeOf<Format>().toEqualTypeOf<ApprovalRequest["format"]>();
   });
 });

@@ -56,9 +56,9 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       ('p_sim_mv', 'sim-mv-7f3c', 'Margaret Vale (simulated)', true, 'prompt')`);
     await db.query(`INSERT INTO signing_keys (key_id, public_key, status) VALUES ('stage-pr-7-1', $1, 'active')`, [PUB]);
     await db.query(`INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane,
-        question, bid_minor, currency, expires_at, deliver_at, data_terms)
+        question, bid_minor, currency, expires_at, deliver_at, data_terms, status)
       VALUES ('A2H-7f3c', 'dev-principal-pr-7', 'p_sim_mv', 'judgment', 'named_individual', 'one_shot', 'single_field', 'paid',
-        'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{"storage":"principal_workspace","attribution":"not_attributed","training":"off"}')`);
+        'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{"storage":"principal_workspace","attribution":"not_attributed","training":"off"}', 'sent')`);
     await db.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('A2H-7f3c', NULL, 'awaiting_approval', 'principal'), ('A2H-7f3c', 'awaiting_approval', 'sent', 'principal')`);
   });
   after(async () => {
@@ -219,6 +219,12 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       await accepts(ev("A2H-a006"), ["awaiting_approval", "not_sent", "principal"]);
       await accepts(awaitingRow("A2H-a007", "e".repeat(64)));
       await accepts(ev("A2H-a007"), ["awaiting_approval", "not_sent", "platform"]);
+    });
+    test("A request starts in awaiting_approval: a row inserted without a status is awaiting_approval (review F3, migration 0011)", async () => {
+      await accepts(copy("A2H-a009", ", agent_draft, approval_token_hash, approval_expires_at", `, question, '${"f".repeat(64)}', now() + interval '1 hour'`));
+      const { rows } = await db.query(`SELECT status FROM requests WHERE id = 'A2H-a009'`);
+      assert.deepEqual(rows, [{ status: "awaiting_approval" }]);
+      await rejects(copy("A2H-a00a", "", ""), [], /requests_awaiting_approval_complete/);
     });
     test("A request starts in awaiting_approval: creation straight into sent is refused (the m1 path is gone)", async () => {
       await accepts(copy("A2H-a008", ", status", ", 'sent'"));
