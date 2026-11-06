@@ -12,6 +12,7 @@
 import * as z from "zod";
 import type { Logger } from "../log";
 import { AUTH_BASE_PATH } from "../config";
+import { approvalIdOfPath } from "../approval/link";
 import { ROUTES, type Auth } from "./auth";
 
 export const AUTHORIZE_PATH = `${AUTH_BASE_PATH}/oauth2/authorize`;
@@ -40,7 +41,7 @@ export function authorizeUrlFromLoginQuery(query: URLSearchParams): string | und
   return `${AUTHORIZE_PATH}?${params.toString()}`;
 }
 
-/** `next` as given by a form or a query: an authorize URL or one of this app's pages, relative; else undefined. */
+/** `next` as given by a form or a query: an authorize URL, one of this app's pages or an approval page (no query), relative; else undefined. */
 export function safeNext(next: string | null | undefined): string | undefined {
   if (!next || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) return undefined;
   let url: URL;
@@ -52,6 +53,8 @@ export function safeNext(next: string | null | undefined): string | undefined {
   if (url.origin !== "https://a2h.invalid") return undefined;
   if (url.pathname === AUTHORIZE_PATH && url.searchParams.get("client_id")) return `${url.pathname}${url.search}`;
   if (LOCAL_PAGES.includes(url.pathname) && !url.search) return url.pathname;
+  // An approval page, without its token (m2-approval-page design.md A12: the token stays in its cookie).
+  if (approvalIdOfPath(url.pathname) !== undefined && !url.search && url.pathname === next) return url.pathname;
   return undefined;
 }
 

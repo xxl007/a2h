@@ -9,7 +9,7 @@
 import { oauthClient, oauthConsent, oauthRefreshToken, principalPolicies, principals, user, verification, eq } from "@a2h/db";
 import { createLocalJWKSet, decodeJwt, jwtVerify, type JSONWebKeySet } from "jose";
 import { afterAll, beforeAll, describe, expect, inject, test } from "vitest";
-import { listConnectedClients, revokeClient } from "../src/auth/account";
+import { listConnectedClients, revokeClient, revokeForSession } from "../src/auth/account";
 import { decideConsent, readConsentRequest } from "../src/auth/consent";
 import { authorizeUrlFromLoginQuery, requestMagicLink } from "../src/auth/sign-in";
 import {
@@ -337,6 +337,34 @@ describe.skipIf(!adminUrl)("OAuth 2.1 flow of an MCP client", () => {
     expect(await h.db.select().from(principals).where(eq(principals.principal_id, uid))).toHaveLength(1);
     // The access token issued earlier is still a valid JWT until its own expiry (D1: not individually revocable).
     expect(decodeJwt(firstAccess).sub).toBe(uid);
+  });
+
+  test("Scenario: Revoke repeated: already disconnected is a success, nothing else changes, logged as already revoked", async () => {
+    // Follows "Client revoked": this principal's consent to clientId is gone, as after a revoke in another tab.
+    const uid = await userIdOf(ALLOWED);
+    const other = await userIdOf(SECOND);
+    const tokensOf = (userId: string) =>
+      h.db.select({ id: oauthRefreshToken.id, revoked: oauthRefreshToken.revoked }).from(oauthRefreshToken).where(eq(oauthRefreshToken.userId, userId));
+    const before = { mine: await tokensOf(uid), theirs: await tokensOf(other), theirClients: await listConnectedClients(h.db, other) };
+    const from = h.logLines.length;
+
+    expect(await revokeForSession({ db: h.db, logger: h.logger, userId: uid }, clientId)).toBe("already_revoked");
+    // A client id this principal never had is the same: nothing to disconnect, nothing changes.
+    expect(await revokeForSession({ db: h.db, logger: h.logger, userId: uid }, "never-connected-client")).toBe("already_revoked");
+
+    expect(await listConnectedClients(h.db, uid)).toEqual([]);
+    expect(await tokensOf(uid)).toEqual(before.mine);
+    expect(await tokensOf(other)).toEqual(before.theirs);
+    expect(await listConnectedClients(h.db, other)).toEqual(before.theirClients);
+
+    const lines = h.logLines.slice(from).map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(lines.filter((l) => l["level"] === "error" || l["level"] === "warn")).toEqual([]);
+    expect(lines.filter((l) => l["code"] === "client_already_revoked")).toHaveLength(2);
+    expect(lines.find((l) => l["code"] === "client_already_revoked")).toMatchObject({ level: "info", msg: "client already revoked", principal_id: uid, client_id: clientId });
+  });
+
+  test("revoke without a session is refused", async () => {
+    await expect(revokeForSession({ db: h.db, logger: h.logger, userId: undefined }, clientId)).rejects.toThrow("not signed in");
   });
 
   test("no log line of the flow carries an address or a token", () => {

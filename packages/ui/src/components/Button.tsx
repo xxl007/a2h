@@ -18,6 +18,8 @@ export interface ButtonProps {
   value?: string;
   /** Accessible name when the visible label is ambiguous in a list (e.g. "Disconnect Claude (claude.ai)"). */
   "aria-label"?: string;
+  /** Id of text explaining the button's state (e.g. why Send is unavailable). */
+  "aria-describedby"?: string;
   onPress?: () => void;
 }
 
@@ -34,6 +36,7 @@ export function Button({
   value,
   onPress,
   "aria-label": ariaLabel,
+  "aria-describedby": ariaDescribedBy,
 }: ButtonProps) {
   return (
     <AriaButton
@@ -45,6 +48,7 @@ export function Button({
       {...(value !== undefined ? { value } : {})}
       {...(onPress ? { onPress } : {})}
       {...(ariaLabel !== undefined ? { "aria-label": ariaLabel } : {})}
+      {...(ariaDescribedBy !== undefined ? { "aria-describedby": ariaDescribedBy } : {})}
     >
       {isPending && pendingLabel ? pendingLabel : children}
     </AriaButton>

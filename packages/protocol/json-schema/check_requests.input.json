@@ -11,6 +11,8 @@
       "description": "Filter: only requests in this status.",
       "type": "string",
       "enum": [
+        "awaiting_approval",
+        "not_sent",
         "sent",
         "accepted",
         "answered",

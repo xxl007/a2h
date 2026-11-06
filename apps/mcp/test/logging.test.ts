@@ -10,7 +10,7 @@ import type { webcrypto } from "node:crypto";
 import type { DbConfig } from "../src/config.ts";
 import type { LogLine } from "../src/logging.ts";
 import { freshSchema, skipWithoutDocker, sqlIn, startPostgres, type PgContainer } from "./lib/db.ts";
-import { TEST_APPROVAL_KEY, TEST_PRINCIPAL, callRaw, isInputRequired, modernClient, retry, startA2h, texts, type RunningA2h } from "./lib/a2h.ts";
+import { TEST_APPROVAL_KEY, TEST_PRINCIPAL, approveOnPage, callRaw, isInputRequired, modernClient, retry, startA2h, texts, urlClient, type RunningA2h } from "./lib/a2h.ts";
 import { BASE, EDITED, LABOUR, ORIGINAL, PUSH_POLL, THIRD_PARTY } from "./lib/fixtures.ts";
 
 const ANSWER_TEXT = "Plainly worded, but the hypoglycaemia box reads as frightening.";
@@ -73,51 +73,52 @@ describe("structured logging (D9)", { skip: skipWithoutDocker() }, () => {
     }
   });
 
-  test("approval paths: input_required, conflict, forged state, decline and accept log ids and codes only", async () => {
-    const client = await modernClient(server.url);
+  test("approval paths: awaiting (link in text), input_required, accept, decline, no state and forged state log ids and codes only, never the link or its token", async () => {
+    const plain = await modernClient(server.url);
+    const client = await urlClient(server.url);
     try {
       server.logs.length = 0;
+      const awaiting = await plain.callTool({ name: "request_human", arguments: BASE });
+      const link = RequestHumanOutputSchema.parse(awaiting.structuredContent).approval_url!;
       const first = await callRaw(client, "request_human", BASE);
       assert.ok(isInputRequired(first));
-      const accept = { approval: { action: "accept", content: { question: EDITED } } };
-      await retry(client, "request_human", { ...BASE, bid_minor: 3300 }, first.requestState, accept); // conflict
-      await assert.rejects(retry(client, "request_human", BASE, "v1.e30.AAAA", accept), ProtocolError); // refused by the SDK hook
-      await retry(client, "request_human", { ...BASE, question: EDITED }, undefined, { approval: { action: "decline" } }); // conflict: no state
-      const declineRound = await callRaw(client, "request_human", BASE);
-      assert.ok(isInputRequired(declineRound));
-      await retry(client, "request_human", BASE, declineRound.requestState, { approval: { action: "decline" } });
-      await retry(client, "request_human", BASE, first.requestState, { approval: { action: "accept", content: { question: PUSH_POLL } } }); // edit into a push-poll
-      const sent = await retry(client, "request_human", BASE, first.requestState, accept);
-      const id = RequestHumanOutputSchema.parse(sent.structuredContent).request_id!;
+      await retry(client, "request_human", BASE, first.requestState, { approval: { action: "accept" } });
+      await retry(client, "request_human", BASE, undefined, { approval: { action: "decline" } }); // conflict: no state
+      await assert.rejects(retry(client, "request_human", BASE, "v1.e30.AAAA", { approval: { action: "decline" } }), ProtocolError); // refused by the SDK hook
+      const declined = await retry(client, "request_human", BASE, first.requestState, { approval: { action: "decline" } });
+      const id = RequestHumanOutputSchema.parse(declined.structuredContent).request_id;
       const lines = toolLines();
       assertClean(server.logs);
+      const token = new URL(link).searchParams.get("t")!;
+      assert.ok(!JSON.stringify(server.logs).includes(token), "the token is never logged");
+      assert.ok(!JSON.stringify(server.logs).includes("/approve/"), "nor the link");
       assert.deepEqual(
-        lines.map((l) => [l.outcome, l.code ?? null]),
+        lines.map((l) => [l.outcome, l.code ?? null, l.state ?? null]),
         [
-          ["input_required", null],
-          ["error", "conflict"],
-          ["error", "conflict"],
-          ["input_required", null],
-          ["not_sent", "declined"],
-          ["error", "forbidden_content"],
-          ["ok", null],
+          ["ok", null, "awaiting_approval"],
+          ["input_required", null, "awaiting_approval"],
+          ["ok", null, "awaiting_approval"],
+          ["error", "conflict", null],
+          ["not_sent", "declined", "not_sent"],
         ],
       );
-      const ok = lines.at(-1)!;
-      assert.equal(ok.request_id, id);
-      assert.equal(ok.state, "sent");
-      assert.equal(ok.participant_id, "p_sim_mv_7f3c");
-      assert.equal(ok.principal_id, TEST_PRINCIPAL.principal_id);
+      const last = lines.at(-1)!;
+      assert.equal(last.request_id, id);
+      assert.equal(last.participant_id, "p_sim_mv_7f3c");
+      assert.equal(last.principal_id, TEST_PRINCIPAL.principal_id);
     } finally {
+      await plain.close();
       await client.close();
     }
   });
 
   test("find_humans and check_requests (with an answered request): no topic text, no name, no answer body", async () => {
-    const client = await modernClient(server.url, () => ({ action: "accept", content: { question: ORIGINAL } }));
+    const client = await modernClient(server.url);
     try {
-      const sent = (await client.callTool({ name: "request_human", arguments: BASE }));
-      const id = RequestHumanOutputSchema.parse(sent.structuredContent).request_id!;
+      const asked = await client.callTool({ name: "request_human", arguments: BASE });
+      const out = RequestHumanOutputSchema.parse(asked.structuredContent);
+      assert.equal((await approveOnPage(db, out.approval_url!)).kind, "sent");
+      const id = out.request_id;
       // What the worker writes when the participant answers.
       const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as webcrypto.CryptoKeyPair;
       const raw = Buffer.from(await crypto.subtle.exportKey("raw", pair.publicKey)).toString("base64");

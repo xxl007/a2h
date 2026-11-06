@@ -13,7 +13,7 @@ import {
   RequestIdSchema,
   SecondsSchema,
 } from "./primitives.ts";
-import { RequestStatusSchema } from "./request.ts";
+import { NotSentReasonSchema, RequestStatusSchema } from "./request.ts";
 
 export { RequestHumanInputSchema } from "./manifest.ts";
 
@@ -60,32 +60,33 @@ export type FindHumansOutput = z.infer<typeof FindHumansOutputSchema>;
 // ---- request_human -------------------------------------------------------
 
 /**
- * `status: "sent"`: the request exists (`request_id`, `eta`, `held_minor`
- * gross, `deliver_at`, `deferred`). `status: "not_sent"`: the principal
- * declined or dismissed the approval; nothing exists.
+ * The result of `request_human` (m2-approval-page, spec protocol/schemas
+ * "Request outcome and lane are explicit"). `awaiting_approval`: the request
+ * is recorded, nothing is held or delivered, and its principal decides on
+ * the approval page at `approval_url` until `approval_expires_at`.
+ * `not_sent`: the principal refused to open the link where the client asked
+ * through URL elicitation (`declined`), or the link expired (`expired`); the
+ * request id stays, nothing was held or delivered.
  */
 export const RequestHumanOutputSchema = z
   .strictObject({
-    status: z.enum(["sent", "not_sent"]),
-    request_id: RequestIdSchema.optional(),
-    eta: DatetimeSchema.optional(),
-    held_minor: MinorAmountSchema.optional(),
-    currency: CurrencySchema.optional(),
-    deliver_at: DatetimeSchema.optional(),
-    deferred: z.boolean().optional(),
-    reason: z.enum(["declined", "dismissed"]).optional(),
+    status: z.enum(["awaiting_approval", "not_sent"]),
+    request_id: RequestIdSchema,
+    approval_url: z.url({ protocol: /^https$/ }).max(500).optional(),
+    approval_expires_at: DatetimeSchema.optional(),
+    reason: NotSentReasonSchema.optional(),
   })
   .superRefine((o, ctx) => {
-    const sentFields = ["request_id", "eta", "held_minor", "currency", "deliver_at", "deferred"] as const;
-    if (o.status === "sent") {
-      for (const f of sentFields) if (o[f] === undefined) ctx.addIssue({ code: "custom", path: [f], message: `a sent result carries ${f}` });
-      if (o.reason !== undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "a sent result has no reason" });
-    } else {
-      for (const f of sentFields) if (o[f] !== undefined) ctx.addIssue({ code: "custom", path: [f], message: `nothing was created: no ${f}` });
-      if (o.reason === undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "a not-sent result says why" });
+    const awaiting = o.status === "awaiting_approval";
+    for (const f of ["approval_url", "approval_expires_at"] as const) {
+      if (awaiting && o[f] === undefined) ctx.addIssue({ code: "custom", path: [f], message: `an awaiting result carries ${f}` });
+      if (!awaiting && o[f] !== undefined) ctx.addIssue({ code: "custom", path: [f], message: `a not-sent result has no ${f}` });
     }
+    if (awaiting && o.reason !== undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "an awaiting result has no reason" });
+    if (!awaiting && o.reason === undefined) ctx.addIssue({ code: "custom", path: ["reason"], message: "a not-sent result says why" });
   });
 export type RequestHumanOutput = z.infer<typeof RequestHumanOutputSchema>;
+
 
 // ---- check_requests ------------------------------------------------------
 
@@ -102,8 +103,15 @@ export const CheckRequestsInputSchema = z
   });
 export type CheckRequestsInput = z.infer<typeof CheckRequestsInputSchema>;
 
+/**
+ * When each step happened. `awaiting_approval_at` is the creation (absent on
+ * requests created before m2-approval-page); `sent_at` only once the
+ * principal sent it; `not_sent_at` when they did not, or the link expired.
+ */
 export const TransitionTimesSchema = z.strictObject({
-  sent_at: DatetimeSchema,
+  awaiting_approval_at: DatetimeSchema.optional(),
+  not_sent_at: DatetimeSchema.optional(),
+  sent_at: DatetimeSchema.optional(),
   accepted_at: DatetimeSchema.optional(),
   answered_at: DatetimeSchema.optional(),
   declined_at: DatetimeSchema.optional(),
@@ -139,16 +147,38 @@ export const CheckedRequestSchema = z
     simulated: z.boolean(),
     intent: IntentSchema,
     transitions: TransitionTimesSchema,
-    /** Gross amount held (equals the bid); 0 on a free lane. */
-    held_minor: MinorAmountSchema,
+    /** Gross amount held (equals the bid); 0 on a free lane; absent before sending and when never sent. */
+    held_minor: MinorAmountSchema.optional(),
     hold_status: HoldStatusSchema,
     /** Gross cleared amount, once answered. */
     cleared_minor: MinorAmountSchema.optional(),
     currency: CurrencySchema,
     answer: AnswerEnvelopeSchema.optional(),
     answer_display: AnswerDisplaySchema.optional(),
+    /** While awaiting approval: the link (left out if it can no longer be rebuilt) and when it expires. */
+    approval_url: z.url({ protocol: /^https$/ }).max(500).optional(),
+    approval_expires_at: DatetimeSchema.optional(),
+    /** When not sent: why. */
+    reason: NotSentReasonSchema.optional(),
   })
   .superRefine((r, ctx) => {
+    const unsent = r.status === "awaiting_approval" || r.status === "not_sent";
+    if (unsent) {
+      if (r.held_minor !== undefined) ctx.addIssue({ code: "custom", path: ["held_minor"], message: "nothing is held before sending" });
+      if (r.hold_status !== "none") ctx.addIssue({ code: "custom", path: ["hold_status"], message: "nothing is held before sending" });
+      if (r.transitions.sent_at !== undefined) ctx.addIssue({ code: "custom", path: ["transitions", "sent_at"], message: "not sent" });
+    } else {
+      if (r.held_minor === undefined) ctx.addIssue({ code: "custom", path: ["held_minor"], message: "a sent request reports its held amount" });
+      if (r.transitions.sent_at === undefined) ctx.addIssue({ code: "custom", path: ["transitions", "sent_at"], message: "a sent request has sent_at" });
+    }
+    const awaiting = r.status === "awaiting_approval";
+    if (awaiting && r.approval_expires_at === undefined) ctx.addIssue({ code: "custom", path: ["approval_expires_at"], message: "an awaiting request carries the link's expiry" });
+    if (!awaiting) {
+      for (const f of ["approval_url", "approval_expires_at"] as const) {
+        if (r[f] !== undefined) ctx.addIssue({ code: "custom", path: [f], message: "only an awaiting request carries the link" });
+      }
+    }
+    if ((r.status === "not_sent") !== (r.reason !== undefined)) ctx.addIssue({ code: "custom", path: ["reason"], message: "a reason exactly when not sent" });
     const wasAccepted = r.transitions.accepted_at !== undefined;
     if (!wasAccepted && r.participant_label !== undefined)
       ctx.addIssue({ code: "custom", path: ["participant_label"], message: "identity is revealed on acceptance only" });

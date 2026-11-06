@@ -56,10 +56,10 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       ('p_sim_mv', 'sim-mv-7f3c', 'Margaret Vale (simulated)', true, 'prompt')`);
     await db.query(`INSERT INTO signing_keys (key_id, public_key, status) VALUES ('stage-pr-7-1', $1, 'active')`, [PUB]);
     await db.query(`INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane,
-        question, bid_minor, currency, expires_at, deliver_at, data_terms)
+        question, bid_minor, currency, expires_at, deliver_at, data_terms, status)
       VALUES ('A2H-7f3c', 'dev-principal-pr-7', 'p_sim_mv', 'judgment', 'named_individual', 'one_shot', 'single_field', 'paid',
-        'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{"storage":"principal_workspace","attribution":"not_attributed","training":"off"}')`);
-    await db.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('A2H-7f3c', NULL, 'sent', 'principal')`);
+        'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{"storage":"principal_workspace","attribution":"not_attributed","training":"off"}', 'sent')`);
+    await db.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('A2H-7f3c', NULL, 'awaiting_approval', 'principal'), ('A2H-7f3c', 'awaiting_approval', 'sent', 'principal')`);
   });
   after(async () => {
     await db?.query("ROLLBACK").catch(() => undefined);
@@ -129,31 +129,10 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     });
   });
 
-  describe("Accepted approval replayed: an approval nonce creates one request only", () => {
-    const N1 = "0123456789abcdef0123456789abcdef";
-    const ins = (id: string, nonce: string | null): [string, unknown[]] => [
-      `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane,
-          question, bid_minor, currency, expires_at, deliver_at, data_terms, approval_nonce)
-        VALUES ($1, 'dev-principal-pr-7', 'p_sim_mv', 'judgment', 'named_individual', 'one_shot', 'single_field', 'paid',
-          'Is this leaflet alarming?', 3500, 'EUR', now() + interval '1 day', now(), '{}', $2)`,
-      [id, nonce],
-    ];
-    test("a nonce is used by at most one request", async () => {
-      await db.query("SAVEPOINT n");
-      await accepts(...ins("A2H-0a01", N1));
-      await rejects(...ins("A2H-0a02", N1), /requests_approval_nonce_unique/);
-      await db.query("ROLLBACK TO SAVEPOINT n");
-    });
-    test("requests without a nonce (none recorded) do not collide", async () => {
-      await db.query("SAVEPOINT n");
-      await accepts(...ins("A2H-0b01", null));
-      await accepts(...ins("A2H-0b02", null));
-      await db.query("ROLLBACK TO SAVEPOINT n");
-    });
-    test("the nonce is 32 lower-case hex characters, never text", async () => {
-      for (const bad of ["0123456789ABCDEF0123456789ABCDEF", "0123", "Is this leaflet alarming? yes it", `${N1}0`]) {
-        await rejects(...ins("A2H-0c01", bad));
-      }
+  describe("the m1 approval replay guard is gone (m2-approval-page D5)", () => {
+    test("requests has no approval_nonce column", async () => {
+      const { rows } = await db.query(`SELECT 1 FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'requests' AND column_name = 'approval_nonce'`, [SCHEMA]);
+      assert.equal(rows.length, 0);
     });
   });
 
@@ -198,6 +177,66 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       await rejects(`UPDATE requests SET lane = 'free'`);
       await rejects(`INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane, question, bid_minor, currency, expires_at, deliver_at, data_terms)
         SELECT 'A2H-7F3C', principal_id, participant_id, intent, audience, time_shape, format, lane, question, bid_minor, currency, expires_at, deliver_at, data_terms FROM requests`);
+    });
+  });
+
+  describe("awaiting approval (m2-approval-page design D1)", () => {
+    const HASH = "a".repeat(64);
+    const copy = (id: string, extra: string, values: string) => `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane, question, bid_minor, currency, expires_at, deliver_at, data_terms${extra})
+      SELECT '${id}', principal_id, participant_id, intent, audience, time_shape, format, lane, question, bid_minor, currency, expires_at, deliver_at, data_terms${values} FROM requests WHERE id = 'A2H-7f3c'`;
+    const awaitingRow = (id: string, hash = HASH) =>
+      copy(id, ", status, agent_draft, approval_token_hash, approval_expires_at", `, 'awaiting_approval', question, '${hash}', now() + interval '1 hour'`);
+    const ev = (id: string) => `INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ('${id}', $1, $2, $3)`;
+
+    test("Closed status set: awaiting_approval and not_sent are known statuses", async () => {
+      await accepts(awaitingRow("A2H-a001"));
+      await accepts(ev("A2H-a001"), [null, "awaiting_approval", "principal"]);
+    });
+    test("an awaiting request carries the agent's draft, the token's hash and the link's expiry", async () => {
+      await rejects(copy("A2H-a002", ", status", ", 'awaiting_approval'"), [], /requests_awaiting_approval_complete/);
+      await rejects(copy("A2H-a002", ", status, agent_draft, approval_expires_at", ", 'awaiting_approval', question, now()"), [], /requests_awaiting_approval_complete/);
+      await rejects(copy("A2H-a002", ", status, approval_token_hash, approval_expires_at", `, 'awaiting_approval', '${HASH}', now()`), [], /requests_awaiting_approval_complete/);
+    });
+    test("the token is stored as its SHA-256 only: 64 lower-case hex characters, unique", async () => {
+      await rejects(awaitingRow("A2H-a003", "A".repeat(43)), [], /requests_approval_token_hash_format/);
+      await rejects(awaitingRow("A2H-a003", "A".repeat(64)), [], /requests_approval_token_hash_format/);
+      await rejects(awaitingRow("A2H-a003"), [], /requests_approval_token_hash_unique|duplicate key/);
+    });
+    test("the agent's draft obeys the question's length limit", async () => {
+      await rejects(copy("A2H-a004", ", status, agent_draft, approval_token_hash, approval_expires_at", `, 'awaiting_approval', repeat('x', 2001), '${"b".repeat(64)}', now()`), [], /requests_agent_draft_length/);
+    });
+    test("not_sent has a reason, declined or expired; no other status has one", async () => {
+      await rejects(`UPDATE requests SET status = 'not_sent' WHERE id = 'A2H-a001'`, [], /requests_not_sent_reason/);
+      await rejects(`UPDATE requests SET status = 'not_sent', not_sent_reason = 'refused' WHERE id = 'A2H-a001'`, [], /requests_not_sent_reason/);
+      await rejects(`UPDATE requests SET not_sent_reason = 'declined' WHERE id = 'A2H-a001'`, [], /requests_not_sent_reason/);
+      await accepts(`UPDATE requests SET status = 'not_sent', not_sent_reason = 'expired' WHERE id = 'A2H-a001'`);
+      await accepts(`UPDATE requests SET status = 'not_sent', not_sent_reason = 'declined' WHERE id = 'A2H-a001'`);
+    });
+    test("Legal transitions: awaiting_approval → sent by the principal, → not_sent by the principal or the platform", async () => {
+      await accepts(awaitingRow("A2H-a005", "c".repeat(64)));
+      await accepts(ev("A2H-a005"), ["awaiting_approval", "sent", "principal"]);
+      await accepts(awaitingRow("A2H-a006", "d".repeat(64)));
+      await accepts(ev("A2H-a006"), ["awaiting_approval", "not_sent", "principal"]);
+      await accepts(awaitingRow("A2H-a007", "e".repeat(64)));
+      await accepts(ev("A2H-a007"), ["awaiting_approval", "not_sent", "platform"]);
+    });
+    test("A request starts in awaiting_approval: a row inserted without a status is awaiting_approval (review F3, migration 0011)", async () => {
+      await accepts(copy("A2H-a009", ", agent_draft, approval_token_hash, approval_expires_at", `, question, '${"f".repeat(64)}', now() + interval '1 hour'`));
+      const { rows } = await db.query(`SELECT status FROM requests WHERE id = 'A2H-a009'`);
+      assert.deepEqual(rows, [{ status: "awaiting_approval" }]);
+      await rejects(copy("A2H-a00a", "", ""), [], /requests_awaiting_approval_complete/);
+    });
+    test("A request starts in awaiting_approval: creation straight into sent is refused (the m1 path is gone)", async () => {
+      await accepts(copy("A2H-a008", ", status", ", 'sent'"));
+      await rejects(ev("A2H-a008"), [null, "sent", "principal"], /request_events_legal/);
+    });
+    test("Illegal transition: not_sent → sent, awaiting_approval → accepted, the platform or the participant sending, creation by anyone but the principal", async () => {
+      await rejects(ev("A2H-a006"), ["not_sent", "sent", "principal"]);
+      await rejects(ev("A2H-a007"), ["awaiting_approval", "accepted", "participant"]);
+      await rejects(ev("A2H-a007"), ["awaiting_approval", "sent", "platform"]);
+      await rejects(ev("A2H-a007"), ["awaiting_approval", "not_sent", "participant"]);
+      await rejects(ev("A2H-a007"), [null, "awaiting_approval", "platform"]);
+      await rejects(ev("A2H-a007"), [null, "not_sent", "principal"]);
     });
   });
 

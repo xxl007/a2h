@@ -1,6 +1,8 @@
 /**
- * All user-facing copy of the m1-hosted-connector screens, English.
- * Source: openspec/changes/archive/2026-11-02-m1-hosted-connector/design.md, "Screens". Change both together.
+ * All user-facing copy of the web screens, English.
+ * Sources: openspec/changes/archive/2026-11-02-m1-hosted-connector/design.md, "Screens" (sign-in, consent,
+ * connected apps, signed out) and openspec/changes/m2-approval-page/design.md, "Screens" (approval page).
+ * Change both together.
  * Placeholders in braces are filled by the helpers below, never by string concatenation in apps.
  */
 export const copy = {
@@ -10,6 +12,8 @@ export const copy = {
     lead: "Enter your email address and we'll send you a link to sign in. There is no password.",
     leadConnecting:
       "Sign in to finish connecting your agent. We'll email you a link; open it in this browser to come back here.",
+    leadApproving:
+      "Sign in to review the question your agent wants to send. We'll email you a link; open it in this browser to come back to the question.",
     emailLabel: "Email address",
     submit: "Email me a sign-in link",
     submitPending: "Sending the link…",
@@ -117,6 +121,157 @@ export const copy = {
     action: "Sign in again",
     errorTitle: "You are still signed in",
     errorBody: "Signing out did not go through. Try again.",
+  },
+  /** m2-approval-page design.md, Screens A1–A12. */
+  approval: {
+    documentTitle: "Review a question · A2H",
+    reference: "Request {id}",
+    pillAwaiting: "Not sent yet",
+    pillSent: "Sent",
+    pillNotSent: "Not sent",
+    title: "Review this question before it is sent",
+    lead: "Your agent wants to send it to {participant}. Nothing is sent and nothing is held until you choose.",
+
+    questionLabel: "Your question, sent exactly as written",
+    questionDescription: "This is the text they will read. Edit it here if you want; line breaks are kept.",
+    restore: "Restore agent draft",
+    restored: "Agent draft restored.",
+    count: "{count} / {max}",
+    countAccessible: "{count} of {max} characters",
+    over: "{over} over the limit",
+    errorOver: "Shorten the question by {over} to send it.",
+    errorEmpty: "Write a question to send it.",
+    characters: { one: "1 character", other: "{n} characters" },
+
+    attachmentsHeading: "Files they will consult",
+
+    factsHeading: "Request details",
+    to: "To",
+    /** Owner decision 2026-11-05 (design.md A1, "To" row). */
+    simulatedNote: "Test participant. No one real will be asked.",
+    requestType: "Request type",
+    intents: {
+      observation: "Observation",
+      verification: "Verification",
+      judgment: "Judgment",
+      opinion: "Opinion",
+      estimate: "Estimate",
+      knowledge: "Knowledge",
+      authorisation: "Authorisation",
+      action: "Action",
+      referral: "Referral",
+    },
+    answerFormat: "Answer format",
+    formats: {
+      single_field: "One written answer",
+      poll: "One option, picked from a list",
+      form: "A short form",
+      upload: "A file",
+      voice: "A voice note",
+    },
+    optionsLead: "They pick one of these options, shown to them in this order:",
+    scale: "They answer on a scale from {min} to {max}.",
+    hold: "Hold",
+    holdAmount: "{amount}, held when you send",
+    holdTerms: "You pay what clears, never more. If it expires unanswered, nothing is charged.",
+    holdBreakdown: "Includes the A2H fee ({rate}): at your full bid, {net} goes to them and {fee} to A2H.",
+    holdFree: "Nothing is held and nothing is charged: this is their free lane for questions about {topic}.",
+    freeLanes: { own_publications: "their own publications", facts_about_self: "facts about themselves" },
+    expires: "Expires",
+    expiresNote: "If they have not answered by then, the request ends and the hold is released.",
+    expiresNoteFree: "If they have not answered by then, the request ends. Nothing is charged.",
+    dataTerms: "Their answer",
+    dataTermsText: "Stored in your workspace, {attribution}, {training}.",
+    attribution: { not_attributed: "not attributed to them", attributed: "attributed to them" },
+    training: { off: "never used for training", participant_opt_in: "used for training only if they opt in" },
+    delivery: "Delivery",
+    deliveryNow: "As soon as you send.",
+    deliveryDeferred: "At {time}, the earliest their rules allow.",
+
+    sendPaid: "Send · hold {amount}",
+    sendFree: "Send",
+    sendPending: "Sending…",
+    dontSend: "Don't send",
+    dontSendPending: "Cancelling…",
+    decisionNote: "Nothing is sent and nothing is held until you choose.",
+    /** Follows decisionNote only when less than an hour of the link is left (owner decision 2026-11-05, design.md decision bar). */
+    linkValidity: "This link works until {time}.",
+
+    refused: {
+      persuasion_disguised: {
+        title: "This wording can't be sent",
+        body: "The question reads as persuasion rather than a question, and A2H does not deliver that. Reword it as a neutral question, or restore the agent draft.",
+      },
+      third_party_personal_data: {
+        title: "This wording can't be sent",
+        body: "The question asks for personal details about someone other than the participant, and A2H does not deliver that. Remove that part, or restore the agent draft.",
+      },
+      labour_disguised: {
+        title: "This wording can't be sent",
+        body: "The question asks for a piece of work rather than an answer, and A2H does not deliver that. Narrow it to a question, or restore the agent draft.",
+      },
+      forbidden_content: {
+        title: "This wording can't be sent",
+        body: "The edited question breaks an A2H content rule. Change the wording, or restore the agent draft.",
+      },
+      outside_participant_rules: {
+        title: "It no longer fits their rules",
+        body: "Since your agent drafted it, this request has stopped fitting what the participant accepts. Choose Don't send and ask your agent to find someone else.",
+      },
+      over_budget: {
+        title: "Over your budget",
+        body: "Other requests have used your remaining budget since this one was drafted. Choose Don't send, or try again once budget is free.",
+      },
+      over_cap: {
+        title: "Over your limit for one request",
+        body: "The bid is above the most you allow for a single request. Choose Don't send and ask your agent for a lower bid.",
+      },
+      rate_limited: {
+        title: "Too many requests right now",
+        body: "Try Send again in a few minutes. This page keeps your edits.",
+      },
+      principal_not_verified_for_lane: {
+        title: "Your account can't send paid requests yet",
+        body: "Paid requests need a verified identity on your account. Choose Don't send, or ask your agent for a free-lane request.",
+      },
+      schema_invalid: {
+        title: "The question can't be sent as it is",
+        body: "Check that it is not empty and fits the limit, then try again.",
+      },
+    },
+    refusedFooter: "Nothing was sent and nothing is held.",
+    errorTitle: "Your choice was not recorded",
+    errorBody: "Nothing was sent and nothing is held. Try again.",
+    offlineTitle: "You're offline",
+    offlineBody: "Your edits stay on this page. Nothing is sent until you choose again with a connection.",
+
+    sentDocumentTitle: "Question sent · A2H",
+    sentTitle: "Question sent",
+    alreadySentTitle: "This question was already sent",
+    sentAt: "Sent to {participant} at {time}.",
+    sentHeld: "{amount} is held. You pay what clears, never more.",
+    sentFree: "Nothing is held and nothing is charged.",
+    sentCheck: "Your agent can follow it: ask it to check on this request. You can close this page.",
+    alreadyDecided: "Nothing more can be decided on this page.",
+    sentQuestionHeading: "The question as sent",
+
+    notSentDocumentTitle: "Not sent · A2H",
+    notSentTitle: "Not sent",
+    notSentBody: "Nothing was sent and nothing is held. {participant} was not contacted and will not learn about this request.",
+    notSentAgent: "Your agent will see that you chose not to send it. You can close this page.",
+    alreadyNotSentTitle: "This request was not sent",
+    alreadyNotSentBody: "You chose not to send it at {time}. Nothing was sent and nothing is held.",
+    alreadyNotSentAgain: "To ask again, ask your agent to draft a new request.",
+
+    expiredDocumentTitle: "Approval link expired · A2H",
+    expiredTitle: "This approval link has expired",
+    expiredBody: "Nothing was sent and nothing is held. Approval links stop working after at most 24 hours.",
+    expiredAgain: "If you still want to ask, ask your agent to draft the request again.",
+
+    wrongDocumentTitle: "Another account · A2H",
+    wrongTitle: "This link belongs to another account",
+    wrongBody: "You're signed in as {address}, which did not make this request, so nothing about it is shown here.",
+    wrongAction: "Sign out, then open the link again and sign in with the account your agent uses.",
   },
 } as const;
 

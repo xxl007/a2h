@@ -40,3 +40,8 @@ The owner decided on 21 Oct 2026: human words plain, the machine carries the col
 - **Human tinted, machine plain** (the prototypes): no shipping precedent; tints the words that matter most; collides with warm host accents.
 - **Two neutrals** and **a cool neutral**: see Decision 4.
 - **A display serif for human words**: the only defensible job the prototypes' serif had; dropped because it cannot load in email or the card, costs 60–130 KB, and the plain-human rule gives the distinction without it.
+
+## Amendment 1 (owner decision 7, 2026-11-01; change `m2-approval-page`)
+
+Item 6 no longer describes the plan for the principal's approval. The request card is a page of the web app (the hosted approval page), not an MCP App card in a host iframe: hosted clients flattened the host-drawn MCP form into unreadable text, and a page A2H owns serves every host the same way and has room for attachments and richer answer formats. The approval page follows the rules of the web app (system font stack on the request path, tokens from `packages/ui`), not the guest subset. The guest rules of item 6 stay valid for any future card a host renders, for example a read-only status card, and are not built now.
+

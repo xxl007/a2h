@@ -17,8 +17,14 @@ export interface DbConfig {
 export interface McpConfig {
   stage: string;
   db: DbConfig;
-  /** HMAC key of the approval state codec (design D1): 32 bytes or more. Never log it. */
+  /**
+   * The stage's approval key (32 bytes or more; never log it): signs the
+   * `requestState` of the URL elicitation and derives each request's
+   * approval-link token (m2-approval-page D2, D3).
+   */
   approvalKey: Uint8Array;
+  /** The stage's web host, where approval links point: the origin of AUTH_ISSUER. */
+  webOrigin: string;
   /** `/mcp` or `/pr-<n>/mcp` (MCP_BASE_PATH). */
   mcpBasePath: string;
   /** The platform fee rate `f` (ADR 0002: configuration, not code). Principals and their policies are rows (m1-hosted-connector D4). */

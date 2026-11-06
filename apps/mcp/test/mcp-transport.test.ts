@@ -19,6 +19,21 @@ function assertPolicy(name: string, description: string): void {
   assert.match(description, /pays what clears, never more than the hold/i, `${name}: pays what clears, never more than the hold`);
 }
 
+/** m2-approval-page task 3.1: the descriptions state the hosted approval page. */
+function assertApprovalFlow(name: string, description: string): void {
+  if (name === "request_human") {
+    assert.match(description, /approval link/i, "request_human: returns an approval link");
+    assert.match(description, /page/i, "request_human: the principal approves on a page");
+    assert.match(description, /awaiting_approval/, "request_human: the status it returns");
+    assert.match(description, /check_requests/, "request_human: how to follow up");
+    assert.doesNotMatch(description, /accept|editable|Needs MCP protocol revision/i, "no form left");
+  }
+  if (name === "check_requests") {
+    assert.match(description, /awaiting approval/i);
+    assert.match(description, /not sent/i);
+  }
+}
+
 const ERAS: Era[] = ["legacy", "modern"];
 
 function firstText(result: { content?: unknown }): string {
@@ -63,6 +78,7 @@ for (const era of ERAS) {
         for (const name of A2H_TOOLS) {
           const description = tools.find((t) => t.name === name)!.description ?? "";
           assertPolicy(name, description);
+          assertApprovalFlow(name, description);
         }
         const ping = tools.find((t) => t.name === "ping");
         assert.ok(ping, "ping is listed");

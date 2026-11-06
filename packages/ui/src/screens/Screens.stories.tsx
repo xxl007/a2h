@@ -1,5 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { claudeAi, claudeCode, connectedClients, longName, principalEmail } from "../fixtures.js";
+import { useState } from "react";
+import {
+  agentDraft,
+  approvalRequest,
+  claudeAi,
+  claudeCode,
+  connectedClients,
+  longName,
+  pollRequest,
+  pollStressRequest,
+  principalEmail,
+  realParticipantRequest,
+  storyNow,
+  storyNowLinkEnding,
+  storyTimeZone,
+} from "../fixtures.js";
+import { ApprovalScreen, type ApprovalState } from "./ApprovalScreen.js";
 import { CheckEmailScreen, LinkExpiredScreen } from "./CheckEmailScreen.js";
 import { ConnectedClientsScreen } from "./ConnectedClientsScreen.js";
 import { ConsentScreen } from "./ConsentScreen.js";
@@ -85,3 +101,75 @@ export const ConnectedAppsInteractive: Story = {
 
 // 5. Signed out (/signed-out)
 export const SignedOut: Story = { render: () => <SignedOutScreen /> };
+
+// 6. Approval page (/approve/[id]), m2-approval-page design.md A1–A12
+const approve = { email: principalEmail, timeZone: storyTimeZone, now: storyNow, stageName: "pr-75" };
+const edited = agentDraft.replace("Would a newly diagnosed patient find this wording alarming?", "Would someone diagnosed last week find this wording frightening?");
+export const ApprovalAwaiting: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} /> };
+/** Less than an hour of the link left: "This link works until …" joins the note under the buttons (owner decision 2026-11-05). */
+export const ApprovalLinkEnding: Story = { render: () => <ApprovalScreen {...approve} now={storyNowLinkEnding} request={approvalRequest} /> };
+export const ApprovalEdited: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} question={edited} /> };
+export const ApprovalOverLimit: Story = {
+  render: () => <ApprovalScreen {...approve} request={approvalRequest} question={`${agentDraft}\n\n${"More context. ".repeat(130)}`} />,
+};
+export const ApprovalEmpty: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} question="" /> };
+export const ApprovalPollFreeDeferred: Story = { render: () => <ApprovalScreen {...approve} request={pollRequest} /> };
+/** Stress case for option labels (not a reviewed spec state). */
+export const ApprovalPollStressLabels: Story = { render: () => <ApprovalScreen {...approve} request={pollStressRequest} /> };
+export const ApprovalRealParticipant: Story = { render: () => <ApprovalScreen email={principalEmail} timeZone={storyTimeZone} now={storyNow} request={realParticipantRequest} /> };
+export const ApprovalSending: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="sending" /> };
+export const ApprovalCancelling: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="not-sending" /> };
+export const ApprovalRefusedContent: Story = {
+  render: () => (
+    <ApprovalScreen
+      {...approve}
+      request={approvalRequest}
+      state="refused"
+      refusal="persuasion_disguised"
+      question={"Wouldn't you agree that this leaflet is badly written and frightening for patients?"}
+    />
+  ),
+};
+export const ApprovalRefusedBudget: Story = {
+  render: () => <ApprovalScreen {...approve} request={approvalRequest} state="refused" refusal="over_budget" />,
+};
+export const ApprovalRefusedRules: Story = {
+  render: () => <ApprovalScreen {...approve} request={approvalRequest} state="refused" refusal="outside_participant_rules" />,
+};
+export const ApprovalError: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="error" reference={ref} /> };
+export const ApprovalOffline: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="offline" question={edited} /> };
+const decidedAt = "2026-11-03T10:24:00+01:00";
+export const ApprovalSent: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="sent" question={edited} decidedAt={decidedAt} /> };
+export const ApprovalAlreadySent: Story = {
+  render: () => <ApprovalScreen {...approve} request={approvalRequest} state="already-sent" decidedAt={decidedAt} />,
+};
+export const ApprovalNotSent: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="not-sent" /> };
+export const ApprovalAlreadyNotSent: Story = {
+  render: () => <ApprovalScreen {...approve} request={approvalRequest} state="already-not-sent" decidedAt={decidedAt} />,
+};
+export const ApprovalExpired: Story = { render: () => <ApprovalScreen {...approve} state="expired" /> };
+export const ApprovalWrongPrincipal: Story = { render: () => <ApprovalScreen {...approve} state="wrong-principal" /> };
+export const ApprovalSignIn: Story = { render: () => <SignInScreen next="/approve/A2H-7f3c" nextPurpose="approve" stageName="pr-75" /> };
+/** Interactive: edit, restore, Send (sending, then sent) or Don't send (then not sent). */
+export const ApprovalInteractive: Story = {
+  render: function Interactive() {
+    const [state, setState] = useState<ApprovalState>("awaiting");
+    const [question, setQuestion] = useState(agentDraft);
+    const action = (form: FormData) => {
+      const decision = form.get("decision");
+      setState(decision === "send" ? "sending" : "not-sending");
+      setTimeout(() => setState(decision === "send" ? "sent" : "not-sent"), 900);
+    };
+    return (
+      <ApprovalScreen
+        {...approve}
+        request={approvalRequest}
+        state={state}
+        question={question}
+        onQuestionChange={setQuestion}
+        decidedAt={decidedAt}
+        action={action}
+      />
+    );
+  },
+};

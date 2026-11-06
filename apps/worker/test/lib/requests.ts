@@ -1,6 +1,7 @@
-// Arranging requests the way apps/mcp creates them (a `requests` row in
-// `sent` and its first event), and moving them along the lifecycle as the
+// Arranging requests the way the approval page leaves them (a `requests` row
+// in `sent`, created awaiting approval and sent by the principal), and moving them along the lifecycle as the
 // participant would, directly in the database. Test-only.
+import { createHash } from "node:crypto";
 import type pg from "pg";
 import { importPrivateKey, signAnswer, type AnswerEnvelope, type Intent, type UnsignedAnswer } from "@a2h/protocol";
 import type { WorkerConfig } from "../../src/config.ts";
@@ -37,9 +38,9 @@ export async function createRequest(admin: pg.Client, r: NewRequest): Promise<{ 
   if (!participant_id) throw new Error(`no participant ${r.handle}`);
   await admin.query(
     `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane, question, options,
-       data_terms, bid_minor, currency, deliver_at, expires_at)
+       data_terms, bid_minor, currency, deliver_at, expires_at, status)
      VALUES ($1, $2, $3, $4, 'named_individual', 'one_shot', 'single_field', 'paid', $5, $6, $7, $8, 'EUR',
-       now() + make_interval(secs => $9), now() + make_interval(secs => $10))`,
+       now() + make_interval(secs => $9), now() + make_interval(secs => $10), 'sent')`,
     [
       id,
       r.principal_id ?? PRINCIPAL_ID,
@@ -53,8 +54,49 @@ export async function createRequest(admin: pg.Client, r: NewRequest): Promise<{ 
       r.expires_in ?? 7 * 24 * 3600,
     ],
   );
-  await admin.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ($1, NULL, 'sent', 'principal')`, [id]);
+  // As the approval page leaves it (m2-approval-page): created awaiting approval, then sent by the principal.
+  await admin.query(
+    `INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ($1, NULL, 'awaiting_approval', 'principal'), ($1, 'awaiting_approval', 'sent', 'principal')`,
+    [id],
+  );
   if (r.status === "accepted") await accept(admin, id);
+  return { id, participant_id };
+}
+
+/**
+ * A request as request_human records it since m2-approval-page (design D1):
+ * `awaiting_approval`, the agent's draft, a token hash and the link's expiry,
+ * and its first event null → awaiting_approval by the principal.
+ */
+export async function createAwaiting(
+  admin: pg.Client,
+  r: NewRequest & { approval_expires_in?: number },
+): Promise<{ id: string; participant_id: string }> {
+  const id = nextRequestId();
+  const { rows } = await admin.query<{ id: string }>(`SELECT id FROM participants WHERE handle = $1`, [r.handle]);
+  const participant_id = rows[0]?.id;
+  if (!participant_id) throw new Error(`no participant ${r.handle}`);
+  await admin.query(
+    `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane, question, agent_draft,
+       data_terms, bid_minor, currency, deliver_at, expires_at, status, approval_token_hash, approval_expires_at)
+     VALUES ($1, $2, $3, $4, 'named_individual', 'one_shot', 'single_field', 'paid', $5, $5, $6, $7, 'EUR',
+       now() + make_interval(secs => $8), now() + make_interval(secs => $9), 'awaiting_approval',
+       $11, now() + make_interval(secs => $10))`,
+    [
+      id,
+      r.principal_id ?? PRINCIPAL_ID,
+      participant_id,
+      r.intent ?? "judgment",
+      r.question ?? "Would a patient find this leaflet alarming?",
+      JSON.stringify(DATA_TERMS),
+      r.bid_minor ?? 3500,
+      r.deliver_in ?? 0,
+      r.expires_in ?? 7 * 24 * 3600,
+      r.approval_expires_in ?? 3600,
+      createHash("sha256").update(`token-of-${id}`).digest("hex"),
+    ],
+  );
+  await admin.query(`INSERT INTO request_events (request_id, from_status, to_status, actor) VALUES ($1, NULL, 'awaiting_approval', 'principal')`, [id]);
   return { id, participant_id };
 }
 

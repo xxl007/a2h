@@ -3,9 +3,11 @@
 // platform, with its event row; its hold is then reported as released
 // (`holdStatusAfter`). Idempotent: an expired request is not touched again,
 // and two workers expiring the same request write one event between them.
-// The same run prunes the per-principal rate-limit windows older than a day.
+// The same run moves every request still awaiting approval past its link's
+// expiry to `not_sent` (`expired`), by the platform (m2-approval-page design
+// D6), and prunes the per-principal rate-limit windows older than a day.
 import { and, asc, inArray, lte } from "drizzle-orm";
-import { pruneRateLimitWindows, requests } from "@a2h/db";
+import { dueApprovals, expireApproval, pruneRateLimitWindows, requests } from "@a2h/db";
 import type { JobContext } from "./context.ts";
 import { dbOf, inTransaction } from "./db.ts";
 import { applyTransition } from "./lifecycle.ts";
@@ -29,6 +31,14 @@ export async function expireDue(ctx: JobContext): Promise<number> {
       expired += 1;
       const r = outcome.request;
       ctx.log({ level: "info", msg: "request expired", request_id: r.id, principal_id: r.principal_id, participant_id: r.participant_id, state: r.status });
+    }
+  }
+  // Approval links past their expiry (D6): nothing was held or delivered for these.
+  const db = dbOf(ctx.pool);
+  for (const id of await dueApprovals(db, now, EXPIRE_BATCH)) {
+    if (await expireApproval(db, id, now)) {
+      expired += 1;
+      ctx.log({ level: "info", msg: "approval expired", request_id: id, state: "not_sent" });
     }
   }
   // Per-principal rate-limit windows older than a day count nothing any more (m1-hosted-connector D5).

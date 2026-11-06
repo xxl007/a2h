@@ -10,7 +10,7 @@ import { expireDue } from "../src/expire.ts";
 import type { WorkerLogLine } from "../src/log.ts";
 import type { Jobs } from "../src/queues.ts";
 import { jobsFor, startBoss } from "./lib/boss.ts";
-import { createRequest, statusOf } from "./lib/requests.ts";
+import { createAwaiting, createRequest, statusOf } from "./lib/requests.ts";
 import { addPrincipal, PRINCIPAL_ID, rows, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
@@ -45,6 +45,19 @@ describe("deliver", { skip }, () => {
       [id],
     );
   }
+
+  // m2-approval-page design D1: the page is the only way to sent.
+  test("an awaiting_approval request past its delivery time is never dispatched nor delivered, so it never counts against the participant's interruptions (they count delivery rows)", async () => {
+    const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c", deliver_in: -600 });
+    logs = [];
+    const dispatched: string[] = [];
+    await dispatchDue({ ...ctx(), jobs: { ...jobs, deliver: (id: string) => { dispatched.push(id); return Promise.resolve(); } } });
+    assert.ok(!dispatched.includes(r.id), "not dispatched");
+    await deliverRequest(ctx(), r.id);
+    assert.deepEqual(await deliveryOf(r.id), [], "no delivery row");
+    assert.deepEqual(await blockedOf(r.id), []);
+    assert.equal(await statusOf(stage.admin, r.id), "awaiting_approval");
+  });
 
   // m1-hosted-connector task 7.2; spec request-approval "Principal's own policy applies".
   test("Scenario: Principal's own policy applies at delivery: each request re-validated with its own principal's record", async () => {
