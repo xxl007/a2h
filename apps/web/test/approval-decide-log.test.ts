@@ -57,7 +57,9 @@ describe("decide: a failure to record the decision", () => {
       sql_state: "23514",
       // The first clause of the driver's message, quoted values and parentheses removed.
       db_error: "ERROR: new row violates check constraint …",
-      request_id: "ref_0123456789abcdef",
+      // The request's id, and the call's correlation id in its own field (review F5).
+      request_id: "A2H-fd84",
+      reference: "ref_0123456789abcdef",
     });
     const all = lines.join("\n");
     expect(all).not.toContain("picture book");

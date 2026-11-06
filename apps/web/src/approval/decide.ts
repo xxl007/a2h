@@ -93,7 +93,7 @@ export async function decide(deps: DecideDeps, i: DecideInput): Promise<Approval
         return { state: "wrong-principal" };
     }
   } catch (e) {
-    deps.logger.error(`approval decision not recorded for ${i.requestId}`, { request_id: i.reference, principal_id: i.principalId, ...errorFields(e) });
+    deps.logger.error(`approval decision not recorded for ${i.requestId}`, { ...fields, reference: i.reference, ...errorFields(e) });
     return { state: "error", reference: i.reference, ...(kept !== undefined ? { question: kept } : {}) };
   }
 }

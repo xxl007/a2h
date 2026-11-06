@@ -9,7 +9,10 @@ export type LogLevel = "debug" | "info" | "warn" | "error";
 
 /** The only fields a log line may carry besides `level`, `msg` and `time`. */
 export interface LogFields {
+  /** The A2H request id (`A2H-7f3c`), or the id of an auth request. */
   request_id?: string;
+  /** The correlation id of one server action call, as shown to the user on its error state (`ref_…`). */
+  reference?: string;
   principal_id?: string;
   client_id?: string;
   /** A short machine code (`magic_link_requested`, `consent_accepted`, an error name). */
@@ -98,6 +101,7 @@ export function redact(text: string): string {
 
 const FIELD_NAMES: readonly (keyof LogFields)[] = [
   "request_id",
+  "reference",
   "principal_id",
   "client_id",
   "code",
