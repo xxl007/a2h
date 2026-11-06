@@ -26,6 +26,7 @@ import {
   principalWithPolicy,
   pruneRateLimitWindows,
   recordBlockedManifest,
+  RequestIdTaken,
   requests,
   sql,
   type A2hDb,
@@ -187,6 +188,29 @@ describe("packages/db queries through the Data API driver (Postgres 17)", { skip
     assert.equal(row?.status, "sent");
     assert.ok(row?.created_at instanceof Date && row.created_at.getTime() === NOW.getTime(), String(row?.created_at));
     assert.deepEqual((await findRequests(db as never, P, { status: "not_sent", since: NOW, limit: 10 })).map((r) => r.id).sort(), ["A2H-da02", "A2H-da03"]);
+  });
+
+  test("the stand-in reproduces pr-85 (run 42246226973): a duplicate key is a DatabaseErrorException with the SQLState and constraint only in its message", async () => {
+    await awaiting("A2H-da0e");
+    await assert.rejects(
+      db.execute(sql`INSERT INTO ${requests} SELECT * FROM ${requests} WHERE ${requests.id} = ${"A2H-da0e"}`),
+      (e: unknown) => {
+        const cause = (e as Error).cause as Error & { code?: unknown; constraint?: unknown };
+        assert.ok(cause instanceof DatabaseErrorException, String(e));
+        assert.equal(cause.message, 'duplicate key value violates unique constraint "requests_pkey"; SQLState: 23505');
+        assert.equal(cause.code, undefined, "the Data API has no code field");
+        assert.equal(cause.constraint, undefined, "the Data API has no constraint field");
+        return true;
+      },
+    );
+  });
+
+  test("createAwaitingRequest on a taken id is RequestIdTaken through the Data API too (pr-85, the web fixture route); the caller draws another", async () => {
+    await awaiting("A2H-da0f");
+    await assert.rejects(awaiting("A2H-da0f"), RequestIdTaken);
+    // Nothing half-written: one request, one event.
+    const [row] = await findRequests(db as never, P, { request_id: "A2H-da0f" });
+    assert.equal(row?.events.length, 1);
   });
 
   test("recordBlockedManifest", async () => {

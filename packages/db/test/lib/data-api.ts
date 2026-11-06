@@ -17,6 +17,11 @@
 //   2026-11-03: `approvalFacts` ran two queries through Promise.all inside
 //   `decideApproval`'s transaction). node-postgres queues them on its client
 //   instead, so only this stand-in sees it;
+// - a Postgres error comes back as DatabaseErrorException with the SQLState
+//   and the constraint name only in its message, never as `code` or
+//   `constraint` fields (pr-85, run 42246226973: `createAwaitingRequest` on
+//   a taken id surfaced "duplicate key value violates unique constraint
+//   \"requests_pkey\"; SQLState: 23505" instead of RequestIdTaken).
 // It is driven by Drizzle's own `drizzle-orm/aws-data-api/pg` driver, so the
 // statements, placeholders (`:1`) and type hints are exactly what the web
 // Lambda sends. Test-only: no AWS call is made.
@@ -34,9 +39,19 @@ interface Command {
   input: { sql?: string; parameters?: Param[]; transactionId?: string };
 }
 
-/** What Aurora's Data API throws (no SQLState) for a second statement on a busy transaction. */
+/**
+ * What Aurora's Data API throws: for a second statement on a busy transaction
+ * (no SQLState), and for every Postgres error (`<message>; SQLState: <code>`,
+ * nothing else: no `code`, no `constraint`, like the SDK's class).
+ */
 export class DatabaseErrorException extends Error {
   override name = "DatabaseErrorException";
+}
+
+/** A Postgres error as the Data API reports it. */
+function asDataApiError(error: unknown): unknown {
+  if (error instanceof pg.DatabaseError && error.code) return new DatabaseErrorException(`${error.message}; SQLState: ${error.code}`);
+  return error;
 }
 
 const HINT_TYPE: Record<string, string> = { TIMESTAMP: "timestamp", DATE: "date", DECIMAL: "numeric", JSON: "json", UUID: "uuid", TIME: "time" };
@@ -142,6 +157,8 @@ export function dataApiStandIn(connectionString: string, schema: string): DataAp
           let result: pg.QueryResult;
           try {
             result = await runner.query({ text, values, rowMode: "array", types: raw });
+          } catch (error) {
+            throw asDataApiError(error);
           } finally {
             if (id) busy.delete(id);
           }
