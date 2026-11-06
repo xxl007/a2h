@@ -27,6 +27,7 @@ import {
   expiresIn,
   firstLeg,
   isInputRequired,
+  iso,
   manifest,
   principalClient,
   requestAwaiting,
@@ -191,21 +192,39 @@ describe("adversarial: manifest validation fails closed (live)", () => {
     // sim-ep-5c07: quiet 22:00-07:00 Europe/London, latency 24 h. The server's clock decides; by day
     // this case cannot be provoked from outside and is reported as such (local stage with a pinned
     // clock for the first-leg part: tests/README.md, "Adversarial suite").
+    // The server reads its clock a moment after this one, so the last two minutes before 07:00 are
+    // skipped too: a request made at 06:59 here can land at 07:00 there, and be delivered at once.
     const EP = "sim-ep-5c07";
-    const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", hourCycle: "h23" }).format(serverNow()));
-    if (!(hour >= 22 || hour < 7)) {
-      t.skip(`London hour ${hour}: outside sim-ep-5c07's quiet hours, the case cannot be provoked now`);
+    const london = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(serverNow());
+    const [hour, minute] = london.split(":").map(Number) as [number, number];
+    const londonMinutes = hour * 60 + minute;
+    if (!(londonMinutes >= 22 * 60 || londonMinutes < 7 * 60 - 2)) {
+      t.skip(`London ${london}: outside sim-ep-5c07's quiet hours (or in the two minutes before they end), the case cannot be provoked now`);
       return;
     }
     const q = "Is the vocabulary of this picture book right for five-year-olds?";
-    const { out } = await requestAwaiting(c, manifest(EP, "judgment", 2600, q, { expires_at: expiresIn(3 * 86_400) }));
+    // Expiry at noon UTC three days on, not "now + 3 days": the Expires row then never reads the
+    // minute the suite runs at, so a "22:00" on the page can only be the rule's window start.
+    const noon = new Date(serverNow());
+    noon.setUTCDate(noon.getUTCDate() + 3);
+    noon.setUTCHours(12, 0, 0, 0);
+    const { out } = await requestAwaiting(c, manifest(EP, "judgment", 2600, q, { expires_at: iso(noon) }));
     const browser = await launch();
     try {
-      const page = await pageAs(browser, "a");
+      // The page shows times in the viewer's zone (LocalTime); pinned to UTC so the delivery reads
+      // 07:00 or 06:00 (London's end of quiet hours in UTC) and the expiry 12:00, wherever this runs.
+      const page = await pageAs(browser, "a", { timezoneId: "UTC" });
       try {
         await openLink(page, out.approval_url);
-        assert.doesNotMatch(await mainText(page), /As soon as you send/, "inside quiet hours the delivery is deferred, never now");
-        assert.doesNotMatch(await mainText(page), /22:00|07:00|quiet/i, "the page reveals the participant's quiet hours");
+        const text = await mainText(page);
+        // The deferral itself is required (spec request-approval "Quiet hours": the result says so;
+        // design.md lists deliverAt): the Delivery row names the earliest time the rules allow
+        // (packages/ui copy.approval.deliveryDeferred), never "now".
+        assert.doesNotMatch(text, /As soon as you send/, "inside quiet hours the delivery is deferred, never now");
+        assert.match(text, /Delivery\s+At \d\d:\d\d on \d{1,2} [A-Z][a-z]{2} \d{4} \(UTC\), the earliest their rules allow\./, "the page does not show the deferred delivery time");
+        // The rule stays hidden: the word, the time zone, the window's start. (Its end is the delivery
+        // time, so 07:00 is not a leak; 22:00 never is a delivery time with this persona.)
+        assert.doesNotMatch(text, /quiet|Europe\/London|22:00/i, "the page reveals the participant's quiet hours");
         await decide(page, "dont_send");
       } finally {
         await closePage(page);

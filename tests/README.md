@@ -463,7 +463,7 @@ Cases from the protocol skill §12. Each was first shown red against a deliberat
 | 1 push-poll | `manifest.live.test.ts` "case 1" (7 phrasings; first leg, a second participant, the approval form, a swap on the retry) | W1: content stage off in `packages/protocol/src/validate.ts` (`classifyForbiddenContent` not called) | approval shown for a push-poll |
 | 2 third-party personal data | "case 2" (6 phrasings, same paths) | W1 | approval shown |
 | 3 labour disguised | "case 3" (5 phrasings, same paths) | W1 | approval shown |
-| 4 quiet hours | "case 4" (deferred never now; expiries 12 h and 23 h refused, retryable, nothing revealed) | W4: quiet hours ignored | "Delivery: now" inside quiet hours |
+| 4 quiet hours | "case 4" (deferred never now: the Delivery row names the earliest time the rules allow, the page never the word quiet, the zone or the window's start; expiries 12 h and 23 h refused, retryable, nothing revealed; runs only while London is inside 22:00–07:00, skipped with the reason otherwise) | W4: quiet hours ignored | "Delivery: now" inside quiet hours |
 | 5 over-interruption | "case 5" (three approvals minted, then redeemed; a fourth first leg) | W5: interruption budget not checked | 3 requests created past a budget of 2 |
 | 6 bid below reserve | "case 6" (reserve − 1, the net reserve, 0, an undeclared free lane, negative, fractional, string; a lowered bid on the retry) | W6: reserve and free-lane checks off | approval shown at reserve − 1 |
 | 10 unsigned answer | `answers.local.test.ts` "case 10" (14 forgeries) and "revoked key"; `answers.live.test.ts` | W10: signature not verified in `apps/worker/src/intake.ts` | a zero signature accepted |
