@@ -38,9 +38,9 @@ export async function createRequest(admin: pg.Client, r: NewRequest): Promise<{ 
   if (!participant_id) throw new Error(`no participant ${r.handle}`);
   await admin.query(
     `INSERT INTO requests (id, principal_id, participant_id, intent, audience, time_shape, format, lane, question, options,
-       data_terms, bid_minor, currency, deliver_at, expires_at)
+       data_terms, bid_minor, currency, deliver_at, expires_at, status)
      VALUES ($1, $2, $3, $4, 'named_individual', 'one_shot', 'single_field', 'paid', $5, $6, $7, $8, 'EUR',
-       now() + make_interval(secs => $9), now() + make_interval(secs => $10))`,
+       now() + make_interval(secs => $9), now() + make_interval(secs => $10), 'sent')`,
     [
       id,
       r.principal_id ?? PRINCIPAL_ID,
