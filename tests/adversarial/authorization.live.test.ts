@@ -185,9 +185,16 @@ describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens 
       const declined = await retryLeg(ub, args, roundB.requestState, { action: "decline" });
       assert.ok(!declined.isError, texts(declined));
       assert.equal(RequestHumanOutputSchema.parse(declined.structuredContent).status, "not_sent");
-      // Nothing was created for B by A's state, nor for TH by anyone.
-      const bSince = (await listSince(b, since)).map((r) => r.request_id);
-      assert.deepEqual(bSince, [new URL(roundB.inputRequests!["approval"]!.params.url!).pathname.split("/").at(-1)], "B has only its own request");
+      // Nothing was created for B by A's state, nor for TH by anyone. B's list may hold other requests
+      // of B's: the adversarial files run concurrently and approval.live.test.ts creates B's own (run
+      // 41701527271, A2H-0f8c to sim-cf-4c5e by B's principal, case 1 there). What A's state must not
+      // do is create anything for B, and A's request must stay A's: B's list holds B's own prompt and
+      // never A's id, and nothing to TH, the handle B tried with A's state.
+      const idB = new URL(roundB.inputRequests!["approval"]!.params.url!).pathname.split("/").at(-1)!;
+      const bSince = await listSince(b, since);
+      assert.ok(bSince.some((r) => r.request_id === idB), "B's own prompt is B's request");
+      assert.ok(!bSince.some((r) => r.request_id === idA), "A's request appears in B's list");
+      assert.ok(!bSince.some((r) => r.handle === TH), "a request to TH was created for B by A's state");
       await assertNothingCreatedFor(a, TH, since);
       await assertNothingCreatedFor(b, TH, since);
     } finally {
