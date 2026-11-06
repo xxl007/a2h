@@ -35,6 +35,19 @@ export const SEED_PERSONAS: readonly SeedPersona[] = [
 const HOUR = 3600;
 const MINUTE = 60;
 
+/**
+ * Daily interruption cap of every simulated persona but sim-bk-2e6f. Test
+ * data, not policy: the personas exist on dev and previews only, where the
+ * schema persists across verify runs and the daily count is per participant
+ * per UTC day across every principal (countDeliveries), so a human-sized cap
+ * is spent by the third verify of a day (pr-89, run 42296878001: sim-jw-9e48's
+ * ten, then outside_participant_rules on the first contract flow). A day of
+ * CI cannot reach a thousand. Only sim-bk-2e6f keeps a small cap, for the
+ * scenario "Interruption budget exceeded"; packages/db/test/seed.test.ts pins
+ * both and that no other CI suite sends to it.
+ */
+const CI_SAFE_INTERRUPTIONS_PER_DAY = 1000;
+
 function eur(intent: TypeRule["intent"], reserve_net_minor: number, accepted = true): TypeRule {
   return { intent, accepted, reserve_net_minor, currency: "EUR" };
 }
@@ -45,7 +58,7 @@ function rules(types: TypeRule[], extra: Partial<RulesOfEngagement> = {}): Rules
     free_lanes: [],
     who_may_ask: "anyone_verified",
     quiet_hours: null,
-    max_interruptions_per_day: 10,
+    max_interruptions_per_day: CI_SAFE_INTERRUPTIONS_PER_DAY,
     latency_promise_seconds: 6 * HOUR,
     ...extra,
   };
@@ -155,6 +168,10 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     "sim-bk-2e6f", "Benedict Knox", "silent",
     [{ topic: "road freight transit times in Europe", evidence: "job_title" }],
     [4.1, 8, 12 * HOUR],
+    // The one small daily cap (see CI_SAFE_INTERRUPTIONS_PER_DAY): the scenario
+    // "Interruption budget exceeded" exhausts it on purpose (tests/contract
+    // request-approval.test.ts, tests/adversarial manifest.live.test.ts case 5);
+    // no other CI flow sends to it.
     rules([eur("estimate", 3500), eur("knowledge", 3000)], { max_interruptions_per_day: 2, latency_promise_seconds: 24 * HOUR }),
   ),
 ];

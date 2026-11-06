@@ -4,7 +4,8 @@
 // through db-migrate.sh.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import pg from "pg";
 import * as protocol from "@a2h/protocol";
 import { SEED_DEV_BUDGET_MULTIPLIER, SEED_PERSONAS, SEED_PARTICIPANTS, SEED_PRINCIPAL, SEED_PRINCIPAL_POLICY } from "../seed/simulated.ts";
@@ -78,6 +79,58 @@ describe("the simulated set", () => {
     assert.match(first, /current_setting\('a2h\.stage', true\)/);
     assert.match(first, /'prod'/);
     assert.match(first, /RAISE EXCEPTION/);
+  });
+});
+
+// Daily interruption caps (fix after verify pr-89, run 42296878001, 2026-11-06).
+// A stage's schema persists across verify runs, and the daily count is per
+// participant per UTC day across every principal (packages/db countDeliveries),
+// so the third verify of a day spent sim-jw-9e48's ten and the first contract
+// flow was refused outside_participant_rules. Simulated personas exist on dev
+// and previews only, so their caps are test data: one persona keeps a small cap
+// for the scenario that exhausts it on purpose, every other one takes more than
+// a day of CI can send.
+describe("daily interruption caps", () => {
+  /** The persona "Interruption budget exceeded" exhausts: cap 2, as the live tests assume. */
+  const CAP_PERSONA = "sim-bk-2e6f";
+  const CAP = 2;
+  /** The only CI suites that may send to it, both exhausting the budget on purpose. */
+  const CAP_PERSONA_SUITES = ["tests/adversarial/manifest.live.test.ts", "tests/contract/request-approval.test.ts"];
+  /** A day of CI (several verify runs, each a handful of requests per persona) cannot reach this. */
+  const CI_SAFE_CAP = 1000;
+
+  test(`the scenario persona ${CAP_PERSONA} keeps a cap of ${CAP}, no quiet hours`, () => {
+    const bk = SEED_PARTICIPANTS.find((p) => p.handle === CAP_PERSONA);
+    assert.equal(bk?.rules.max_interruptions_per_day, CAP);
+    assert.equal(bk?.rules.quiet_hours, null);
+  });
+
+  test(`every other simulated persona takes at least ${CI_SAFE_CAP} interruptions a day`, () => {
+    for (const p of SEED_PARTICIPANTS) {
+      if (p.handle === CAP_PERSONA) continue;
+      assert.ok(
+        p.rules.max_interruptions_per_day >= CI_SAFE_CAP,
+        `${p.handle}: max_interruptions_per_day ${p.rules.max_interruptions_per_day} can be spent by a day of CI on one stage`,
+      );
+    }
+  });
+
+  test(`no other CI flow names ${CAP_PERSONA}: under tests/ and apps/web only the two interruption-budget suites do`, () => {
+    const root = new URL("../../../", import.meta.url).pathname;
+    const skip = new Set(["node_modules", "dist", ".next", ".turbo", "test-results", "playwright-report", "coverage"]);
+    const naming: string[] = [];
+    for (const dir of ["tests", "apps/web"]) {
+      for (const d of readdirSync(join(root, dir), { recursive: true, withFileTypes: true })) {
+        const path = join(d.parentPath, d.name);
+        if (!d.isFile() || !/\.(ts|tsx|mts|js|mjs|cjs)$/.test(d.name)) continue;
+        if (relative(root, path).split(sep).some((part) => skip.has(part))) continue;
+        const source = readFileSync(path, "utf8");
+        if (!source.includes(CAP_PERSONA)) continue;
+        naming.push(relative(root, path));
+        assert.match(source, /interruption budget/i, `${relative(root, path)} names ${CAP_PERSONA} without being about the interruption budget`);
+      }
+    }
+    assert.deepEqual(naming.sort(), [...CAP_PERSONA_SUITES].sort());
   });
 });
 
