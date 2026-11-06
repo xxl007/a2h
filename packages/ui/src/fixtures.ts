@@ -71,6 +71,10 @@ export const realParticipantRequest: ApprovalRequest = {
 
 /** Stories show times in Paris so the offset is visible; pages use the viewer's zone. */
 export const storyTimeZone = "Europe/Paris";
+/** The stories' clock: 1 h 50 min before approvalRequest's link ends, so the validity line is absent. */
+export const storyNow = "2026-11-04T08:30:00+01:00";
+/** 45 min before approvalRequest's link ends: the validity line shows (A1, link ends within the hour). */
+export const storyNowLinkEnding = "2026-11-04T09:35:00+01:00";
 
 /** Stress case: labels with quotes, guillemets, mixed scripts and a long unbroken word (story only). */
 export const pollStressRequest: ApprovalRequest = {

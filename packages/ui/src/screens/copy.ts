@@ -147,7 +147,8 @@ export const copy = {
 
     factsHeading: "Request details",
     to: "To",
-    simulatedNote: "Simulated participant: no person will be asked. A script answers on this test stage.",
+    /** Owner decision 2026-11-05 (design.md A1, "To" row). */
+    simulatedNote: "Test participant. No one real will be asked.",
     requestType: "Request type",
     intents: {
       observation: "Observation",
@@ -192,7 +193,9 @@ export const copy = {
     sendPending: "Sending…",
     dontSend: "Don't send",
     dontSendPending: "Cancelling…",
-    decisionNote: "Nothing is sent and nothing is held until you choose. This link works until {time}.",
+    decisionNote: "Nothing is sent and nothing is held until you choose.",
+    /** Follows decisionNote only when less than an hour of the link is left (owner decision 2026-11-05, design.md decision bar). */
+    linkValidity: "This link works until {time}.",
 
     refused: {
       persuasion_disguised: {

@@ -21,7 +21,9 @@ export { StatusPill } from "./components/StatusPill.js";
 export type { StatusPillProps, StatusPillTone } from "./components/StatusPill.js";
 export { LocalTime } from "./components/LocalTime.js";
 export type { LocalTimeProps } from "./components/LocalTime.js";
-export { formatDateTime, viewerTimeZone } from "./components/datetime.js";
+export { LinkValidity } from "./components/LinkValidity.js";
+export type { LinkValidityProps } from "./components/LinkValidity.js";
+export { formatDateTime, linkEndsSoon, viewerTimeZone } from "./components/datetime.js";
 export { fillNodes } from "./components/fillNodes.js";
 export type { ClientRegistration, ClientSummary, DisplayDate, FormAction, ScopeName } from "./components/types.js";
 

@@ -46,7 +46,9 @@ export interface FixtureDeps {
   now?: () => Date;
 }
 
-const BodySchema = z.strictObject({ variant: z.enum(["paid", "poll", "expired"]).default("paid") });
+/** `ending`: a paid request whose link has half an hour left, for the validity line (design.md decision bar). */
+const BodySchema = z.strictObject({ variant: z.enum(["paid", "poll", "expired", "ending"]).default("paid") });
+type Variant = z.infer<typeof BodySchema>["variant"];
 
 export const FIXTURE_QUESTION = "Would a patient newly diagnosed with type 2 diabetes find the leaflet's section on insulin alarming?";
 
@@ -57,7 +59,7 @@ export const FIXTURE_QUESTION = "Would a patient newly diagnosed with type 2 dia
  */
 const POLL_PARTICIPANTS = ["sim-jw-9e48", "sim-cf-4c5e", "sim-ep-5c07"] as const;
 
-function manifestFor(variant: "paid" | "poll" | "expired", principalId: string, now: Date, to?: string): Manifest {
+function manifestFor(variant: Variant, principalId: string, now: Date, to?: string): Manifest {
   const base = {
     audience: "named_individual",
     time_shape: "one_shot",
@@ -95,7 +97,7 @@ export async function handleApprovalFixture(deps: FixtureDeps, request: Request)
   const principalId = await deps.principalId();
   if (principalId === undefined) return json(401, { error: "sign in first" });
   const parsed = BodySchema.safeParse(await request.json().catch(() => ({})));
-  if (!parsed.success) return json(400, { error: "variant is paid, poll or expired" });
+  if (!parsed.success) return json(400, { error: "variant is paid, poll, expired or ending" });
   const variant = parsed.data.variant;
 
   const now = deps.now?.() ?? new Date();
@@ -122,7 +124,8 @@ export async function handleApprovalFixture(deps: FixtureDeps, request: Request)
   const token = formatApprovalToken(crypto.getRandomValues(new Uint8Array(32)));
   if (!ApprovalTokenSchema.safeParse(token).success) throw new Error("token format");
   const created = variant === "expired" ? new Date(now.getTime() - 2 * 3_600_000) : now;
-  const linkExpiry = variant === "expired" ? new Date(now.getTime() - 60_000) : new Date(now.getTime() + 24 * 3_600_000);
+  const linkExpiry =
+    variant === "expired" ? new Date(now.getTime() - 60_000) : variant === "ending" ? new Date(now.getTime() + 30 * 60_000) : new Date(now.getTime() + 24 * 3_600_000);
   for (let attempt = 0; attempt < 32; attempt++) {
     const id = formatRequestId(crypto.getRandomValues(new Uint8Array(2)));
     try {

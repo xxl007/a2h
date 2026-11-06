@@ -3,6 +3,7 @@ import { AuthShell, formActionProps, type AuthShellProps } from "../components/A
 import { DecisionBar } from "../components/DecisionBar.js";
 import { Fact, FactList, FactNote, Mono, OptionList } from "../components/FactList.js";
 import { fillNodes } from "../components/fillNodes.js";
+import { LinkValidity } from "../components/LinkValidity.js";
 import { LocalTime } from "../components/LocalTime.js";
 import { Notice } from "../components/Notice.js";
 import { QuestionEditor, questionStatus } from "../components/QuestionEditor.js";
@@ -85,7 +86,13 @@ export interface ApprovalScreenProps {
   email: string;
   signOutAction?: FormAction;
   stageName?: string;
-  /** Fixed zone for stories and tests; pages leave it out and get the viewer's zone. */
+  /**
+   * ISO with offset: the clock at render, the server's. It decides whether "This link works
+   * until …" is on the first paint (less than an hour left; design.md decision bar), so the
+   * server and the hydrating browser agree. After hydration the browser's clock takes over.
+   */
+  now?: string;
+  /** Fixed zone for stories and tests; pages leave it out and get the viewer's zone and clock. */
   timeZone?: string;
 }
 
@@ -197,6 +204,8 @@ export function ApprovalScreen(props: ApprovalScreenProps) {
       question={question}
       time={time}
       shell={shell}
+      {...(props.now !== undefined ? { now: props.now } : {})}
+      {...(props.timeZone !== undefined ? { timeZone: props.timeZone } : {})}
       {...(props.onQuestionChange !== undefined ? { onQuestionChange: props.onQuestionChange } : {})}
       {...(props.refusal !== undefined ? { refusal: props.refusal } : {})}
       {...(props.reference !== undefined ? { errorReference: props.reference } : {})}
@@ -215,9 +224,11 @@ interface AwaitingDecisionProps {
   action?: FormAction;
   time: (iso: string) => ReactNode;
   shell: Omit<AuthShellProps, "children">;
+  now?: string;
+  timeZone?: string;
 }
 
-function AwaitingDecision({ state, request, question: initial, onQuestionChange, refusal, errorReference, action, time, shell }: AwaitingDecisionProps) {
+function AwaitingDecision({ state, request, question: initial, onQuestionChange, refusal, errorReference, action, time, shell, now, timeZone }: AwaitingDecisionProps) {
   const c = copy.approval;
   const [own, setOwn] = useState(initial);
   const question = onQuestionChange ? initial : own;
@@ -328,7 +339,12 @@ function AwaitingDecision({ state, request, question: initial, onQuestionChange,
           {...(state === "sending" ? { pending: "send" as const } : state === "not-sending" ? { pending: "dont-send" as const } : {})}
           sendDisabled={!s.canSend}
           {...(!s.canSend ? { sendDescribedBy: errorId } : {})}
-          note={fillNodes(c.decisionNote, { time: time(request.approvalExpiresAt) })}
+          note={
+            <>
+              {c.decisionNote}
+              <LinkValidity until={request.approvalExpiresAt} {...(now !== undefined ? { now } : {})} {...(timeZone !== undefined ? { timeZone } : {})} />
+            </>
+          }
         />
       </form>
     </AuthShell>

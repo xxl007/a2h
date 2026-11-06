@@ -13,7 +13,8 @@ import { approvalRequestView } from "./view";
 export type ApprovalPageModel =
   | { kind: "expired" }
   | { kind: "wrong-principal" }
-  | { kind: "awaiting"; request: ApprovalRequest }
+  /** `now`: the server's clock at render (ISO), the first paint of the link validity line (design.md decision bar). */
+  | { kind: "awaiting"; request: ApprovalRequest; now: string }
   | { kind: "already-sent"; request: ApprovalRequest; question: string; decidedAt: string }
   | { kind: "already-not-sent"; request: ApprovalRequest; decidedAt: string };
 
@@ -52,7 +53,7 @@ export async function loadApprovalPage(db: A2hDb, q: ApprovalPageQuery): Promise
 
   if (r.status === "awaiting_approval") {
     if (r.approval_expires_at === null || r.approval_expires_at.getTime() <= q.now.getTime()) return EXPIRED;
-    return { kind: "awaiting", request: approvalRequestView(r, found.participant, q) };
+    return { kind: "awaiting", request: approvalRequestView(r, found.participant, q), now: q.now.toISOString() };
   }
   if (r.status === "not_sent") {
     if (r.not_sent_reason !== "declined") return EXPIRED;

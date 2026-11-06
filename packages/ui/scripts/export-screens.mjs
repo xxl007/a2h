@@ -17,6 +17,7 @@ const { chromium } = createRequire(join(repo, "tests/package.json"))("@playwrigh
 // Story id → file name, title shown in the index, in design.md order.
 const states = [
   ["approval-awaiting", "a1-awaiting", "A1 Awaiting decision (paid, simulated participant)"],
+  ["approval-link-ending", "a1d-link-ending", "A1 Awaiting decision (less than an hour of the link left)"],
   ["approval-poll-free-deferred", "a1b-poll-free-deferred", "A1 Awaiting decision (poll with options and scale, free lane, deferred delivery)"],
   ["approval-real-participant", "a1c-real-participant", "A1 Awaiting decision (participant not simulated, production: no stage line)"],
   ["approval-edited", "a2-edited", "A2 Edited (Restore agent draft)"],

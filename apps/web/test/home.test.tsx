@@ -4,7 +4,7 @@
 import { describe, expect, test } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Home } from "../app/home";
-import * as page from "../app/page";
+import * as page from "../pages/index";
 
 const SENTENCE =
   "A2H (Agent-to-Human) is a protocol and platform that lets AI agents find consenting humans, send them questions on behalf of an accountable principal, and bring back attested answers.";
@@ -48,10 +48,32 @@ describe("Home", () => {
   });
 });
 
-describe("app/page", () => {
+describe("pages/index (the home route)", () => {
   // STAGE and MCP_URL are set on the Lambda at run time, not at build time:
   // a statically prerendered page would freeze the build environment's values.
-  test("is rendered per request, not prerendered at build", () => {
-    expect(page.dynamic).toBe("force-dynamic");
+  test("is rendered per request, not prerendered at build", async () => {
+    const props = await page.getServerSideProps({} as never);
+    expect(props).toHaveProperty("props");
+  });
+
+  test("reads the stage and the MCP URL from the environment at request time", async () => {
+    process.env["STAGE"] = "pr-12";
+    process.env["MCP_URL"] = "http://a2h-alb.example/pr-12/mcp";
+    try {
+      const result = (await page.getServerSideProps({} as never)) as { props: Parameters<typeof Home>[0] };
+      expect(result.props).toEqual({ stage: "pr-12", mcpUrl: "http://a2h-alb.example/pr-12/mcp" });
+      const html = renderToStaticMarkup(<page.default {...result.props} />);
+      expect(html).toMatch(/Stage[\s\S]*pr-12/);
+    } finally {
+      delete process.env["STAGE"];
+      delete process.env["MCP_URL"];
+    }
+  });
+
+  // The page is text: it ships no client JavaScript at all (tests/e2e/hello.spec.ts
+  // "transfers under 100 KB": the React runtime alone is 95-104 KB on the wire,
+  // brotli or gzip, so a page that needs none of it must not load it).
+  test("ships no client JavaScript: the Pages Router runtime is switched off", () => {
+    expect(page.config.unstable_runtimeJS).toBe(false);
   });
 });

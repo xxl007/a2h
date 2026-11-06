@@ -46,7 +46,7 @@ interface Fixture {
   question: string;
 }
 
-async function fixture(page: Page, variant: "paid" | "poll" | "expired" = "paid"): Promise<Fixture> {
+async function fixture(page: Page, variant: "paid" | "poll" | "expired" | "ending" = "paid"): Promise<Fixture> {
   const res = await page.request.post(`${WEB_URL}/test-fixtures/approval`, { data: { variant } });
   expect(res.status(), await res.text()).toBe(201);
   return (await res.json()) as Fixture;
@@ -73,13 +73,8 @@ async function axe(page: Page, label: string): Promise<void> {
   const violations = await page.evaluate(async () => {
     const w = window as unknown as { axe: { run: (ctx: Document, o: unknown) => Promise<{ violations: { id: string; nodes: { target: unknown[] }[] }[] }> } };
     const r = await w.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] } });
-    // Known, reported to Design (packages/ui AuthShell): the non-production stage line sits outside
-    // any landmark (best-practice `region`; prod has no stage line). Only that rule on only that
-    // node is set aside; every other rule still runs on it, and any other `region` node fails.
-    const stageLineOnly = (v: { id: string; nodes: { target: unknown[] }[] }) =>
-      v.id === "region" && v.nodes.every((n) => /AuthShell_stage/.test(JSON.stringify(n.target)));
     // Rule id and the selectors of its nodes (no text content: a failure message never carries the question).
-    return r.violations.filter((v) => !stageLineOnly(v)).map((v) => `${v.id}: ${v.nodes.map((n) => JSON.stringify(n.target)).join(", ")}`);
+    return r.violations.map((v) => `${v.id}: ${v.nodes.map((n) => JSON.stringify(n.target)).join(", ")}`);
   });
   expect.soft(violations, label).toEqual([]);
 }
@@ -147,7 +142,17 @@ test.describe("Requirement: The page shows what the participant will receive", (
     const page = await as(browser, owner);
     await open(page, await fixture(page));
     await expect(page.getByText("Margaret Vale (simulated)").first()).toBeVisible();
-    await expect(page.getByText("Simulated participant: no person will be asked. A script answers on this test stage.")).toBeVisible();
+    await expect(page.getByText("Test participant. No one real will be asked.")).toBeVisible();
+  });
+
+  test("Link validity line only in the link's last hour (owner decision 2026-11-05)", async ({ browser }) => {
+    const page = await as(browser, owner);
+    const note = () => page.locator("main form p").filter({ hasText: "Nothing is sent and nothing is held until you choose." });
+    await open(page, await fixture(page));
+    await expect(note()).toBeVisible();
+    await expect(note()).not.toContainText("This link works until");
+    await open(page, await fixture(page, "ending"));
+    await expect(note()).toContainText(/This link works until \d\d:\d\d on \d{1,2} \w{3} \d{4} \(UTC[^)]*\)\./);
   });
 
   test("Poll request", async ({ browser }) => {

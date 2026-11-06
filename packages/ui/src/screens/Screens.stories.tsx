@@ -11,6 +11,8 @@ import {
   pollStressRequest,
   principalEmail,
   realParticipantRequest,
+  storyNow,
+  storyNowLinkEnding,
   storyTimeZone,
 } from "../fixtures.js";
 import { ApprovalScreen, type ApprovalState } from "./ApprovalScreen.js";
@@ -101,9 +103,11 @@ export const ConnectedAppsInteractive: Story = {
 export const SignedOut: Story = { render: () => <SignedOutScreen /> };
 
 // 6. Approval page (/approve/[id]), m2-approval-page design.md A1–A12
-const approve = { email: principalEmail, timeZone: storyTimeZone, stageName: "pr-75" };
+const approve = { email: principalEmail, timeZone: storyTimeZone, now: storyNow, stageName: "pr-75" };
 const edited = agentDraft.replace("Would a newly diagnosed patient find this wording alarming?", "Would someone diagnosed last week find this wording frightening?");
 export const ApprovalAwaiting: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} /> };
+/** Less than an hour of the link left: "This link works until …" joins the note under the buttons (owner decision 2026-11-05). */
+export const ApprovalLinkEnding: Story = { render: () => <ApprovalScreen {...approve} now={storyNowLinkEnding} request={approvalRequest} /> };
 export const ApprovalEdited: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} question={edited} /> };
 export const ApprovalOverLimit: Story = {
   render: () => <ApprovalScreen {...approve} request={approvalRequest} question={`${agentDraft}\n\n${"More context. ".repeat(130)}`} />,
@@ -112,7 +116,7 @@ export const ApprovalEmpty: Story = { render: () => <ApprovalScreen {...approve}
 export const ApprovalPollFreeDeferred: Story = { render: () => <ApprovalScreen {...approve} request={pollRequest} /> };
 /** Stress case for option labels (not a reviewed spec state). */
 export const ApprovalPollStressLabels: Story = { render: () => <ApprovalScreen {...approve} request={pollStressRequest} /> };
-export const ApprovalRealParticipant: Story = { render: () => <ApprovalScreen email={principalEmail} timeZone={storyTimeZone} request={realParticipantRequest} /> };
+export const ApprovalRealParticipant: Story = { render: () => <ApprovalScreen email={principalEmail} timeZone={storyTimeZone} now={storyNow} request={realParticipantRequest} /> };
 export const ApprovalSending: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="sending" /> };
 export const ApprovalCancelling: Story = { render: () => <ApprovalScreen {...approve} request={approvalRequest} state="not-sending" /> };
 export const ApprovalRefusedContent: Story = {

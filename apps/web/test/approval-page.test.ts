@@ -59,9 +59,12 @@ describe.skipIf(!adminUrl)("approval page against the database", () => {
 
     test("the request's principal with its token sees the request awaiting a decision", async () => {
       const a = await awaiting(d, me);
-      const p = await page(a.id, a.token, me);
+      const at = new Date();
+      const p = await page(a.id, a.token, me, at);
       expect(p.kind).toBe("awaiting");
       if (p.kind !== "awaiting") return;
+      // The page's clock, for the link validity line's first paint (design.md decision bar).
+      expect(p.now).toBe(at.toISOString());
       expect(p.request.id).toBe(a.id);
       expect(p.request.agentDraft).toBe(DRAFT);
       expect(p.request.participant).toEqual({ label: "Margaret Vale (simulated)", handle: "sim-mv-7f3c", simulated: true });
