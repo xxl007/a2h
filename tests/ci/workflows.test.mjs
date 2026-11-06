@@ -395,7 +395,21 @@ function assertSignIn(f, j, creds, at) {
   const stage = f === "deploy.yml" ? "dev" : "pr-${{ github.event.pull_request.number }}";
   assert.equal(env.STAGE, stage, `${f} verify STAGE`);
   assert.equal(env.A2H_STAGE, stage, `${f} verify A2H_STAGE (the suites' expected stage)`);
-  assert.deepEqual([env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2], QA_EMAILS, `${f} verify: the two synthetic QA addresses`);
+  if (f === "preview.yml") {
+    // m2-approval-page 6.1 (verify pr-85, run 42246226973): a principal's monthly budget is one value for every
+    // stage (infra/config.ts developmentPolicy, €500 on previews) and the preview schema persists across runs,
+    // so the fifth verify run on one preview was refused with over_budget. A preview's QA principals are fresh
+    // per run: the address carries the run id and attempt (a re-run must not inherit the attempt's spend), the
+    // allow-list add and remove steps take the same variables, and the principal rows are created at sign-in.
+    // dev keeps the two fixed addresses: its list is the owner's, which CI never writes.
+    assert.deepEqual(
+      [env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2],
+      QA_EMAILS.map((e) => e.replace("@", "-${{ github.run_id }}-${{ github.run_attempt }}@")),
+      `${f} verify: the two synthetic QA addresses, fresh per run and attempt`,
+    );
+  } else {
+    assert.deepEqual([env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2], QA_EMAILS, `${f} verify: the two synthetic QA addresses`);
+  }
   for (const e of QA_EMAILS) assert.match(e, /^qa-principal-[ab]@a2h-protocol\.org$/, "synthetic addresses under the product domain only");
 
   const sink = indexOf(j, (s) => runs(s, "A2H_MAIL_SINK_BUCKET=") && runs(s, "GITHUB_ENV"), `${f} verify mail sink location`);

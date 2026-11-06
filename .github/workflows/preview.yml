@@ -304,9 +304,12 @@ jobs:
       STAGE: pr-${{ github.event.pull_request.number }}
       A2H_STAGE: pr-${{ github.event.pull_request.number }}
       # Synthetic QA principals (no mailbox exists; non-prod stages send nothing):
-      # admitted on the stage's allow-list for the run, removed at the end.
-      A2H_TEST_EMAIL: qa-principal-a@a2h-protocol.org
-      A2H_TEST_EMAIL_2: qa-principal-b@a2h-protocol.org
+      # admitted on the stage's allow-list for the run, removed at the end. Fresh
+      # per run and attempt (m2-approval-page 6.1): a principal's monthly budget
+      # is one value for every stage and the preview schema persists, so the
+      # fifth verify run on pr-85 was refused with over_budget (run 42246226973).
+      A2H_TEST_EMAIL: qa-principal-a-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
+      A2H_TEST_EMAIL_2: qa-principal-b-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:

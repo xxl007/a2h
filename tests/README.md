@@ -65,7 +65,7 @@ bash tests/ci/preview-smoke.sh <alb-dns> dev
 | `A2H_WEB_URL`, `A2H_ISSUER` | contract | The stage's web URL (derived from the domain when unset) and its authorization server (`<web>/api/auth`; `A2H_ISSUER` only for the local stage). |
 | `A2H_AUTH_REQUIRED`, `A2H_PING_OPEN` | contract, adversarial | Override, for the local stage only, what infra/service-env.ts says about the stage's gate. |
 | `A2H_MAIL_SINK_BUCKET`, `A2H_MAIL_SINK_DIR` | obtain-token, e2e | The stage's mail sink: the uploads bucket (`/a2h/shared/uploads-bucket`, read with the deploy role) or a local server's `LOCAL_MAIL_DIR`. |
-| `A2H_TEST_EMAIL`, `A2H_TEST_EMAIL_2` | obtain-token, e2e | The two synthetic QA principals (`qa-principal-a@` and `qa-principal-b@a2h-protocol.org`): on a preview the verify job admits them on the preview's own parameter for its run and removes them; on dev the owner's list holds them (CI never writes `/a2h/shared/principal-allowlist`; runbook §15). |
+| `A2H_TEST_EMAIL`, `A2H_TEST_EMAIL_2` | obtain-token, e2e | The two synthetic QA principals (`qa-principal-a@` and `qa-principal-b@a2h-protocol.org`; on a preview with `-<run id>-<attempt>` before the `@`, so every verify run gets fresh principals and a fresh monthly budget: pr-85 ran out of its €500 at the fifth run): on a preview the verify job admits them on the preview's own parameter for its run and removes them; on dev the owner's list holds them (CI never writes `/a2h/shared/principal-allowlist`; runbook §15). |
 | `A2H_EDGE_FLOOD`, `A2H_RATE_FLOOD` | contract | `1`: run the edge flood ("Flood from one address") or the per-principal flood ("Minute limit reached"). Opt-in: they block the caller's address or principal for the rest of the window. Run last, by hand. |
 
 Notes:
