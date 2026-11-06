@@ -38,6 +38,8 @@ export interface AppOptions {
 
 export interface App {
   server: Server;
+  /** The instance's held-ping count and cap, read-only; tests wait on the count rather than on the clock. */
+  heldPings: Pick<HeldPings, "active" | "max">;
   /**
    * Stop accepting, let in-flight requests finish for up to `graceMs`, then
    * end whatever is left. Resolves when the listener is closed.
@@ -172,5 +174,5 @@ export function createApp(options: AppOptions): App {
     await closed;
   }
 
-  return { server, shutdown };
+  return { server, heldPings, shutdown };
 }
