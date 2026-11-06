@@ -41,7 +41,7 @@ Owners: **PD** protocol-dev (packages/protocol, packages/db, apps/mcp, apps/work
 ## 7. Docs and gate (PM)
 
 - [x] 7.1 PRD §6 request-card paragraph (implementation sentence) and ADR 0003 item 6 amended for decision 7; verify both link this change — done 2026-11-03: PRD §6 request-card paragraph and ADR 0003 amendment 1
-- [ ] 7.2 Cold review of the change PR (missing tests, spec drift, the one rule: nothing is sent that the principal did not approve on the page); verify findings resolved or recorded here
+- [x] 7.2 Cold review of the change PR (missing tests, spec drift, the one rule: nothing is sent that the principal did not approve on the page); verify findings resolved or recorded here — done 2026-11-06 on PR #89 (head 7060c17): verdict approve; 8 non-blocking findings. F1 spec wording fixed here (lifecycle Actors: decline through the URL prompt is the principal's act). F2 (draft read before authorization, outside D4's transaction), F3 (`requests.status` default `sent`), F5 (log field), F7 (UI enum type check), F8 (duplicate UNSENT set): fix PR in flight before merge. F4 (stale M1 rows in tests/README.md): QA at archive. F6 (non-constant-time hash compare): noted, no action. Architecture notes recorded in ADR 0001 amendment 3.
 - [ ] 7.3 Gate 2 post with the preview link and the owner's steps from proposal.md; verify the owner's validation is recorded before archive
 
 ## Workflow follow-up

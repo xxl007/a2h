@@ -18,7 +18,7 @@ A request's status SHALL be exactly one of `awaiting_approval`, `not_sent`, `sen
 - **THEN** the second application changes nothing and adds no event row
 
 ### Requirement: Actors
-`awaiting_approval → sent` and `awaiting_approval → not_sent` (reason `declined`) SHALL be caused only by the request's principal on the approval page; `awaiting_approval → not_sent` (reason `expired`) only by the platform when the approval link expires; `sent → accepted`, `sent → declined` and `accepted → answered` only by the participant; `sent → expired` and `accepted → expired` only by the platform at the expiry time.
+`awaiting_approval → sent` SHALL be caused only by the request's principal on the approval page; `awaiting_approval → not_sent` (reason `declined`) only by the request's principal, on the approval page or by refusing the URL elicitation prompt that carries the link (decline or cancel, with the signed state bound to that principal); `awaiting_approval → not_sent` (reason `expired`) only by the platform when the approval link expires; `sent → accepted`, `sent → declined` and `accepted → answered` only by the participant; `sent → expired` and `accepted → expired` only by the platform at the expiry time.
 
 #### Scenario: Expiry by the platform
 - **WHEN** a request in `sent` or `accepted` reaches its expiry time
