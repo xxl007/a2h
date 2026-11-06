@@ -1,7 +1,9 @@
 // m2-approval-page task 5.1-5.3: what the approval page shows, formatted at
 // the edge from the stored request (design.md Screens A0 "Data the web dev
 // passes"), and how a refused Send maps to its wording (A4). Pure.
-import { describe, expect, test } from "vitest";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import type { Format, Intent } from "@a2h/protocol";
+import type { ApprovalRequest } from "@a2h/ui";
 import { approvalRequestView, formatMoney, formatRate, refusalOf } from "../src/approval/view";
 
 const NOW = new Date("2026-11-03T09:00:00Z");
@@ -107,5 +109,12 @@ describe("Validation failed after an edit: the category of a refused Send", () =
   test("a code the page has no wording for is no refusal (the page shows the error state)", () => {
     expect(refusalOf(error("principal_not_accountable"), "q")).toBeUndefined();
     expect(refusalOf(error("conflict"), "q")).toBeUndefined();
+  });
+});
+
+describe("the page has copy for every protocol intent and format (review F7, compile time)", () => {
+  test("a new intent or format in packages/protocol fails `pnpm typecheck` here, not as `intents[undefined]` at render", () => {
+    expectTypeOf<Intent>().toEqualTypeOf<ApprovalRequest["intent"]>();
+    expectTypeOf<Format>().toEqualTypeOf<ApprovalRequest["format"]>();
   });
 });

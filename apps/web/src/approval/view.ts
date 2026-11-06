@@ -6,6 +6,8 @@
 import {
   classifyForbiddenContent,
   fee,
+  type Format,
+  type Intent,
   net,
   QUESTION_MAX_LENGTH,
   type ProtocolError,
@@ -73,8 +75,10 @@ export function approvalRequestView(r: StoredRequest, p: StoredParticipant, o: {
   const view: ApprovalRequest = {
     id: r.id,
     participant: { label: p.display_label, handle: p.handle, simulated: p.simulated },
-    intent: r.intent as ApprovalRequest["intent"],
-    format: r.format as ApprovalRequest["format"],
+    // The compiler holds the protocol's enums and the UI's copy keys together: a new intent or
+    // format in packages/protocol fails here, not as `intents[undefined]` at render (review F7).
+    intent: (r.intent as Intent) satisfies ApprovalRequest["intent"],
+    format: (r.format as Format) satisfies ApprovalRequest["format"],
     money,
     expiresAt: r.expires_at.toISOString(),
     dataTerms: { attribution: terms.attribution, training: terms.training },
