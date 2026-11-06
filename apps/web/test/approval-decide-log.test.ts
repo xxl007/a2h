@@ -7,6 +7,8 @@ import { decide } from "../src/approval/decide";
 import { createLogger } from "../src/log";
 
 const QUESTION = "Which cover would make you pick this picture book up first?";
+/** Well-formed (packages/protocol ApprovalTokenSchema), so the decision reaches the database. */
+const TOKEN = "a".repeat(42) + "A";
 
 /** What drizzle throws on the Data API: "Failed query: <sql>\nparams: <values>", the driver's error as cause. */
 function dataApiFailure(): Error {
@@ -17,11 +19,23 @@ function dataApiFailure(): Error {
   return new Error(`Failed query: update "requests" set "question" = :1\nparams: ${QUESTION}`, { cause });
 }
 
-function throwingDb(): never {
-  const fail = () => {
-    throw dataApiFailure();
+/** A read made by the action itself, outside `decideApproval`'s transaction (review F2: there is none). */
+class ReadOutsideTransaction extends Error {
+  override name = "ReadOutsideTransaction";
+}
+
+/** A database whose transaction fails as given; any read outside it is its own, distinct failure. */
+function failingDb(inTransaction: () => never): never {
+  const outside = () => {
+    throw new ReadOutsideTransaction("the action read the request on its own");
   };
-  return { select: fail, transaction: fail, update: fail, insert: fail, execute: fail } as never;
+  return { select: outside, update: outside, insert: outside, execute: outside, transaction: inTransaction } as never;
+}
+
+function throwingDb(): never {
+  return failingDb(() => {
+    throw dataApiFailure();
+  });
 }
 
 describe("decide: a failure to record the decision", () => {
@@ -32,7 +46,7 @@ describe("decide: a failure to record the decision", () => {
     form.set("question", QUESTION);
     const state = await decide(
       { db: throwingDb(), feeRate: 0.2, logger: createLogger({ write: (l) => lines.push(l), level: "debug" }) },
-      { requestId: "A2H-fd84", token: "a".repeat(43), principalId: "user-1", form, reference: "ref_0123456789abcdef" },
+      { requestId: "A2H-fd84", token: TOKEN, principalId: "user-1", form, reference: "ref_0123456789abcdef" },
     );
     expect(state).toMatchObject({ state: "error", reference: "ref_0123456789abcdef" });
     const errors = lines.map((l) => JSON.parse(l) as Record<string, unknown>).filter((l) => l["level"] === "error");
@@ -53,10 +67,10 @@ describe("decide: a failure to record the decision", () => {
   test("a Data API error without a SQLSTATE: its first clause, values removed", async () => {
     const lines: string[] = [];
     const cause = Object.assign(new Error(`Transaction 'AQC2abc' is not found (request for '${QUESTION}'); please retry`), { name: "DatabaseErrorException" });
-    const db = { select: () => { throw new Error("Failed query: select 1\nparams: " + QUESTION, { cause }); } } as never;
+    const db = failingDb(() => { throw new Error("Failed query: select 1\nparams: " + QUESTION, { cause }); });
     const form = new FormData();
     form.set("decision", "send");
-    await decide({ db, feeRate: 0.2, logger: createLogger({ write: (l) => lines.push(l), level: "debug" }) }, { requestId: "A2H-fd84", token: "a".repeat(43), principalId: "user-1", form, reference: "ref_2" });
+    await decide({ db, feeRate: 0.2, logger: createLogger({ write: (l) => lines.push(l), level: "debug" }) }, { requestId: "A2H-fd84", token: TOKEN, principalId: "user-1", form, reference: "ref_2" });
     const error = lines.map((l) => JSON.parse(l) as Record<string, unknown>).find((l) => l["level"] === "error")!;
     expect(error).toMatchObject({ cause: "DatabaseErrorException", db_error: "Transaction … is not found …" });
     expect(error).not.toHaveProperty("sql_state");
@@ -65,10 +79,10 @@ describe("decide: a failure to record the decision", () => {
 
   test("without a database cause: the class name only", async () => {
     const lines: string[] = [];
-    const db = { select: () => { throw new TypeError("boom: " + QUESTION); } } as never;
+    const db = failingDb(() => { throw new TypeError("boom: " + QUESTION); });
     const form = new FormData();
     form.set("decision", "send");
-    await decide({ db, feeRate: 0.2, logger: createLogger({ write: (l) => lines.push(l), level: "debug" }) }, { requestId: "A2H-fd84", token: "a".repeat(43), principalId: "user-1", form, reference: "ref_1" });
+    await decide({ db, feeRate: 0.2, logger: createLogger({ write: (l) => lines.push(l), level: "debug" }) }, { requestId: "A2H-fd84", token: TOKEN, principalId: "user-1", form, reference: "ref_1" });
     const error = lines.map((l) => JSON.parse(l) as Record<string, unknown>).find((l) => l["level"] === "error")!;
     expect(error).toMatchObject({ code: "TypeError" });
     expect(error).not.toHaveProperty("sql_state");

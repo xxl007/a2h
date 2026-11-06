@@ -193,7 +193,28 @@ export interface ApprovalDecision {
   now: Date;
   /** The stage's fee rate (configuration, ADR 0002). */
   fee_rate: number;
+  /**
+   * Send: the question as the page posted it, line breaks as the browser sent
+   * them; `approvedQuestion` settles it against the locked row's draft, so
+   * the caller reads nothing of the request on its own (review F2).
+   */
   decision: { kind: "send"; question: string } | { kind: "dont_send" };
+}
+
+/** A textarea holds LF line breaks only (HTML's value normalisation): the field and its draft compare as the browser saw them. */
+function asTextarea(text: string): string {
+  return text.replace(/\r\n?/g, "\n");
+}
+
+/**
+ * The question as approved (spec "Accept after editing": byte-identical to
+ * the edited text). Browsers post a textarea's line breaks as CR LF; the
+ * field held LF, so LF is what was approved. Unchanged up to line breaks, it
+ * is the agent's draft byte for byte.
+ */
+export function approvedQuestion(posted: string, agentDraft: string): string {
+  const text = asTextarea(posted);
+  return text === asTextarea(agentDraft) ? agentDraft : text;
 }
 
 /**
@@ -202,9 +223,11 @@ export interface ApprovalDecision {
  * token"); `wrong_principal` says the link belongs to another account and
  * nothing else. `invalid`: Send was refused by validation, nothing changed,
  * the request stays awaiting approval; `error.detail` is category text only.
+ * `sent` carries the question as approved, for the page to show; a refused
+ * question is not echoed.
  */
 export type ApprovalOutcome =
-  | { kind: "sent"; deliver_at: string; eta: string; deferred: boolean; held_minor: number; currency: string }
+  | { kind: "sent"; question: string; deliver_at: string; eta: string; deferred: boolean; held_minor: number; currency: string }
   | { kind: "not_sent"; reason: "declined" }
   | { kind: "invalid"; error: ProtocolError }
   | { kind: "already_decided"; status: RequestStatus; decided_at: string }
@@ -263,6 +286,8 @@ export async function decideApproval(db: A2hDb, d: ApprovalDecision): Promise<Ap
       return { kind: "not_sent", reason: "declined" };
     }
 
+    // Settled under the lock, after the token and principal checks: the draft is read for nobody else.
+    const question = approvedQuestion(d.decision.question, row.agent_draft ?? row.question);
     const owner = await principalWithPolicy(tx, row.principal_id);
     if (!owner) {
       return { kind: "invalid", error: { code: "principal_not_accountable", stage: "principal", retryable: false, detail: "The principal of this request is not set up any more." } };
@@ -272,14 +297,14 @@ export async function decideApproval(db: A2hDb, d: ApprovalDecision): Promise<Ap
     const [who] = await tx.select({ handle: participants.handle }).from(participants).where(eq(participants.id, row.participant_id));
     const participant = { participant_id: row.participant_id, handle: who!.handle, rules: await currentRules(tx, row.participant_id) };
     const facts = await approvalFacts(tx, { principal: owner.principal, currency: policy.currency, participant, now: d.now, approval: "recorded" });
-    const manifest = { ...manifestOfRequest(row, participant.handle), question: d.decision.question };
+    const manifest = { ...manifestOfRequest(row, participant.handle), question };
     const v = validateManifest(manifest, facts, policy);
     if (!v.ok) {
       if (v.blocked) await recordBlockedManifest(tx, { ...v.blocked, request_id: row.id });
       return { kind: "invalid", error: v.error };
     }
-    await moveTo(tx, row, "principal", "approve", d.now, { question: d.decision.question, deliver_at: new Date(v.deliver_at) });
-    return { kind: "sent", deliver_at: v.deliver_at, eta: v.eta, deferred: v.deferred, held_minor: row.bid_minor, currency: row.currency };
+    await moveTo(tx, row, "principal", "approve", d.now, { question, deliver_at: new Date(v.deliver_at) });
+    return { kind: "sent", question, deliver_at: v.deliver_at, eta: v.eta, deferred: v.deferred, held_minor: row.bid_minor, currency: row.currency };
   });
 }
 

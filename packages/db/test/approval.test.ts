@@ -251,6 +251,20 @@ describe("approval queries (m2-approval-page 2.2, Postgres 17)", { skip }, () =>
       assert.equal(r.agent_draft, ORIGINAL);
     });
 
+    test("review F2: the question as posted is read against the draft under the lock; CR LF becomes LF; unchanged up to line breaks it is the agent's draft byte for byte; the outcome carries the approved text", async () => {
+      const f = await fresh();
+      const a = await awaiting(f, { manifest: { question: "Would a patient find this alarming?\r\nAnd the dosage table?" } });
+      // Posted back as a textarea holds it (LF): the draft is kept, CR LF included.
+      const same = await decideApproval(f.db, send(a, "Would a patient find this alarming?\nAnd the dosage table?"));
+      assert.deepEqual([same.kind, same.kind === "sent" ? same.question : null], ["sent", "Would a patient find this alarming?\r\nAnd the dosage table?"]);
+      assert.equal((await row(f, a.id)).question, "Would a patient find this alarming?\r\nAnd the dosage table?");
+      // Edited, posted with the browser's CR LF: approved with LF.
+      const b = await awaiting(f);
+      const edited = await decideApproval(f.db, send(b, "Would a newly diagnosed patient find this alarming?\r\nLine two."));
+      assert.deepEqual([edited.kind, edited.kind === "sent" ? edited.question : null], ["sent", "Would a newly diagnosed patient find this alarming?\nLine two."]);
+      assert.equal((await row(f, b.id)).question, "Would a newly diagnosed patient find this alarming?\nLine two.");
+    });
+
     test("Scenario: Don't send on the page: not_sent with reason declined, nothing held or delivered, the participant learns nothing", async () => {
       const f = await fresh();
       const a = await awaiting(f);

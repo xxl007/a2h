@@ -2,7 +2,7 @@
 // the edge from the stored request (design.md Screens A0 "Data the web dev
 // passes"), and how a refused Send maps to its wording (A4). Pure.
 import { describe, expect, test } from "vitest";
-import { approvalRequestView, formatMoney, formatRate, refusalOf, submittedQuestion } from "../src/approval/view";
+import { approvalRequestView, formatMoney, formatRate, refusalOf } from "../src/approval/view";
 
 const NOW = new Date("2026-11-03T09:00:00Z");
 
@@ -90,19 +90,6 @@ describe("Requirement: The page shows what the participant will receive", () => 
   test("an agent draft with CR LF is shown as the browser's textarea holds it (LF)", () => {
     const v = approvalRequestView({ ...row, agent_draft: "One\r\nTwo\rThree" }, participant, { feeRate: 0.2, now: NOW });
     expect(v.agentDraft).toBe("One\nTwo\nThree");
-  });
-});
-
-describe("the submitted question", () => {
-  test("Accept after editing: the browser's CR LF line breaks become the LF the principal's field held", () => {
-    expect(submittedQuestion("Line one\r\nLine two", "Draft")).toBe("Line one\nLine two");
-  });
-  test("unchanged (up to line breaks): the agent's draft byte for byte", () => {
-    expect(submittedQuestion("One\r\nTwo", "One\r\nTwo")).toBe("One\r\nTwo");
-    expect(submittedQuestion("One\nTwo", "One\r\nTwo")).toBe("One\r\nTwo");
-  });
-  test("anything but text is no question", () => {
-    expect(submittedQuestion(null, "Draft")).toBe("");
   });
 });
 

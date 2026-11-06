@@ -111,8 +111,8 @@ function bind(sql: string, params: Param[]): { text: string; values: unknown[] }
 export interface DataApiStandIn {
   /** Pass as the RDSDataClient to `drizzle-orm/aws-data-api/pg`. */
   client: { send: (command: Command) => Promise<unknown> };
-  /** Every statement sent, as the Data API received it (for assertions). */
-  statements: { sql: string; parameters: Param[] }[];
+  /** Every statement sent, as the Data API received it, with the transaction it ran on if any (for assertions). */
+  statements: { sql: string; parameters: Param[]; transactionId?: string }[];
   close: () => Promise<void>;
 }
 
@@ -147,7 +147,7 @@ export function dataApiStandIn(connectionString: string, schema: string): DataAp
         }
         case "ExecuteStatementCommand": {
           const parameters = command.input.parameters ?? [];
-          statements.push({ sql: command.input.sql!, parameters });
+          statements.push({ sql: command.input.sql!, parameters, ...(command.input.transactionId ? { transactionId: command.input.transactionId } : {}) });
           const { text, values } = bind(command.input.sql!, parameters);
           const id = command.input.transactionId;
           const runner = id ? open.get(id) : pool;

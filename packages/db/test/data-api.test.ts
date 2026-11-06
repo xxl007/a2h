@@ -228,6 +228,26 @@ describe("packages/db queries through the Data API driver (Postgres 17)", { skip
     assert.equal(sent.kind, "sent", JSON.stringify(sent));
   });
 
+  test("review F2: Forged token, Another principal: the request is read once, under lock, on the transaction; nothing else is read or written", async () => {
+    const t = await awaiting("A2H-da1b");
+    const cases: [string, Parameters<typeof decideApproval>[1], string][] = [
+      ["another principal", decision("A2H-da1b", t, "send", { principal: OTHER }), "wrong_principal"],
+      ["a forged token", decision("A2H-da1b", formatApprovalToken(new Uint8Array(32).fill(5)), "send"), "link_invalid"],
+    ];
+    for (const [name, d, kind] of cases) {
+      const from = api.statements.length;
+      assert.deepEqual(await decideApproval(db, d), { kind }, name);
+      const made = api.statements.slice(from);
+      assert.equal(made.length, 1, `${name}: ${made.map((s) => s.sql).join("\n")}`);
+      assert.match(made[0]!.sql, /^select .+ from "requests" where "requests"\."id" = :1 for update$/s, name);
+      assert.ok(made[0]!.transactionId, `${name}: the read is on the transaction`);
+    }
+    // A malformed token: no statement at all.
+    const from = api.statements.length;
+    assert.deepEqual(await decideApproval(db, decision("A2H-da1b", "not a token", "send")), { kind: "link_invalid" });
+    assert.equal(api.statements.length, from);
+  });
+
   test("no statement sent a Date or an ISO date-time as an untyped (text) parameter", () => {
     const iso = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
     const offenders = api.statements.flatMap((s) =>
