@@ -6,7 +6,7 @@
 // passed since it began. Nothing it prints names an address.
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { describePage, signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
+import { describePage, disconnectAll, saveSession, signInUntilLink, startCallbackListener, SIGN_IN_RETRY_MS, LINK_ATTEMPT_MS } from "./obtain-token.ts";
 
 const ADDRESS = "qa-principal-a@a2h-protocol.org";
 
@@ -165,5 +165,109 @@ describe("describePage", () => {
     const shots: string[] = [];
     await withCi(undefined, () => describePage(fakePage(shots), "unit"));
     assert.equal(shots.length, 1);
+  });
+});
+
+// m2-approval-page 6.1 (race seen on pr-82): after "Disconnect" is confirmed the row's
+// revoke is a server action the page awaits; `waitForLoadState("load")` resolves at once
+// on a page that is already loaded, so the reload that followed could abort the revoke
+// and find the same row again. disconnectAll waits for the row's "<client> is
+// disconnected" notice, the page's own proof that the revoke was recorded.
+describe("disconnectAll", () => {
+  /** A connected-apps page whose revoke completes only if no reload interrupts it. */
+  function fakeClientsPage(names: string[]) {
+    const rows = [...names];
+    let pending: { name: string; done: Promise<void>; finish: () => void } | undefined;
+    let notice: string | undefined;
+    const calls: string[] = [];
+    const settle = async () => {
+      // The server action needs a few turns of the event loop; a reload before then aborts it.
+      for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+    };
+    const page = {
+      goto: () => (calls.push("goto"), Promise.resolve(null)),
+      close: () => Promise.resolve(),
+      reload: () => {
+        calls.push("reload");
+        pending = undefined; // a revoke still in flight is aborted by the navigation
+        notice = undefined;
+        return Promise.resolve(null);
+      },
+      waitForLoadState: () => (calls.push("waitForLoadState"), Promise.resolve()),
+      waitForTimeout: () => Promise.resolve(),
+      getByRole: (role: string, o?: { name?: string | RegExp; exact?: boolean }) => {
+        if (role === "group") {
+          return {
+            getByRole: () => ({
+              click: () => {
+                calls.push("confirm");
+                const name = rows[0]!;
+                let finish!: () => void;
+                const done = new Promise<void>((r) => (finish = r));
+                const p = { name, done, finish };
+                pending = p;
+                void settle().then(() => {
+                  if (pending !== p) return; // aborted
+                  rows.shift();
+                  notice = `${name} is disconnected`;
+                  p.finish();
+                });
+                return Promise.resolve();
+              },
+            }),
+          };
+        }
+        assert.equal(role, "button");
+        assert.ok(o?.name instanceof RegExp);
+        const first = { count: () => Promise.resolve(rows.length > 0 ? 1 : 0), click: () => (calls.push("disconnect"), Promise.resolve()) };
+        return { first: () => first };
+      },
+      getByText: (text: string | RegExp) => ({
+        waitFor: async () => {
+          calls.push("wait-notice");
+          if (pending) await pending.done;
+          const matches = notice !== undefined && (typeof text === "string" ? notice.includes(text) : text.test(notice));
+          if (!matches) throw new Error("locator.waitFor: Timeout (no notice)");
+        },
+      }),
+    };
+    const context = { newPage: () => Promise.resolve(page) } as unknown as import("@playwright/test").BrowserContext;
+    return { context, calls, rows };
+  }
+
+  test("waits for each row's 'is disconnected' notice before reloading, so no revoke is aborted", async () => {
+    const { context, calls, rows } = fakeClientsPage(["A2H QA verify client", "Claude"]);
+    const count = await disconnectAll(context, "https://pr-12.dev.example");
+    assert.equal(count, 2);
+    assert.deepEqual(rows, [], "every app was disconnected");
+    for (let i = 0; i < calls.length; i++) {
+      if (calls[i] === "confirm") assert.equal(calls[i + 1], "wait-notice", `after a confirm: ${calls.slice(i).join(", ")}`);
+    }
+  });
+});
+
+// m2-approval-page 6.1: the contract and adversarial suites approve requests on the
+// approval page as the QA principals, with the browser sessions this script signed in.
+// The session files hold session cookies: written 0600 in a private directory, named
+// in the environment by path only, never printed.
+describe("saveSession", () => {
+  test("writes the context's storage state 0600 in a private directory and returns its path", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), "a2h-session-"));
+    try {
+      const context = {
+        storageState: (o: { path: string }) => Promise.resolve(fs.writeFileSync(o.path, JSON.stringify({ cookies: [{ name: "s", value: "SECRET" }], origins: [] }))),
+      } as unknown as import("@playwright/test").BrowserContext;
+      const dir = path.join(parent, "sessions");
+      const saved = await saveSession(context, dir, "a");
+      assert.equal(saved, path.join(dir, "session-a.json"));
+      assert.equal(fs.statSync(saved).mode & 0o777, 0o600);
+      assert.equal(fs.statSync(dir).mode & 0o077, 0, "the directory is private");
+      assert.match(fs.readFileSync(saved, "utf8"), /SECRET/);
+    } finally {
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
   });
 });

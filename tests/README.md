@@ -65,7 +65,7 @@ bash tests/ci/preview-smoke.sh <alb-dns> dev
 | `A2H_WEB_URL`, `A2H_ISSUER` | contract | The stage's web URL (derived from the domain when unset) and its authorization server (`<web>/api/auth`; `A2H_ISSUER` only for the local stage). |
 | `A2H_AUTH_REQUIRED`, `A2H_PING_OPEN` | contract, adversarial | Override, for the local stage only, what infra/service-env.ts says about the stage's gate. |
 | `A2H_MAIL_SINK_BUCKET`, `A2H_MAIL_SINK_DIR` | obtain-token, e2e | The stage's mail sink: the uploads bucket (`/a2h/shared/uploads-bucket`, read with the deploy role) or a local server's `LOCAL_MAIL_DIR`. |
-| `A2H_TEST_EMAIL`, `A2H_TEST_EMAIL_2` | obtain-token, e2e | The two synthetic QA principals (`qa-principal-a@` and `qa-principal-b@a2h-protocol.org`): on a preview the verify job admits them on the preview's own parameter for its run and removes them; on dev the owner's list holds them (CI never writes `/a2h/shared/principal-allowlist`; runbook §15). |
+| `A2H_TEST_EMAIL`, `A2H_TEST_EMAIL_2` | obtain-token, e2e | The two synthetic QA principals (`qa-principal-a@` and `qa-principal-b@a2h-protocol.org`; on a preview with `-<run id>-<attempt>` before the `@`, so every verify run gets fresh principals and a fresh monthly budget: pr-85 ran out of its €500 at the fifth run): on a preview the verify job admits them on the preview's own parameter for its run and removes them; on dev the owner's list holds them (CI never writes `/a2h/shared/principal-allowlist`; runbook §15). |
 | `A2H_EDGE_FLOOD`, `A2H_RATE_FLOOD` | contract | `1`: run the edge flood ("Flood from one address") or the per-principal flood ("Minute limit reached"). Opt-in: they block the caller's address or principal for the rest of the window. Run last, by hand. |
 
 Notes:
@@ -640,3 +640,86 @@ pnpm --filter @a2h/tests contract && pnpm --filter @a2h/tests adversarial
 A2H_LOCAL_AUTH=1 pnpm --filter @a2h/tests local-stage      # export the A2H_* lines it prints, then:
 pnpm --filter @a2h/tests contract && pnpm --filter @a2h/tests adversarial
 ```
+
+## Scenario to test map: m2-approval-page (QA, tasks 6.1 to 6.3)
+
+Specs: `openspec/changes/m2-approval-page/specs/`. Since this change `request_human` records a valid manifest as `awaiting_approval` and returns a link; the principal decides on `/approve/[id]`. The live suites approve on that page as the QA principals: `lib/obtain-token.ts` keeps the two signed-in browser sessions (`A2H_SESSION_STATE`, `A2H_SESSION_STATE_2`: files 0600 under `RUNNER_TEMP`, named by path, never printed) and `lib/approval-page.ts` opens the link `request_human` returned and chooses Send or Don't send. Without the sessions the page cases are skipped with the reason.
+
+The expiries take over fifteen minutes (a link lasts at least that long, design D2). `contract/approval-expiry.test.ts` and `adversarial/approval-expiry.live.test.ts` are opt-in (`A2H_LONG_FLOWS=1`); on previews the verify job starts them in the background right after the sign-in and collects them, step "Expiry flows", before the allow-list is cleared (the job's bound is 30 minutes on previews, 15 on dev, which runs none).
+
+"Live" below means the preview's verify job (`contract`, `adversarial` or `e2e` step); "long" the background expiry flows of the same job; "package" a test owned by the dev groups, run by `pnpm test` in `ci.yml`.
+
+### protocol/request-approval (delta)
+
+| Scenario | Test | Runs |
+|---|---|---|
+| Link returned | `contract/request-approval.test.ts` "Scenario: Link returned" (status, `A2H-xxxx`, https link on the stage's web host with only `t`, expiry 15 min to 24 h, text leads with the link; `check_requests`: awaiting, nothing held, no `sent_at`) | live |
+| Send on the page | `contract/request-flows.test.ts` "Scenario: Send on the page, …" (Send on the page, €8.00 held, `sent`; the persona then answers: "Scenario: Prompt answer (delivery started outside the request)") | live |
+| Don't send on the page | `contract/request-approval.test.ts` "Scenario: Don't send on the page" (`not_sent` `declined`, nothing held, only `awaiting_approval_at` and `not_sent_at`; "was not contacted and will not learn") | live |
+| Link expires unused | `contract/approval-expiry.test.ts` "Scenario: Link expires unused, …" (`not_sent` `expired` within 90 s of the link's expiry, nothing held, the link opens the expired page); page side also `apps/web/test/e2e/approval.spec.ts` (fixture) | long |
+| Client with URL elicitation | `contract/request-approval.test.ts` "Scenario: Client with URL elicitation" (`elicitation/create`, `mode: url`, one sentence, the link; accept → same id and link, still awaiting) | live |
+| Principal refuses to open the link | same file, decline and cancel (`not_sent`, the id, `declined`, no `approval_url`, nothing held) | live |
+| Client without URL elicitation | same file (no elicitation, forms only, a 2025-era client: the link and "Show the principal this approval link" in the text, awaiting, never elicited) | live |
+| Another principal opens the link | same file (B sees "This link belongs to another account", no id, question, handle, amount or action; A's request unchanged, A still sees it); adversarial case 1 | live |
+| Decision replayed | `contract/request-flows.test.ts` (second tab's Send: "This question was already sent", one `sent_at`, one hold); adversarial case 2 | live |
+| Forged token | `contract/request-approval.test.ts` "Scenario: Forged token" (a forged token, another request's genuine token, an unknown id: the same expired page, nothing revealed, request unchanged); adversarial case 3 | live |
+| Edit turns the question into a push-poll | same file (Send refused on the page, text kept, nothing held, still awaiting; Don't send then works) | live |
+| Accept after editing | `contract/request-flows.test.ts` (the question as sent, compared as UTF-8 hex with the edit, after reload too) | live |
+| Budget spent meanwhile | not live: spending a principal's monthly budget would block the owner's Gate 2 run. `packages/db/test/approval.test.ts`, `apps/web/test/approval-page.test.ts` | package |
+| Return under a second | `contract/request-approval.test.ts` "Scenario: Return under a second" | live |
+| Validation before anything (Bid below reserve, Blocked row, Push-poll, Third-party personal data, Labour, Shape outside this change, Quiet hours, Interruption budget exceeded) | same file, one test each (Quiet hours reads the delivery on the page; Interruption budget sends on the page until refused) | live |
+
+### protocol/request-lifecycle (delta)
+
+| Scenario | Test | Runs |
+|---|---|---|
+| Legal transitions | `contract/request-flows.test.ts` "Scenario: Legal transitions" (`awaiting_approval → sent → accepted → answered` observed in order; `awaiting_approval → not_sent` and `sent → declined` in the same file); one event row each: `packages/protocol` `lifecycle.test.ts`, `packages/db` `constraints.test.ts` | live, package |
+| Illegal transition | same file, "… Illegal transition (not_sent → sent) …" (Send after Don't send: "This request was not sent", status unchanged); the platform-only ones: `lifecycle.test.ts` | live, package |
+| Idempotent replay | same test (Don't send twice: one `not_sent_at`) | live |
+| Expiry by the platform | `contract/approval-expiry.test.ts` "Scenario: Expiry by the platform, Scenario: Silent until expiry" | long |
+| Approval link expiry by the platform | `contract/approval-expiry.test.ts` "Scenario: Link expires unused, Scenario: Approval link expiry by the platform"; `apps/worker/test/expire.test.ts` | long, package |
+| Agent cannot approve | `contract/request-flows.test.ts` "Scenario: Agent cannot approve" (four tools, none takes an approval argument; every tool called with the id and link: unchanged); adversarial case 5 | live |
+| Answered request, Filter by status, Unknown id | `contract/request-flows.test.ts` (Filter also for `awaiting_approval`) | live |
+| Awaiting approval, Not sent | `contract/request-flows.test.ts` "Scenario: Awaiting approval, Scenario: Not sent, …" (same link again, expiry, nothing held; then `not_sent` `declined`, no link) | live |
+
+### protocol/schemas (delta)
+
+| Scenario | Test | Runs |
+|---|---|---|
+| Awaiting approval | `contract/request-approval.test.ts` "Scenario: Link returned (and protocol/schemas: Awaiting approval)" (parsed with `RequestHumanOutputSchema`); `packages/protocol/test/schemas.test.ts` | live, package |
+| Request not sent | same file, "Scenario: Principal refuses to open the link (… and protocol/schemas: Request not sent)" | live, package |
+| Free lane with a bid | same file, "Scenario: Free lane with a bid" | live, package |
+
+### platform/approval-page (new)
+
+`e2e/approval-page.spec.ts`, from links that real `request_human` calls returned (Playwright; test names are the spec's). `apps/web/test/e2e/approval.spec.ts` covers the same scenarios through Web dev's fixture route, plus axe at 320, 390 and 1280 px.
+
+| Scenario | Test | Runs |
+|---|---|---|
+| Signed out | "Scenario: Signed out" (sign-in with the bare page as `next`, the token in no URL or email, back on the page) | live (e2e) |
+| Wrong principal | "Scenario: Wrong principal" | live (e2e) |
+| Poll request, Simulated participant, Time zone | one test each (options verbatim in order, scale; the simulated note; `Asia/Kolkata`, UTC+05:30) | live (e2e) |
+| Restore agent draft, Over the limit | one test each | live (e2e) |
+| Labels, Enter in the question | one test each (paid "Send · hold €35.00", free lane "Send") | live (e2e) |
+| Already decided, Validation failed after an edit | one test each | live (e2e) |
+| Keyboard only, Narrow screen | one test each | live (e2e) |
+
+### platform/principal-identity (delta)
+
+| Scenario | Test | Runs |
+|---|---|---|
+| Client revoked, Revoke repeated | `apps/web/test/e2e/consent.spec.ts` and `clients.spec.ts` (#84); `lib/obtain-token.ts` `disconnectAll` now waits for the row's "is disconnected" notice (`lib/obtain-token.test.ts` "disconnectAll") | e2e, unit |
+
+### Adversarial additions (task 6.2)
+
+`adversarial/approval.local.test.ts` (in-process: the real MCP app behind its gate, two principals, and `decideApproval`, the decision the page's server action makes; Postgres 17 in Docker; `pnpm test`), `adversarial/approval.live.test.ts` (the page and the MCP endpoint of the preview), `adversarial/approval-expiry.live.test.ts` (case 4, long). Each case was first run red in-process against a one-line weakening of the source, reverted with `git checkout` (never committed); the outputs are quoted in the PR.
+
+| Case | Tests | Weakening for the red run | Red result |
+|---|---|---|---|
+| 1 approving another principal's request | local "case 1" (B with A's link: `wrong_principal`; B's token on A's request: `link_invalid`); live "case 1" (B's page, and B's own Send redirected at A's page) | `packages/db` `decideApproval`: principal check removed | B's Send on A's link: `sent` |
+| 2 replaying a decision | local "case 2" (Send and Don't send replayed, six concurrent Sends: one `sent`); live "case 2" (two tabs pressing Send together) | `decideApproval`: status check skipped | a replayed Send: `sent` |
+| 3 forging and guessing tokens | local "case 3" (ten forgeries, 200 guesses, unknown id); live "case 3" (28 forged links, identical expired page) | `decideApproval`: token hash not compared | a forged token: `sent` |
+| 4 sending after the link expired | local "case 4" (a second after, at the exact instant, after the worker; a second before still sends); live (long) "case 4" (page opened in time, Send and Don't send pressed after) | `decideApproval`: expiry not checked | Send after expiry: `sent` |
+| 5 an agent moving a request out of `awaiting_approval` through MCP | local and live "case 5" (retries without, with forged, foreign and tampered state; accept with content; extra arguments; every tool; an unknown tool) | `apps/mcp` `request_human`: the URL prompt's accept approves | the prompt's request: `sent` |
+
+The M1 form cases were rewritten for the page: `manifest.live.test.ts` cases 1 to 3 (edit on the page into each forbidden question; swap on the prompt's retry), 4 (quiet hours on the page), 5 (links minted, sent after the budget ran out), 6 (no bid field; a lowered bid on the retry changes nothing); `authorization.live.test.ts` A5 (the URL prompt's state across accounts) and A6 (token in the question, declined at once).

@@ -1,5 +1,5 @@
 // Helpers for the A2H contract and adversarial suites against a live stage
-// (A2H_MCP_URL): the 2026-07-28 approval round trip driven by hand with the
+// (A2H_MCP_URL): request_human and its URL elicitation driven by hand with the
 // official v2 client, check_requests listings, bounded polling, and the
 // budget guard that keeps a shared preview usable for the owner's Gate 2.
 // Shapes come from @a2h/protocol; participants and personas from the seed.
@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { CallToolResult } from "@modelcontextprotocol/client";
-import { CheckRequestsOutputSchema, type CheckedRequest } from "@a2h/protocol";
+import { CheckRequestsOutputSchema, RequestHumanOutputSchema, type CheckedRequest, type RequestHumanOutput } from "@a2h/protocol";
 import { SEED_PARTICIPANTS, SEED_PERSONAS, type SeedParticipant } from "../../packages/db/seed/simulated.ts";
 import { developmentPolicy, stageInfo } from "../../infra/config.ts";
 import { expectedStage, mcpUrl } from "../src/live-env.ts";
@@ -105,16 +105,19 @@ export interface A2hClient {
 }
 
 /**
- * A 2026-07-28 client that declares form elicitation and never fulfils input
- * requests by itself: the test plays the principal, round by round.
+ * A 2026-07-28 client that never fulfils input requests by itself: the test
+ * plays the host, round by round. By default it declares no elicitation at
+ * all (spec "Client without URL elicitation": the link comes in the result
+ * text); `url: true` declares URL elicitation (spec "Client with URL
+ * elicitation"), as a host that can show an "open this page" prompt does.
  */
-export async function principalClient(options: { forms?: boolean; token?: string | null } = {}): Promise<A2hClient> {
+export async function principalClient(options: { url?: boolean; token?: string | null } = {}): Promise<A2hClient> {
   const { fetch, exchanges } = recordingFetch(globalThis.fetch, options.token);
   const client = new Client(
-    { name: "a2h-contract-principal", version: "0.0.0" },
+    { name: options.url ? "a2h-contract-principal-url" : "a2h-contract-principal", version: "0.0.0" },
     {
       versionNegotiation: { mode: { pin: PROTOCOL_VERSION } },
-      capabilities: options.forms === false ? {} : { elicitation: { form: {} } },
+      capabilities: options.url ? { elicitation: { url: {} } } : {},
       inputRequired: { autoFulfill: false },
     },
   );
@@ -122,9 +125,9 @@ export async function principalClient(options: { forms?: boolean; token?: string
   return { client, exchanges, close: () => client.close() };
 }
 
-/** A 2025-era client (what Claude Code negotiates by default), which says it can show forms. */
-export async function legacyClient(onElicit: () => void): Promise<A2hClient> {
-  const { fetch, exchanges } = recordingFetch();
+/** A 2025-era client (what Claude Code negotiated by default in M1), which says it can show forms. */
+export async function legacyClient(onElicit: () => void, token: string | null | undefined = undefined): Promise<A2hClient> {
+  const { fetch, exchanges } = recordingFetch(globalThis.fetch, token);
   const client = new Client({ name: "a2h-contract-legacy", version: "0.0.0" }, { capabilities: { elicitation: { form: {} } } });
   client.setRequestHandler("elicitation/create", () => {
     onElicit();
@@ -134,15 +137,16 @@ export async function legacyClient(onElicit: () => void): Promise<A2hClient> {
   return { client, exchanges, close: () => client.close() };
 }
 
-export interface ElicitParams {
+/** The URL elicitation of the 2026-07-28 revision (design D3). */
+export interface UrlElicitParams {
   mode?: string;
   message: string;
-  requestedSchema: { type: string; properties: Record<string, Record<string, unknown>>; required?: string[] };
+  url?: string;
 }
 
 export interface InputRequiredRound {
   resultType: "input_required";
-  inputRequests?: Record<string, { method: string; params: ElicitParams }>;
+  inputRequests?: Record<string, { method: string; params: UrlElicitParams }>;
   requestState?: string;
 }
 
@@ -152,22 +156,36 @@ export function isInputRequired(r: Raw): r is InputRequiredRound {
   return (r as InputRequiredRound).resultType === "input_required";
 }
 
-/** First leg: the raw result, `input_required` (the approval) or a final result. */
+/** First leg: the raw result, `input_required` (the URL elicitation) or a final result. */
 export async function firstLeg(c: A2hClient, args: Args): Promise<Raw> {
   return (await c.client.callTool({ name: "request_human", arguments: args }, { allowInputRequired: true, timeout: 30_000 }));
 }
 
-/** First leg that must ask for approval. */
-export async function approvalRound(c: A2hClient, args: Args): Promise<InputRequiredRound> {
-  const raw = await firstLeg(c, args);
-  assert.ok(isInputRequired(raw), `expected the approval (input_required), got ${describe(raw)}`);
-  assert.equal(typeof raw.requestState, "string", "the approval carries requestState");
-  return raw;
+export interface Awaiting {
+  result: CallToolResult;
+  out: RequestHumanOutput & { status: "awaiting_approval"; approval_url: string; approval_expires_at: string };
+  /** How long the call took, client side. */
+  ms: number;
 }
 
-export type Answer = { action: "accept"; content: Record<string, unknown> } | { action: "decline" } | { action: "cancel" };
+/**
+ * `request_human` for a manifest that passes validation, on a client without
+ * URL elicitation: the request is recorded awaiting approval and the result
+ * carries the link (spec "Link returned"). Fails the test otherwise.
+ */
+export async function requestAwaiting(c: A2hClient, args: Args): Promise<Awaiting> {
+  const t0 = performance.now();
+  const raw = await firstLeg(c, args);
+  const ms = performance.now() - t0;
+  assert.ok(!isInputRequired(raw), "a client without URL elicitation was asked through an elicitation");
+  assert.ok(!raw.isError, `request_human to ${String(args["to"])} was refused: ${describe(raw)}`);
+  const out = RequestHumanOutputSchema.parse(raw.structuredContent);
+  assert.equal(out.status, "awaiting_approval", describe(raw));
+  return { result: raw, out: out as Awaiting["out"], ms };
+}
 
-export const accept = (question: string): Answer => ({ action: "accept", content: { question } });
+/** The answer of the host to the URL elicitation: opened (accept), refused (decline) or dismissed (cancel). */
+export type Answer = { action: "accept" } | { action: "decline" } | { action: "cancel" };
 
 /** The 2026-07-28 retry: same tool and arguments, plus inputResponses and the echoed state. */
 export async function retryLeg(c: A2hClient, args: Args, state: string | undefined, answer: Answer): Promise<CallToolResult> {
@@ -243,11 +261,11 @@ export async function until<T>(what: string, boundMs: number, probe: () => Promi
 }
 
 /** Waits until the request leaves `from` statuses; returns the request as first seen outside them. */
-export async function untilStatusNot(c: A2hClient, id: string, from: string[], boundMs: number): Promise<CheckedRequest> {
+export async function untilStatusNot(c: A2hClient, id: string, from: string[], boundMs: number, everyMs = 2_000): Promise<CheckedRequest> {
   return until(`${id} to leave ${from.join("/")}`, boundMs, async () => {
     const r = await checkOne(c, id);
     return from.includes(r.status) ? undefined : r;
-  });
+  }, everyMs);
 }
 
 // ---- budget guard ---------------------------------------------------------------
