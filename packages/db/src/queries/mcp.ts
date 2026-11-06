@@ -187,10 +187,20 @@ export class RequestIdTaken extends Error {
   }
 }
 
+/**
+ * Is `error` (or a cause of it) Postgres's unique_violation (23505) on
+ * `constraint`? node-postgres puts the SQLSTATE and the constraint name on the
+ * error as `code` and `constraint`. The RDS Data API (apps/web's driver) has
+ * neither field: its DatabaseErrorException carries them only in the message,
+ * `duplicate key value violates unique constraint "requests_pkey"; SQLState:
+ * 23505` (pr-85, run 42246226973; test/data-api.test.ts). Nothing broader than
+ * the SQLSTATE and the quoted constraint name is matched.
+ */
 export function isUniqueViolation(error: unknown, constraint: string): boolean {
   for (let e: unknown = error; e instanceof Error; e = e.cause) {
-    const pgError = e as Error & { code?: string; constraint?: string };
+    const pgError = e as Error & { code?: unknown; constraint?: unknown };
     if (pgError.code === "23505" && pgError.constraint === constraint) return true;
+    if (/; SQLState: 23505\b/.test(e.message) && e.message.includes(`violates unique constraint "${constraint}"`)) return true;
   }
   return false;
 }
