@@ -288,7 +288,8 @@ jobs:
     needs: deploy
     if: needs.deploy.outputs.deployed == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 30: the expiry flows run about 23 minutes in the background (m2-approval-page 6.1, 6.2).
+    timeout-minutes: 30
     concurrency:
       group: preview-verify-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -303,9 +304,12 @@ jobs:
       STAGE: pr-${{ github.event.pull_request.number }}
       A2H_STAGE: pr-${{ github.event.pull_request.number }}
       # Synthetic QA principals (no mailbox exists; non-prod stages send nothing):
-      # admitted on the stage's allow-list for the run, removed at the end.
-      A2H_TEST_EMAIL: qa-principal-a@a2h-protocol.org
-      A2H_TEST_EMAIL_2: qa-principal-b@a2h-protocol.org
+      # admitted on the stage's allow-list for the run, removed at the end. Fresh
+      # per run and attempt (m2-approval-page 6.1): a principal's monthly budget
+      # is one value for every stage and the preview schema persists, so the
+      # fifth verify run on pr-85 was refused with over_budget (run 42246226973).
+      A2H_TEST_EMAIL: qa-principal-a-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
+      A2H_TEST_EMAIL_2: qa-principal-b-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -361,6 +365,22 @@ jobs:
           A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: pnpm --filter @a2h/tests obtain-token
+
+      # m2-approval-page 6.1, 6.2: an approval link lasts at least fifteen minutes
+      # (design D2), so watching links and requests expire, and Send pressed after
+      # a link expired (adversarial case 4), takes about 23 minutes. Started here in
+      # the background with the tokens and sessions just obtained; collected by
+      # "Expiry flows" before the allow-list is cleared.
+      - name: Start the expiry flows (background, about 23 minutes)
+        id: long-start
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_LONG_FLOWS: "1"
+        run: |
+          cd tests
+          ( node --test --test-reporter=spec contract/approval-expiry.test.ts adversarial/approval-expiry.live.test.ts > "$RUNNER_TEMP/expiry-flows.log" 2>&1; echo $? > "$RUNNER_TEMP/expiry-flows.exit" ) > /dev/null 2>&1 &
+          echo "expiry flows started in the background"
 
       - name: Smoke (health, dev health, routing)
         id: smoke
@@ -428,6 +448,22 @@ jobs:
           A2H_DCR_FLOOD: "1"
         run: pnpm --filter @a2h/tests exec node --test --test-reporter=spec --test-name-pattern="case A8" adversarial/authorization.live.test.ts
 
+      # Waits for the background run (at most 25 minutes from here), prints its report, fails with it.
+      - name: Expiry flows (link expiry, request expiry, Send after expiry)
+        id: long
+        if: ${{ !cancelled() && steps.long-start.outcome == 'success' }}
+        run: |
+          for _ in $(seq 1 150); do
+            [ -f "$RUNNER_TEMP/expiry-flows.exit" ] && break
+            sleep 10
+          done
+          cat "$RUNNER_TEMP/expiry-flows.log" 2>/dev/null || true
+          if [ ! -f "$RUNNER_TEMP/expiry-flows.exit" ]; then
+            echo "::error::the expiry flows did not finish in time"
+            exit 1
+          fi
+          exit "$(cat "$RUNNER_TEMP/expiry-flows.exit")"
+
       - name: Remove the QA principals from the sign-in allow-list
         if: always() && steps.allowlist.outcome == 'success'
         run: .github/scripts/allowlist.sh remove "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
@@ -449,11 +485,12 @@ jobs:
           E2E: ${{ steps.e2e.outcome }}
           WEB_E2E: ${{ steps.web-e2e.outcome }}
           DCR_FLOOD: ${{ steps.dcr-flood.outcome }}
+          LONG: ${{ steps.long.outcome }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
-            result="passed (sign-in, smoke, contract, adversarial, e2e, web e2e, DCR flood)"
+            result="passed (sign-in, smoke, contract, adversarial, e2e, web e2e, DCR flood, expiry flows)"
           elif [ "$JOB_STATUS" = "cancelled" ]; then result="cancelled"
           elif [ "$ALLOWLIST" = "failure" ]; then result="FAILED (allow-list: the stage's parameter could not be set)"
           elif [ "$TOKENS" = "failure" ]; then result="FAILED (sign-in: no token obtained through the mail sink)"
@@ -464,6 +501,7 @@ jobs:
           elif [ "$E2E" = "failure" ]; then result="FAILED (e2e)"
           elif [ "$WEB_E2E" = "failure" ]; then result="FAILED (web e2e)"
           elif [ "$DCR_FLOOD" = "failure" ]; then result="FAILED (adversarial DCR flood, case A8)"
+          elif [ "$LONG" = "failure" ]; then result="FAILED (expiry flows)"
           else result="FAILED (setup, before the suites ran)"
           fi
           printf '\n**Verification:** %s · commit %s · run %s\n' "$result" "\`${HEAD_SHA:0:7}\`" "$RUN_URL" > "$RUNNER_TEMP/verification.md"

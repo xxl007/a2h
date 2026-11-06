@@ -40,7 +40,7 @@ export async function startPostgres(): Promise<PgContainer> {
   ], { stdio: "ignore" });
   const stop = () => {
     try {
-      execFileSync("docker", ["rm", "-f", name], { stdio: "ignore" });
+      execFileSync("docker", ["rm", "-f", "-v", name], { stdio: "ignore" });
     } catch {
       /* already gone */
     }
