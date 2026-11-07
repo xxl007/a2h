@@ -7,7 +7,7 @@ import { holdStatusAfter } from "@a2h/protocol";
 import { createPool } from "../src/db.ts";
 import { expireDue } from "../src/expire.ts";
 import type { WorkerLogLine } from "../src/log.ts";
-import { createRequest, eventsOf, statusOf } from "./lib/requests.ts";
+import { createAwaiting, createRequest, eventsOf, statusOf } from "./lib/requests.ts";
 import { PRINCIPAL_ID, skipWithoutDocker, startStageDb, testConfig, type StageDb } from "./lib/stage-db.ts";
 
 const skip = skipWithoutDocker();
@@ -47,6 +47,30 @@ describe("expire", { skip }, () => {
     assert.equal(holdStatusAfter("expired", { paid: true }), "released");
     const lines = logs.filter((l) => l.msg === "request expired");
     assert.deepEqual(lines.map((l) => l.request_id).sort(), [sent.id, accepted.id].sort());
+    assert.ok(!JSON.stringify(logs).includes("leaflet"), "no question text in logs");
+  });
+
+  // m2-approval-page design D6; spec protocol/request-lifecycle.
+  test("Scenario: Approval link expiry by the platform: awaiting_approval past its link's expiry becomes not_sent (expired); no hold or delivery ever existed", async () => {
+    const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c", approval_expires_in: 60 });
+    const fresh = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c", approval_expires_in: 3600 });
+    await expireDue(ctx());
+    assert.equal(await statusOf(stage.admin, r.id), "awaiting_approval", "not yet due");
+    logs = [];
+    await Promise.all([expireDue(ctx(at(61))), expireDue(ctx(at(61)))]);
+    assert.equal(await statusOf(stage.admin, r.id), "not_sent");
+    const [row] = (await stage.admin.query<{ not_sent_reason: string }>(`SELECT not_sent_reason FROM requests WHERE id = $1`, [r.id])).rows;
+    assert.equal(row!.not_sent_reason, "expired");
+    assert.deepEqual(await eventsOf(stage.admin, r.id), [
+      { from_status: null, to_status: "awaiting_approval", actor: "principal", reason_code: null },
+      { from_status: "awaiting_approval", to_status: "not_sent", actor: "platform", reason_code: null },
+    ]);
+    assert.equal(holdStatusAfter("not_sent", { paid: true }), "none", "nothing was ever held");
+    const { rows: delivered } = await stage.admin.query(`SELECT 1 FROM request_deliveries WHERE request_id = $1`, [r.id]);
+    assert.equal(delivered.length, 0);
+    assert.equal(await statusOf(stage.admin, fresh.id), "awaiting_approval");
+    const lines = logs.filter((l) => l.msg === "approval expired");
+    assert.deepEqual(lines.map((l) => l.request_id), [r.id], "one line, ids only");
     assert.ok(!JSON.stringify(logs).includes("leaflet"), "no question text in logs");
   });
 

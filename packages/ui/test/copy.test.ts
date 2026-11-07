@@ -37,6 +37,13 @@ describe("copy (design.md Screens, skill §6)", () => {
     expect(copy.consent.scopes.offline_access).toBe("Stay connected without signing in again");
   });
 
+  it("approval copy carries the owner's decisions of 2026-11-05 (design.md, decision bar)", () => {
+    expect(copy.approval.simulatedNote).toBe("Test participant. No one real will be asked.");
+    expect(copy.approval.decisionNote).toBe("Nothing is sent and nothing is held until you choose.");
+    expect(copy.approval.linkValidity).toBe("This link works until {time}.");
+    expect(all.filter((s) => /Simulated participant|script answers/.test(s))).toEqual([]);
+  });
+
   it("fill leaves unknown placeholders visible rather than inventing text", () => {
     expect(fill("Connect {client}", {})).toBe("Connect {client}");
   });

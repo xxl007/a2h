@@ -1,8 +1,8 @@
 // The A2H MCP server definition: one fresh instance per HTTP request
 // (createMcpHandler's stateless default). Nothing here may keep state across
 // requests (spec mcp-transport, "Endpoint is stateless across instances"):
-// the approval state travels with the client (design D1), requests live in
-// Postgres.
+// the URL elicitation's state travels with the client (m2-approval-page D3),
+// requests live in Postgres.
 import { setTimeout as sleep } from "node:timers/promises";
 import {
   CheckRequestsOutputSchema,
@@ -54,9 +54,9 @@ export function createMcpServer(stage: string, options: McpServerOptions = {}): 
   const session = options.a2h;
   const server = new McpServer(
     { name: "a2h", version: PACKAGE_VERSION },
-    // Approval state we did not mint, that was altered or that expired is
-    // refused here, before any handler runs: JSON-RPC -32602
-    // `invalid_request_state` (design D1, spec "Forged or expired approval state").
+    // A requestState we did not mint, that was altered, that expired or that
+    // was minted for another principal is refused here, before any handler
+    // runs: JSON-RPC -32602 `invalid_request_state` (m2-approval-page D3).
     session ? { requestState: { verify: (state, ctx) => session.codec.verify(state, ctx) } } : {},
   );
   server.registerTool(

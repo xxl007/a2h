@@ -1,7 +1,7 @@
 // The environment infra gives the web Lambda (infra/web-env.ts, infra/web.ts)
 // is the environment apps/web reads: parsed here with the app's own readers.
 import { describe, expect, test } from "vitest";
-import { stageInfo } from "../../../infra/config";
+import { FEE_RATE, stageInfo } from "../../../infra/config";
 import { webPlainEnvironment } from "../../../infra/web-env";
 import { dataApiConfigFromEnv } from "../infra/db";
 import { webConfigFromEnv } from "../src/config";
@@ -31,6 +31,7 @@ describe("infra -> apps/web environment", () => {
       // One parameter per stage (D7, group 8.3 fact): dev the shared name, a preview its own, prod its own.
       expect(config.allowlist.parameter).toBe({ dev: "/a2h/shared/principal-allowlist", "pr-12": "/a2h/pr-12/principal-allowlist", prod: "/a2h/prod/principal-allowlist" }[name]);
       expect(dataApiConfigFromEnv(env).schema).toBe(stage.dbSchema);
+      expect(config.feeRate).toBe(FEE_RATE);
     });
   }
 

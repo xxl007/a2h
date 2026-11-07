@@ -18,9 +18,8 @@ import { ProtocolError } from "@modelcontextprotocol/client";
 import { generateKeyPair, SignJWT } from "jose";
 import { bearerToken, devGate, devMcpUrl, expectedStage, gateExpectation, issuer, mcpUrl, metadataUrl, secondToken, webUrl } from "../src/live-env.ts";
 import { registerClient } from "../lib/oauth-client.ts";
+import { RequestHumanOutputSchema } from "@a2h/protocol";
 import {
-  accept,
-  approvalRound,
   assertNothingCreatedFor,
   checkOne,
   errorOf,
@@ -49,7 +48,7 @@ const noTokens = TOKEN && TOKEN_2 ? false : "needs A2H_TOKEN and A2H_TOKEN_2";
 // Case A2 presents this preview's token to dev: observable only once dev (main) runs the gate.
 const DEV_GATE = STAGE.startsWith("pr-") && !gateOff ? await devGate() : { on: false as const, reason: "runs from a preview against dev" };
 
-const MV = "sim-mv-7f3c";
+const OL = "sim-ol-6a23"; // prompt persona, judgment net 3000 → gross 3750: awaiting requests only, declined at once
 const TH = "sim-th-2a91";
 const BENIGN = "Would a patient with type 2 diabetes find the insulin section of this leaflet alarming?";
 
@@ -137,6 +136,7 @@ describe("adversarial: tokens the stage did not issue for this resource (live)",
   });
 });
 
+
 describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens }, () => {
   let a: A2hClient;
   let b: A2hClient;
@@ -149,30 +149,61 @@ describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens 
     await b?.close();
   });
 
-  test("case A5: forged state across accounts → -32602 invalid_request_state, nothing created (B redeems A's approval; A's state with B's arguments; B's own state after A's)", async () => {
+
+  // m2-approval-page: the state is the URL elicitation's (design D3), carrying A's request id, signed
+  // and bound to A. Red first in M1 against a weakened verifier; the m2 variant of the same attack is
+  // also approval.local.test.ts case 5 (red against an accept that approves).
+  test("case A5: forged state across accounts → -32602 invalid_request_state, nothing moves (B redeems A's state with each answer; A's state tampered; B's own state presented by A)", async () => {
     const since = serverNow();
-    const args = manifest(MV, "judgment", 3200, BENIGN);
-    const roundA = await approvalRound(a, args);
-    const invalidState = (e: unknown) => {
-      assert.ok(e instanceof ProtocolError, `not a JSON-RPC error: ${String(e)}`);
-      assert.equal(e.code, -32602);
-      assert.equal((e.data as { reason?: string } | undefined)?.reason, "invalid_request_state");
-      return true;
-    };
-    await assert.rejects(retryLeg(b, args, roundA.requestState, accept(BENIGN)), invalidState, "B redeems A's state");
-    await assert.rejects(retryLeg(b, manifest(TH, "knowledge", 6000, BENIGN), roundA.requestState, accept(BENIGN)), invalidState, "B redeems A's state with other arguments");
-    // B's own approval still works for B (the gate did not break B), and A's state is still A's.
-    const roundB = await approvalRound(b, args);
-    await assert.rejects(retryLeg(a, args, roundB.requestState, accept(BENIGN)), invalidState, "A redeems B's state");
-    const declined = await retryLeg(b, args, roundB.requestState, { action: "decline" });
-    assert.ok(!declined.isError, texts(declined));
-    await assertNothingCreatedFor(a, MV, since);
-    await assertNothingCreatedFor(b, MV, since);
-    await assertNothingCreatedFor(b, TH, since);
+    const args = manifest(OL, "judgment", 3800, BENIGN);
+    const ua = await principalClient({ url: true, token: TOKEN! });
+    const ub = await principalClient({ url: true, token: TOKEN_2! });
+    try {
+      const roundA = await firstLeg(ua, args);
+      assert.ok(isInputRequired(roundA), "A is asked through URL elicitation");
+      const idA = new URL(roundA.inputRequests!["approval"]!.params.url!).pathname.split("/").at(-1)!;
+      const beforeA = await checkOne(a, idA);
+      const invalidState = (e: unknown) => {
+        assert.ok(e instanceof ProtocolError, `not a JSON-RPC error: ${String(e)}`);
+        assert.equal(e.code, -32602);
+        assert.equal((e.data as { reason?: string } | undefined)?.reason, "invalid_request_state");
+        return true;
+      };
+      for (const action of ["accept", "decline", "cancel"] as const) {
+        await assert.rejects(retryLeg(ub, args, roundA.requestState, { action }), invalidState, `B redeems A's state (${action})`);
+        await assert.rejects(retryLeg(ub, manifest(TH, "knowledge", 6000, BENIGN), roundA.requestState, { action }), invalidState, `B redeems A's state with other arguments (${action})`);
+      }
+      const state = roundA.requestState!;
+      const tampered = state.slice(0, -2) + (state.endsWith("AA") ? "BB" : "AA");
+      await assert.rejects(retryLeg(ua, args, tampered, { action: "decline" }), invalidState, "A's state tampered");
+      await assert.rejects(retryLeg(ua, args, state.split(".").reverse().join("."), { action: "decline" }), invalidState, "A's state reordered");
+      const roundB = await firstLeg(ub, args);
+      assert.ok(isInputRequired(roundB));
+      await assert.rejects(retryLeg(ua, args, roundB.requestState, { action: "decline" }), invalidState, "A redeems B's state");
+      assert.deepEqual(await checkOne(a, idA), beforeA, "A's request moved");
+      // B's own state still works for B: the refusal was about the account, not a broken gate.
+      const declined = await retryLeg(ub, args, roundB.requestState, { action: "decline" });
+      assert.ok(!declined.isError, texts(declined));
+      assert.equal(RequestHumanOutputSchema.parse(declined.structuredContent).status, "not_sent");
+      // Nothing was created for B by A's state, nor for TH by anyone. B's list may hold other requests
+      // of B's: the adversarial files run concurrently and approval.live.test.ts creates B's own (run
+      // 41701527271, A2H-0f8c to sim-cf-4c5e by B's principal, case 1 there). What A's state must not
+      // do is create anything for B, and A's request must stay A's: B's list holds B's own prompt and
+      // never A's id, and nothing to TH, the handle B tried with A's state.
+      const idB = new URL(roundB.inputRequests!["approval"]!.params.url!).pathname.split("/").at(-1)!;
+      const bSince = await listSince(b, since);
+      assert.ok(bSince.some((r) => r.request_id === idB), "B's own prompt is B's request");
+      assert.ok(!bSince.some((r) => r.request_id === idA), "A's request appears in B's list");
+      assert.ok(!bSince.some((r) => r.handle === TH), "a request to TH was created for B by A's state");
+      await assertNothingCreatedFor(a, TH, since);
+      await assertNothingCreatedFor(b, TH, since);
+    } finally {
+      await ua.close();
+      await ub.close();
+    }
   });
 
   test("case A6: token passthrough attempt → a token-shaped argument is never echoed back; the tools work on text, not credentials", async () => {
-    const since = serverNow();
     const token = TOKEN!;
     const looksLikeToken = (s: string) => {
       for (let i = 0; i + 16 <= token.length; i += 8) if (s.includes(token.slice(i, i + 16))) return true;
@@ -184,21 +215,28 @@ describe("adversarial: accounts do not mix (live)", { skip: gateOff || noTokens 
     assert.ok(!looksLikeToken(JSON.stringify(found)), "find_humans echoed a piece of the token");
     const refusedLong = await a.client.callTool({ name: "find_humans", arguments: { topic: `Bearer ${token}`, request_type: "judgment" } }, { timeout: 30_000 });
     assert.ok(!looksLikeToken(JSON.stringify(refusedLong)), "the schema refusal echoed the token");
-    // request_human with the token inside the question: the approval shows the question (by design) and the
-    // request is declined; the refusal and listing paths never carry the token elsewhere.
-    const args = manifest(MV, "judgment", 3200, `${BENIGN} Authorization: Bearer ${token}`);
-    const round = await firstLeg(a, args);
-    if (isInputRequired(round)) {
-      const declined = await retryLeg(a, args, round.requestState, { action: "decline" });
-      assert.ok(!declined.isError, texts(declined));
-      assert.ok(!looksLikeToken(JSON.stringify(declined)), "the decline result echoed the token");
-    } else {
-      assert.ok(!looksLikeToken(JSON.stringify(round)), "the refusal echoed the token");
+    // request_human with the token inside the question (m2-approval-page): recorded awaiting approval, the
+    // question shown on the page only (by design); the prompt is declined at once, and neither the URL
+    // prompt, the result nor check_requests ever carries the token.
+    const ua = await principalClient({ url: true, token });
+    try {
+      const args = manifest(OL, "judgment", 3800, `${BENIGN} Authorization: Bearer ${token}`);
+      const round = await firstLeg(ua, args);
+      assert.ok(!looksLikeToken(JSON.stringify(round)), "the first leg echoed the token");
+      if (isInputRequired(round)) {
+        const declined = await retryLeg(ua, args, round.requestState, { action: "decline" });
+        assert.ok(!declined.isError, texts(declined));
+        assert.ok(!looksLikeToken(JSON.stringify(declined)), "the decline result echoed the token");
+        const id = RequestHumanOutputSchema.parse(declined.structuredContent).request_id;
+        assert.ok(!looksLikeToken(JSON.stringify(await checkOne(a, id))), "check_requests echoed the token");
+      }
+    } finally {
+      await ua.close();
     }
-    // check_requests with the token as an id: not_found, nothing echoed.
+    // check_requests with the token as an id: refused, nothing echoed.
     const checked = await a.client.callTool({ name: "check_requests", arguments: { request_id: token.slice(0, 8) } }, { timeout: 30_000 });
     assert.ok(!looksLikeToken(JSON.stringify(checked)));
-    await assertNothingCreatedFor(a, MV, since);
+    // Logs and outbound calls: authorization.local.test.ts (in-process).
   });
 
   test("case A7: a second principal reading another's requests → not_found by id, absent from every list and filter", async () => {

@@ -35,6 +35,7 @@ const app = createApp({
     feeRate: config.feeRate,
     clearingShare: config.clearingShare,
     approvalKey: config.approvalKey,
+    webOrigin: config.webOrigin,
     limits: config.limits,
   },
 });

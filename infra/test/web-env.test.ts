@@ -4,7 +4,7 @@
 // configuration reader.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { developmentPolicy, stageInfo } from "../config.ts";
+import { developmentPolicy, FEE_RATE, stageInfo } from "../config.ts";
 import {
   authIssuer,
   RDS_DATA_ACTIONS,
@@ -48,8 +48,11 @@ test("plain environment: the stage default policy in the mcp service's variable 
     // Deployed stages read the SSM parameter only (PR #57 creates it); the fallback is for local runs.
     assert.equal(env["PRINCIPAL_ALLOWLIST"], undefined);
     assert.ok(env["AUTH_ISSUER"]?.endsWith("/api/auth"));
-    // No principal of the stage and no fee: those are the mcp service's.
-    for (const name of ["PRINCIPAL_ID", "PRINCIPAL_VERIFIED", "FEE_RATE"]) assert.equal(env[name], undefined, `${s} ${name}`);
+    // The stage's fee rate (ADR 0002 `f`): the approval page shows the fee breakdown and Send
+    // re-validates with it (m2-approval-page D4), the same rate the mcp service uses.
+    assert.equal(env["FEE_RATE"], String(FEE_RATE));
+    // No principal of the stage: principals are database rows.
+    for (const name of ["PRINCIPAL_ID", "PRINCIPAL_VERIFIED"]) assert.equal(env[name], undefined, `${s} ${name}`);
   }
 });
 

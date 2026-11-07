@@ -14,7 +14,8 @@ import assert from "node:assert/strict";
 import { ProtocolError } from "@modelcontextprotocol/client";
 import { generateKeyPair, SignJWT } from "jose";
 import { bearerToken, expectedStage, gateExpectation, healthUrl, issuer, mcpUrl, metadataUrl, noScopeToken, secondToken } from "../src/live-env.ts";
-import { approvalRound, assertNothingCreatedFor, checkOne, errorOf, grossReserve, listSince, manifest, principalClient, retryLeg, serverNow, texts, type A2hClient } from "./a2h.ts";
+import { checkOne, errorOf, firstLeg, grossReserve, isInputRequired, listSince, manifest, principalClient, retryLeg, serverNow, texts, type A2hClient } from "./a2h.ts";
+
 import { connectFresh } from "./mcp-client.ts";
 
 const MCP_URL = mcpUrl();
@@ -26,11 +27,9 @@ const TOKEN = bearerToken();
 const TOKEN_2 = secondToken();
 const CHALLENGE = `Bearer resource_metadata="${METADATA.href}", scope="a2h"`;
 
-const MV = "sim-mv-7f3c";
 // The can't-tell persona nobody else in the live suites sends to: the request this file creates for
 // principal A must not be counted by another file running in parallel (request-flows filters on its own personas).
 const NS = "sim-ns-0d39";
-const QUESTION = "Would a patient with type 2 diabetes find the insulin section of this leaflet alarming?";
 
 const gateOff = GATE.authRequired ? false : `AUTH_REQUIRED=false on ${STAGE} (infra/service-env.ts): the gate is off by configuration`;
 const noTokens = TOKEN && TOKEN_2 ? false : "needs A2H_TOKEN and A2H_TOKEN_2 (tests/lib/obtain-token.ts)";
@@ -166,9 +165,9 @@ describe("Requirement: The principal of every tool call is the token's subject",
     if (existing[0]) return existing[0].request_id;
     const bid = grossReserve(NS, "knowledge", 20);
     const args = manifest(NS, "knowledge", bid, "Which fungal disease shows as orange pustules on the underside of pear leaves in late summer?");
-    const round = await approvalRound(a, args);
-    const result = await retryLeg(a, args, round.requestState, { action: "accept", content: { question: String(args["question"]) } });
-    assert.ok(!result.isError, texts(result));
+    // Recorded by request_human itself, awaiting approval (m2-approval-page): it is A's request either way.
+    const result = await firstLeg(a, args);
+    assert.ok(!("resultType" in result) && !result.isError, texts(result as never));
     return (result.structuredContent as { request_id: string }).request_id;
   }
 
@@ -184,21 +183,32 @@ describe("Requirement: The principal of every tool call is the token's subject",
     assert.ok(!bList.some((r) => r.request_id === id), "B's list never holds A's request");
   });
 
-  test("Scenario: Approval state used by another account: -32602 invalid_request_state, nothing created", async () => {
+  // m2-approval-page: the state is now the URL elicitation's (design D3), carrying A's request id,
+  // signed and bound to A. B retrying with it, whatever the answer, gets -32602 and creates nothing;
+  // A's request is unchanged (still awaiting approval: B's decline did not move it to not_sent).
+  test("Scenario: Approval state used by another account: -32602 invalid_request_state, nothing created (the URL elicitation's state)", async () => {
     const since = serverNow();
-    const args = manifest(MV, "judgment", 3200, QUESTION);
-    const round = await approvalRound(a, args);
-    await assert.rejects(
-      retryLeg(b, args, round.requestState, { action: "accept", content: { question: QUESTION } }),
-      (e: unknown) => {
-        assert.ok(e instanceof ProtocolError, `not a JSON-RPC error: ${String(e)}`);
-        assert.equal(e.code, -32602);
-        assert.equal((e.data as { reason?: string } | undefined)?.reason, "invalid_request_state");
-        return true;
-      },
-    );
-    await assertNothingCreatedFor(a, MV, since);
-    await assertNothingCreatedFor(b, MV, since);
+    const args = manifest(NS, "knowledge", grossReserve(NS, "knowledge", 20), "Which fungal disease shows as brown spots on the leaves of a pear tree in spring?");
+    const aUrl = await principalClient({ url: true, token: TOKEN! });
+    const bUrl = await principalClient({ url: true, token: TOKEN_2! });
+    try {
+      const round = await firstLeg(aUrl, args);
+      assert.ok(isInputRequired(round), "A is asked through URL elicitation");
+      const id = new URL(round.inputRequests!["approval"]!.params.url!).pathname.split("/").at(-1)!;
+      for (const answer of [{ action: "accept" }, { action: "decline" }, { action: "cancel" }] as const) {
+        await assert.rejects(retryLeg(bUrl, args, round.requestState, answer), (e: unknown) => {
+          assert.ok(e instanceof ProtocolError, `not a JSON-RPC error: ${String(e)}`);
+          assert.equal(e.code, -32602);
+          assert.equal((e.data as { reason?: string } | undefined)?.reason, "invalid_request_state");
+          return true;
+        }, `B retried A's state with ${answer.action}`);
+      }
+      assert.equal((await checkOne(a, id)).status, "awaiting_approval", "A's request is unchanged");
+      assert.deepEqual((await listSince(b, since)).map((r) => r.request_id), [], "nothing was created for B");
+    } finally {
+      await aUrl.close();
+      await bUrl.close();
+    }
   });
 });
 

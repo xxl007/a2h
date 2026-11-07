@@ -3,7 +3,7 @@
 // infra/test/web-env.test.ts and read by apps/web's configuration test. The
 // SST wiring is createWeb() in web.ts.
 import { prDbSecretName } from "./access.ts";
-import { allowlistParameterName, allowlistReadPermission, developmentPolicy, hostnames, type StageInfo } from "./config.ts";
+import { allowlistParameterName, allowlistReadPermission, developmentPolicy, FEE_RATE, hostnames, type StageInfo } from "./config.ts";
 
 /** Database name on every cluster (database.ts). */
 export const DB_NAME = "a2h";
@@ -38,6 +38,8 @@ export function webPlainEnvironment(stage: StageInfo, inputs: WebEnvInputs): Rec
     PRINCIPAL_ASK_FIRST_ABOVE_MINOR: p.ask_first_above_minor === null ? "none" : String(p.ask_first_above_minor),
     PRINCIPAL_DAILY_REQUEST_LIMIT: String(p.daily_request_limit),
     PRINCIPAL_THROTTLED_DAILY_LIMIT: String(p.throttled_daily_limit),
+    // ADR 0002 `f`, the mcp service's value: the approval page's fee breakdown and Send's re-validation (m2-approval-page D4).
+    FEE_RATE: String(FEE_RATE),
   };
   const issuer = authIssuer(stage, inputs.domain);
   if (issuer) env["AUTH_ISSUER"] = issuer;

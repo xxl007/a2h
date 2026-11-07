@@ -14,8 +14,10 @@ export interface SignInScreenProps {
   state?: SignInState;
   /** The address the person typed, kept after an error or offline attempt. Never put in the URL. */
   email?: string;
-  /** Present when sign-in was started by an agent's connection request (the authorize URL to return to). */
+  /** Present when sign-in was started by an agent's connection request or an approval link (the URL to return to). */
   next?: string;
+  /** What `next` leads back to: an agent's connection (default) or an approval page. Picks the lead. */
+  nextPurpose?: "connect" | "approve";
   /** Request id for the error notice. */
   reference?: string;
   /** "empty" or "format" for the invalid state. */
@@ -29,6 +31,7 @@ export function SignInScreen({
   state = "idle",
   email,
   next,
+  nextPurpose = "connect",
   reference,
   invalidReason = "format",
   stageName,
@@ -38,7 +41,7 @@ export function SignInScreen({
   return (
     <AuthShell {...(stageName !== undefined ? { stageName } : {})}>
       <h1 className={styles.title}>{c.title}</h1>
-      <p className={styles.lead}>{connecting ? c.leadConnecting : c.lead}</p>
+      <p className={styles.lead}>{connecting ? (nextPurpose === "approve" ? c.leadApproving : c.leadConnecting) : c.lead}</p>
       {state === "error" && (
         <Notice tone="danger" title={c.errorTitle} live="alert" {...(reference !== undefined ? { reference } : {})}>
           <p>{c.errorBody}</p>

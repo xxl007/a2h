@@ -157,6 +157,52 @@ describe("Manifest lanes", () => {
   });
 });
 
+describe("check_requests result before sending (m2-approval-page, spec protocol/request-lifecycle)", () => {
+  const awaiting = {
+    request_id: "A2H-7f3c",
+    status: "awaiting_approval",
+    handle: "sim-mv-7f3c",
+    simulated: true,
+    intent: "judgment",
+    transitions: { awaiting_approval_at: "2026-11-03T10:00:00+00:00" },
+    hold_status: "none",
+    currency: "EUR",
+    approval_url: "https://pr-81.dev.a2h-protocol.org/approve/A2H-7f3c?t=" + "A".repeat(42) + "w",
+    approval_expires_at: "2026-11-04T10:00:00+00:00",
+  } as const;
+  test("Scenario: Awaiting approval: the approval link, its expiry and no held amount", () => {
+    assert.ok(protocol.CheckedRequestSchema.safeParse(awaiting).success);
+    assert.equal(protocol.CheckedRequestSchema.safeParse(omit(awaiting, "approval_expires_at")).success, false, "the expiry is required");
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...awaiting, held_minor: 3500 }).success, false, "no held amount");
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...awaiting, hold_status: "held" }).success, false);
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...awaiting, transitions: { ...awaiting.transitions, sent_at: "2026-11-03T10:05:00+00:00" } }).success, false, "not sent yet");
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...awaiting, approval_url: "http://x.test/approve" }).success, false, "https only");
+    // A link that can no longer be rebuilt (stage key rotated) is left out; the expiry stays.
+    assert.ok(protocol.CheckedRequestSchema.safeParse(omit(awaiting, "approval_url")).success);
+  });
+  test("Scenario: Not sent: status not_sent, the reason declined or expired, and no held amount", () => {
+    const notSent = {
+      ...omit(omit(awaiting, "approval_url"), "approval_expires_at"),
+      status: "not_sent",
+      transitions: { awaiting_approval_at: "2026-11-03T10:00:00+00:00", not_sent_at: "2026-11-03T10:02:00+00:00" },
+      reason: "declined",
+    } as const;
+    assert.ok(protocol.CheckedRequestSchema.safeParse(notSent).success);
+    assert.ok(protocol.CheckedRequestSchema.safeParse({ ...notSent, reason: "expired" }).success);
+    assert.equal(protocol.CheckedRequestSchema.safeParse(omit(notSent, "reason")).success, false, "a reason is required");
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...notSent, held_minor: 3500 }).success, false, "no held amount");
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...notSent, approval_url: awaiting.approval_url }).success, false, "no link once decided");
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...awaiting, reason: "declined" }).success, false, "no reason while awaiting");
+  });
+  test("a sent request still needs sent_at and its held amount, and carries no link or reason", () => {
+    const sent = { ...omit(omit(awaiting, "approval_url"), "approval_expires_at"), status: "sent", transitions: { awaiting_approval_at: "2026-11-03T10:00:00+00:00", sent_at: "2026-11-03T10:05:00+00:00" }, held_minor: 3500, hold_status: "held" } as const;
+    assert.ok(protocol.CheckedRequestSchema.safeParse(sent).success);
+    assert.equal(protocol.CheckedRequestSchema.safeParse(omit(sent, "held_minor")).success, false);
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...sent, transitions: { awaiting_approval_at: "2026-11-03T10:00:00+00:00" } }).success, false);
+    assert.equal(protocol.CheckedRequestSchema.safeParse({ ...sent, approval_url: awaiting.approval_url }).success, false);
+  });
+});
+
 describe("check_requests result: identity on acceptance only, answer only when answered", () => {
   const sent = {
     request_id: "A2H-7f3c",
@@ -185,16 +231,46 @@ describe("check_requests result: identity on acceptance only, answer only when a
   });
 });
 
-describe("request_human result: sent carries the request, not_sent carries nothing", () => {
-  const sent = { status: "sent", request_id: "A2H-7f3c", eta: "2026-10-22T08:42:00+02:00", held_minor: 3500, currency: "EUR", deliver_at: "2026-10-21T08:42:00+02:00", deferred: false } as const;
-  test("a sent result needs every field", () => {
-    assert.ok(protocol.RequestHumanOutputSchema.safeParse(sent).success);
-    assert.equal(protocol.RequestHumanOutputSchema.safeParse(omit(sent, "request_id")).success, false);
+describe("request_human result (m2-approval-page): awaiting_approval carries the link, not_sent carries the reason", () => {
+  const awaiting = {
+    status: "awaiting_approval",
+    request_id: "A2H-7f3c",
+    approval_url: "https://pr-72.dev.a2h-protocol.org/approve/A2H-7f3c?t=" + "a".repeat(43),
+    approval_expires_at: "2026-11-04T10:00:00+00:00",
+  } as const;
+  test("Scenario: Awaiting approval: status awaiting_approval, the request_id, an https approval_url and approval_expires_at", () => {
+    assert.ok(protocol.RequestHumanOutputSchema.safeParse(awaiting).success);
+    for (const f of ["request_id", "approval_url", "approval_expires_at"] as const) {
+      assert.equal(protocol.RequestHumanOutputSchema.safeParse(omit(awaiting, f)).success, false, `without ${f}`);
+    }
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ ...awaiting, approval_url: "http://pr-72.dev.a2h-protocol.org/approve/A2H-7f3c" }).success, false, "http is refused");
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ ...awaiting, approval_url: "javascript:alert(1)" }).success, false);
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ ...awaiting, reason: "declined" }).success, false, "no reason while awaiting");
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ ...awaiting, held_minor: 3500 }).success, false, "no hold field");
   });
-  test("Scenario: Request not sent: status not_sent, a reason (declined or dismissed) and no request_id", () => {
-    assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "declined" }).success);
-    assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "dismissed" }).success);
-    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "declined", request_id: "A2H-7f3c" }).success, false);
-    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent" }).success, false);
+  test("Scenario: Request not sent: status not_sent, the request_id, reason declined (or expired), and no approval_url", () => {
+    assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", request_id: "A2H-7f3c", reason: "declined" }).success);
+    assert.ok(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", request_id: "A2H-7f3c", reason: "expired" }).success);
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", request_id: "A2H-7f3c", reason: "dismissed" }).success, false);
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", reason: "declined" }).success, false, "the request id is kept");
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", request_id: "A2H-7f3c" }).success, false, "a reason is required");
+    assert.equal(
+      protocol.RequestHumanOutputSchema.safeParse({ status: "not_sent", request_id: "A2H-7f3c", reason: "declined", approval_url: awaiting.approval_url }).success,
+      false,
+      "no approval_url",
+    );
   });
+  test("sent is no longer a request_human result (the page sends)", () => {
+    assert.equal(protocol.RequestHumanOutputSchema.safeParse({ status: "sent", request_id: "A2H-7f3c" }).success, false);
+  });
+  test("its JSON Schema is a closed top-level object, registered as request_human's outputSchema", () => {
+    const json = protocol.toJsonSchema(protocol.RequestHumanOutputSchema);
+    assert.equal(json["type"], "object");
+    assert.equal(json["additionalProperties"], false);
+    assert.deepEqual((json["properties"] as Record<string, { enum?: string[] }>)["status"]?.enum, ["awaiting_approval", "not_sent"]);
+  });
+  test("the M1 result shape is gone (task 3.1)", () => {
+    assert.equal("RequestHumanOutputM1Schema" in protocol, false);
+  });
+
 });

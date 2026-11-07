@@ -1,0 +1,9 @@
+.bar { display: flex; flex-direction: column; gap: var(--space-3); padding-top: var(--space-2); }
+/* Stacked full width under 600 px, Send first; side by side above, Send first on the left, so visual and Tab order agree. */
+.buttons { display: flex; flex-direction: column; gap: var(--space-2); }
+.buttons > * { width: 100%; }
+.note { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); max-width: var(--measure); }
+@media (min-width: 600px) {
+  .buttons { flex-direction: row; justify-content: flex-start; }
+  .buttons > * { width: auto; }
+}

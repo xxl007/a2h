@@ -33,6 +33,7 @@ import {
   RATE_LIMIT_WINDOWS,
   QUESTION_MAX_LENGTH,
   REQUEST_ID_PATTERN,
+  NotSentReasonSchema,
   REQUEST_STATUSES,
   SIGNATURE_PATTERN,
   SIGNING_KEY_STATUSES,
@@ -92,9 +93,9 @@ const code = (name: string, values: readonly string[]) => varchar(name, { length
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const currency = () => char("currency", { length: 3 }).notNull();
 
-/** An approval nonce: 16 random bytes in lower-case hex (apps/mcp request_human). */
-export const APPROVAL_NONCE_LENGTH = 32;
-const APPROVAL_NONCE_PATTERN = /^[0-9a-f]{32}$/;
+/** The stored form of an approval token (m2-approval-page D2): SHA-256, lower-case hex. Never the token. */
+export const APPROVAL_TOKEN_HASH_LENGTH = 64;
+const APPROVAL_TOKEN_HASH_PATTERN = /^[0-9a-f]{64}$/;
 
 /** A short machine code (decline reason): lower-case words joined by `_`, never free text. */
 const REASON_CODE_PATTERN = /^[a-z][a-z0-9_]*$/;
@@ -301,18 +302,24 @@ export const requests = pgTable(
     /** Gross cleared amount, set once when the request is answered. */
     cleared_minor: integer("cleared_minor"),
     currency: currency(),
-    status: code("status", REQUEST_STATUSES).notNull().default("sent"),
+    /** A request starts awaiting its principal's approval (spec protocol/request-lifecycle; review F3, migration 0011). */
+    status: code("status", REQUEST_STATUSES).notNull().default("awaiting_approval"),
     deliver_at: timestamp("deliver_at", { withTimezone: true }).notNull(),
     expires_at: timestamp("expires_at", { withTimezone: true }).notNull(),
     created_at: createdAt(),
     updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     /**
-     * The nonce of the approval that created this request (design D1): an
-     * accepted approval creates one request only, so a replayed approval state
-     * is refused (spec request-approval "Accepted approval replayed"). Null
-     * for requests not created through an approval.
+     * m2-approval-page design D1: the agent's question as `request_human`
+     * received it, for "Restore agent draft" on the approval page; `question`
+     * becomes the approved text on Send. Null on requests created before.
      */
-    approval_nonce: varchar("approval_nonce", { length: APPROVAL_NONCE_LENGTH }),
+    agent_draft: text("agent_draft"),
+    /** SHA-256 of the approval link's token (D2); the token itself is never stored. */
+    approval_token_hash: varchar("approval_token_hash", { length: APPROVAL_TOKEN_HASH_LENGTH }),
+    /** When the approval link stops working (D2); the request then becomes `not_sent`, `expired` (D6). */
+    approval_expires_at: timestamp("approval_expires_at", { withTimezone: true }),
+    /** Why a `not_sent` request was not sent: `declined` (Don't send) or `expired` (the link). */
+    not_sent_reason: code("not_sent_reason", NotSentReasonSchema.options),
   },
   (t) => [
     check("requests_id_format", matches(t.id, REQUEST_ID_PATTERN)),
@@ -343,8 +350,19 @@ export const requests = pgTable(
     index("requests_principal_created_idx").on(t.principal_id, t.created_at),
     index("requests_participant_idx").on(t.participant_id),
     index("requests_open_expiry_idx").on(t.expires_at).where(sql`${t.status} IN ('sent', 'accepted')`),
-    check("requests_approval_nonce_format", matches(t.approval_nonce, APPROVAL_NONCE_PATTERN)),
-    uniqueIndex("requests_approval_nonce_unique").on(t.approval_nonce).where(sql`${t.approval_nonce} IS NOT NULL`),
+    check("requests_approval_token_hash_format", matches(t.approval_token_hash, APPROVAL_TOKEN_HASH_PATTERN)),
+    uniqueIndex("requests_approval_token_hash_unique").on(t.approval_token_hash).where(sql`${t.approval_token_hash} IS NOT NULL`),
+    check(
+      "requests_awaiting_approval_complete",
+      sql`${t.status} <> 'awaiting_approval' OR (${t.agent_draft} IS NOT NULL AND ${t.approval_token_hash} IS NOT NULL AND ${t.approval_expires_at} IS NOT NULL)`,
+    ),
+    check("requests_agent_draft_length", sql`${t.agent_draft} IS NULL OR (length(btrim(${t.agent_draft})) > 0 AND char_length(${t.agent_draft}) <= ${sql.raw(String(QUESTION_MAX_LENGTH))})`),
+    check(
+      "requests_not_sent_reason",
+      sql`(${t.status} = 'not_sent') = (${t.not_sent_reason} IS NOT NULL) AND ${oneOf(t.not_sent_reason, NotSentReasonSchema.options)}`,
+    ),
+    // The minute job's scan (D6): awaiting requests by link expiry.
+    index("requests_awaiting_approval_expiry_idx").on(t.approval_expires_at).where(sql`${t.status} = 'awaiting_approval'`),
   ],
 );
 
@@ -368,11 +386,12 @@ export const requestEvents = pgTable(
     unique("request_events_request_to_unique").on(t.request_id, t.to_status),
     check(
       "request_events_legal",
-      sql`(${t.from_status} IS NULL AND ${t.to_status} = 'sent' AND ${t.actor} = 'principal')
-        OR (${t.from_status}, ${t.to_status}, ${t.actor}) IN (${sql.join(
+      // Creation, by the principal, into awaiting_approval (m2-approval-page): only the page sends.
+      sql`(${t.from_status} IS NULL AND ${t.to_status} = 'awaiting_approval' AND ${t.actor} = 'principal')
+        OR (${t.from_status} IS NOT NULL AND (${t.from_status}, ${t.to_status}, ${t.actor}) IN (${sql.join(
           LEGAL_TRANSITIONS.map(([f, to, a]) => sql`(${lit(f)}, ${lit(to)}, ${lit(a)})`),
           sql`, `,
-        )})`,
+        )}))`,
     ),
     check("request_events_reason_code", matches(t.reason_code, REASON_CODE_PATTERN)),
     check("request_events_reason_on_decline_only", sql`${t.reason_code} IS NULL OR ${t.to_status} = 'declined'`),
