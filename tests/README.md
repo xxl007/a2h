@@ -643,7 +643,7 @@ pnpm --filter @a2h/tests contract && pnpm --filter @a2h/tests adversarial
 
 ## Scenario to test map: m2-approval-page (QA, tasks 6.1 to 6.3)
 
-Specs: `openspec/changes/m2-approval-page/specs/`. Since this change `request_human` records a valid manifest as `awaiting_approval` and returns a link; the principal decides on `/approve/[id]`. The live suites approve on that page as the QA principals: `lib/obtain-token.ts` keeps the two signed-in browser sessions (`A2H_SESSION_STATE`, `A2H_SESSION_STATE_2`: files 0600 under `RUNNER_TEMP`, named by path, never printed) and `lib/approval-page.ts` opens the link `request_human` returned and chooses Send or Don't send. Without the sessions the page cases are skipped with the reason.
+Specs: `openspec/changes/archive/2026-11-07-m2-approval-page/specs/`. Since this change `request_human` records a valid manifest as `awaiting_approval` and returns a link; the principal decides on `/approve/[id]`. The live suites approve on that page as the QA principals: `lib/obtain-token.ts` keeps the two signed-in browser sessions (`A2H_SESSION_STATE`, `A2H_SESSION_STATE_2`: files 0600 under `RUNNER_TEMP`, named by path, never printed) and `lib/approval-page.ts` opens the link `request_human` returned and chooses Send or Don't send. Without the sessions the page cases are skipped with the reason.
 
 The expiries take over fifteen minutes (a link lasts at least that long, design D2). `contract/approval-expiry.test.ts` and `adversarial/approval-expiry.live.test.ts` are opt-in (`A2H_LONG_FLOWS=1`); on previews the verify job starts them in the background right after the sign-in and collects them, step "Expiry flows", before the allow-list is cleared (the job's bound is 30 minutes on previews, 15 on dev, which runs none).
 

@@ -36,58 +36,27 @@ Nothing leaves a principal that the principal did not approve: `request_human` v
 - **WHEN** the participant's interruptions for the day are used up
 - **THEN** the call fails with `outside_participant_rules` and the block is counted for the participant
 
-### Requirement: Approval shows the exact wording
-After validation passes, `request_human` SHALL ask the principal for approval with exactly one pre-filled text field holding the question and a message that states the gross bid, the format, the expiry, the data terms and, verbatim, every other field the participant will receive; it SHALL create a request only on accept.
-
-#### Scenario: Accept after editing
-- **WHEN** the principal edits the pre-filled question and accepts
-- **THEN** one request is created whose question is byte-identical to the edited text
-
-#### Scenario: Options shown with the question
-- **WHEN** the manifest carries poll options or a scale
-- **THEN** the approval message lists each option label and the scale verbatim, its last line carries the wording "Send · hold €N" for accept (MCP form elicitation cannot label its buttons, so the wording is text in the message), and the request created on accept holds exactly those values
-
-#### Scenario: Decline
-- **WHEN** the principal declines
-- **THEN** nothing is created, the result says the request was not sent, and `check_requests` does not know any id for it
-
-#### Scenario: Dismissed
-- **WHEN** the principal dismisses the approval without choosing
-- **THEN** the outcome is the same as a decline
-
-#### Scenario: Forged or expired approval state
-- **WHEN** the retried call carries approval state that the server did not issue, that was altered, or that is older than fifteen minutes
-- **THEN** the call is refused before any handler runs with JSON-RPC error `-32602` and reason `invalid_request_state`, and nothing is created
-
-#### Scenario: Approval state replayed with changed arguments
-- **WHEN** the retried call carries approval state the server issued, but for a manifest whose hash differs from the retried arguments
-- **THEN** the call is refused with code `conflict` and nothing is created
-
-#### Scenario: Accepted approval replayed
-- **WHEN** a retried call carries approval state that was already used to create a request, with the same arguments and an accept, inside the state's validity window
-- **THEN** the call is refused with code `conflict`, no second request or hold is created, and the first request is unchanged
-
-#### Scenario: Client without forms
-- **WHEN** a client on the 2026-07-28 revision declares no form elicitation
-- **THEN** the call returns an error result that says the approval dialog cannot be shown, and nothing is created or counted
-
-#### Scenario: Client on an older revision
-- **WHEN** `request_human` is called over a connection negotiated on a revision earlier than 2026-07-28
-- **THEN** the call returns an error result whose text says that approval needs the 2026-07-28 revision and how to enable it in Claude Code, and nothing is created
-
 ### Requirement: Approval covers the validated manifest
-The request created on accept SHALL be the validated manifest with the approved text; if the edited text fails validation, the call SHALL fail like any other validation failure and create nothing.
+The request sent on approval SHALL be the validated manifest with the approved text; on Send the platform SHALL validate the approved text, the participant's rules, the budget, the throttle and the principal again, and if any check fails the request SHALL stay `awaiting_approval`, nothing SHALL be held, and the page SHALL say what to change.
 
 #### Scenario: Edit turns the question into a push-poll
 - **WHEN** the edited text is persuasion disguised as a question
-- **THEN** the call fails with `forbidden_content` and no request exists
+- **THEN** Send fails with `forbidden_content`, nothing is held or delivered, and the request stays `awaiting_approval` until a valid Send, Don't send or expiry
+
+#### Scenario: Accept after editing
+- **WHEN** the principal edits the question on the page and chooses Send
+- **THEN** the request is sent with a question byte-identical to the edited text
+
+#### Scenario: Budget spent meanwhile
+- **WHEN** other requests used the principal's remaining budget between `request_human` and Send
+- **THEN** Send fails with `over_budget`, nothing is held, and the page says so
 
 ### Requirement: Fast return, delivery later
-On accept, `request_human` SHALL return `request_id`, `eta`, `status: "sent"` and `held_minor` (gross) within one second, and delivery SHALL happen outside the call.
+`request_human` SHALL return `request_id`, `status: "awaiting_approval"`, the approval link and its expiry within one second; on Send the hold SHALL be placed and delivery SHALL happen outside the request.
 
 #### Scenario: Return under a second
-- **WHEN** the principal accepts
-- **THEN** the result arrives within one second with a request id of the form `A2H-xxxx`, an ETA, status `sent` and the held amount equal to the gross bid
+- **WHEN** a valid manifest is submitted
+- **THEN** the result arrives within one second with a request id of the form `A2H-xxxx`, status `awaiting_approval`, the approval link and its expiry, and no hold
 
 ### Requirement: Every request carries its principal
 Every created request SHALL record the accountable principal identity of the connection, which is the signed-in account the bearer token was issued to; a request from a different principal SHALL be invisible to it.
@@ -106,3 +75,52 @@ Every validation failure at the rules stage SHALL be recorded with the participa
 #### Scenario: Blocked row
 - **WHEN** a manifest is blocked by the participant's rules
 - **THEN** one blocked-manifest row exists with participant id, principal id, stage, code and time, and no column holds the question
+
+### Requirement: Approval happens on the hosted approval page
+After validation passes, `request_human` SHALL record the request as `awaiting_approval`, hold no money, deliver nothing, and return within one second with the request id, an approval link and the link's expiry. The request SHALL be sent only when its principal chooses Send on the approval page.
+
+#### Scenario: Link returned
+- **WHEN** a valid manifest is submitted
+- **THEN** the result has status `awaiting_approval`, a request id of the form `A2H-xxxx`, an `https` approval link on the stage's web host and the link's expiry, arrives within one second, and no hold or delivery exists for the request
+
+#### Scenario: Send on the page
+- **WHEN** the principal opens the link and chooses Send with the question unchanged
+- **THEN** the request becomes `sent` with the gross bid held, and delivery starts outside the request
+
+#### Scenario: Don't send on the page
+- **WHEN** the principal chooses Don't send
+- **THEN** the request becomes `not_sent` with reason `declined`, nothing is held or delivered, and the participant never learns it existed
+
+#### Scenario: Link expires unused
+- **WHEN** the link's expiry passes with no decision
+- **THEN** the request becomes `not_sent` with reason `expired`, and opening the link shows that it expired
+
+### Requirement: The link is offered the way the client can show it
+Where the client declares URL elicitation, `request_human` SHALL offer the approval link as an MCP URL elicitation with a one-sentence message; everywhere else the link SHALL be in the tool result text with a sentence telling the agent to show it to the principal. No client SHALL be refused for lacking forms or for its protocol revision.
+
+#### Scenario: Client with URL elicitation
+- **WHEN** the client declares URL elicitation
+- **THEN** the call asks the client to open the approval link through URL elicitation, and the eventual result carries the same request id and link
+
+#### Scenario: Principal refuses to open the link
+- **WHEN** the client asks through URL elicitation and the principal declines or dismisses the prompt
+- **THEN** the request becomes `not_sent` with reason `declined`, the result says so with the request id, and nothing is held or delivered
+
+#### Scenario: Client without URL elicitation
+- **WHEN** the client declares no URL elicitation, or negotiated a revision before 2026-07-28
+- **THEN** the result text carries the approval link and the instruction to show it, and the request is `awaiting_approval`
+
+### Requirement: The link is single-use and bound to its principal
+An approval link SHALL carry an unguessable token stored only as a hash, SHALL work only for the principal who made the request while signed in, and SHALL accept one decision.
+
+#### Scenario: Another principal opens the link
+- **WHEN** a signed-in principal opens a link for another principal's request
+- **THEN** the page shows nothing about the request, offers no action, and the request is unchanged
+
+#### Scenario: Decision replayed
+- **WHEN** Send or Don't send is submitted for a request that is no longer `awaiting_approval`
+- **THEN** nothing changes, no second hold exists, and the page shows the decision already taken
+
+#### Scenario: Forged token
+- **WHEN** a link with a token the server did not issue is opened
+- **THEN** the page shows the same response as for an expired link and reveals no request

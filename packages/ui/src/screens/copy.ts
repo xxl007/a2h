@@ -1,7 +1,7 @@
 /**
  * All user-facing copy of the web screens, English.
  * Sources: openspec/changes/archive/2026-11-02-m1-hosted-connector/design.md, "Screens" (sign-in, consent,
- * connected apps, signed out) and openspec/changes/m2-approval-page/design.md, "Screens" (approval page).
+ * connected apps, signed out) and openspec/changes/archive/2026-11-07-m2-approval-page/design.md, "Screens" (approval page).
  * Change both together.
  * Placeholders in braces are filled by the helpers below, never by string concatenation in apps.
  */
