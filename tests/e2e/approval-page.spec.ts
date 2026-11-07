@@ -7,7 +7,8 @@
 // page with the requests the MCP server records.
 //
 // Handles: sim-mv-7f3c (paid and free lane), sim-jw-9e48 (poll), never sent;
-// sim-ep-5c07 receives the one Send ("Already decided", gross €10.00).
+// sim-cf-4c5e (slow persona, no quiet hours) receives the one Send ("Already decided", gross €10.00):
+// a persona with quiet hours (sim-ep-5c07) refuses the default expiry at night (verify pr-92).
 // Needs A2H_WEB_URL, A2H_MCP_URL, A2H_TOKEN, A2H_SESSION_STATE(_2); "Signed
 // out" also A2H_TEST_EMAIL and the mail sink. Skipped, with the reason, without them.
 import { expect, test, type Browser, type BrowserContextOptions, type Page } from "@playwright/test";
@@ -182,7 +183,7 @@ test.describe("platform/approval-page from real request_human links", () => {
 
   test.describe("Requirement: Every state of the page is stated", () => {
     test("Scenario: Already decided", async ({ browser }) => {
-      const l = await link(manifest("sim-ep-5c07", "opinion", 1000, "Which of these two covers would make you pick this picture book up first?", { format: "poll", options: [{ id: "fox", label: "The fox in the snow" }, { id: "lighthouse", label: "The lighthouse at night" }] }));
+      const l = await link(manifest("sim-cf-4c5e", "opinion", 1000, "Which of these two covers would make you pick this picture book up first?", { format: "poll", options: [{ id: "fox", label: "The fox in the snow" }, { id: "lighthouse", label: "The lighthouse at night" }] }));
       const page = await as(browser, "a");
       await open(page, l);
       await send(page).click();
