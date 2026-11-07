@@ -1,5 +1,5 @@
 // request_human after m2-approval-page (task 3.1): one test per scenario of
-// openspec/changes/m2-approval-page/specs/protocol/request-approval/spec.md
+// openspec/changes/archive/2026-11-07-m2-approval-page/specs/protocol/request-approval/spec.md
 // and the request_human parts of protocol/request-lifecycle and
 // protocol/schemas, plus the validation scenarios of the m1 spec that still
 // hold (validation runs before anything is recorded). Real tools, the

@@ -1,5 +1,5 @@
 // Contract tests against a live stage for protocol/request-approval and
-// protocol/schemas as modified by openspec/changes/m2-approval-page (the
+// protocol/schemas as modified by openspec/changes/archive/2026-11-07-m2-approval-page (the
 // archived M1 scenarios that still stand: validation before anything else).
 // request_human records a valid manifest as awaiting approval and returns the
 // link; the principal decides on the hosted approval page, driven here with

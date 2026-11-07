@@ -243,7 +243,9 @@ aws sesv2 put-account-details --profile a2h-member --region eu-west-3 \
 aws sesv2 get-account --profile a2h-member --region eu-west-3 --query '{production: ProductionAccessEnabled, review: Details.ReviewDetails}'   # status of the request
 ```
 
-AWS answers within about a day (at most 96 hours). Note the case id from the confirmation email in `openspec/changes/archive/2026-11-02-m1-hosted-connector/tasks.md`, task 1.1.
+AWS answers within about a day (at most 96 hours).
+
+**If AWS denies the request** (the first one was, case 179348616000788, website given as `https://dev.a2h-protocol.org`), `put-account-details` refuses a new request with `ConflictException`: reply on the existing case in Support Center instead (console only; the Support API needs a paid support plan). Answer what the denial asks, and include the use case above with the volume, the opt-in and unsubscribe handling, and the bounce and complaint handling. Note the case id from the confirmation email in `openspec/changes/archive/2026-11-02-m1-hosted-connector/tasks.md`, task 1.1.
 
 ## 10. Downgrade the local IAM user (after §7)
 
