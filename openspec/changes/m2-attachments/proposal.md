@@ -43,6 +43,8 @@ On the change's preview, signed in with your allow-listed address: have an agent
 
 ## Decisions at Gate 1
 
+Gate 1 passed 2026-11-08: the owner accepted every recommendation below ("Go with the recommendations.").
+
 1. **Allowed types.** Recommended: PDF, PNG, JPEG, WebP, plain text, CSV, Markdown. Alternative: also Office documents (docx, xlsx, pptx); they can carry macros and external links and need conversion or a stricter scan, so they would come later.
 2. **Malware scanner.** Recommended: Amazon GuardDuty Malware Protection for S3 on the uploads bucket (managed, EU region, priced per GB scanned; an ADR records it and keeps the check behind a provider-neutral interface). Alternative: ClamAV in the worker container (no per-GB cost, but we maintain signatures and memory sizing).
 3. **Limits.** Recommended: 5 files, 25 MB each (already the protocol's limit), 50 MB per request. Confirm or change.

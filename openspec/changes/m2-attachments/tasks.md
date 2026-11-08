@@ -1,10 +1,10 @@
 # Tasks: m2-attachments
 
-Gate 1 pending. Owners: PD = Protocol dev, WD = Web dev, QA, Design, PM. Every task is test first; each scenario of the four deltas maps to a named test (`tests/README.md`).
+Gate 1 passed 2026-11-08 (all five recommendations). Owners: PD = Protocol dev, WD = Web dev, QA, Design, PM. Every task is test first; each scenario of the four deltas maps to a named test (`tests/README.md`).
 
 ## 1. Decisions and ADR (PM, PD)
 
-- [ ] 1.1 PM: record the Gate 1 answers (types, scanner, limits, participant default, retention) in proposal.md and adjust the deltas if any answer differs from the recommendation
+- [x] 1.1 PM: record the Gate 1 answers (types, scanner, limits, participant default, retention) in proposal.md and adjust the deltas if any answer differs from the recommendation — done 2026-11-08: every recommendation accepted; no delta changes
 - [ ] 1.2 PD: ADR 0005 "Malware scanning of uploads" (GuardDuty Malware Protection for S3 vs ClamAV; cost per GB; the provider-neutral result interface of D3); acceptance: ADR merged with the owner's choice
 
 ## 2. Protocol and data (PD)
