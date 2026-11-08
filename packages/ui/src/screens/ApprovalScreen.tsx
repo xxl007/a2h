@@ -348,7 +348,12 @@ function AwaitingDecision(props: AwaitingDecisionProps) {
             <h2 className={styles.h2} id="request-files">
               {c.attachmentsHeading}
             </h2>
-            {fileRules !== undefined && <p className={styles.muted}>{fileHint(fileRules)}</p>}
+            {fileRules !== undefined && (
+              <p className={styles.muted}>
+                {fileHint(fileRules)}
+                {files.some((x) => x.state === "refused") && ` ${c.files.refusedNotCounted}`}
+              </p>
+            )}
             <FileList
               files={files}
               mode="edit"
@@ -453,6 +458,6 @@ function refusedCopy(refusal: ApprovalRefusal | ApprovalFilesRefusal, files: rea
 function addUnavailable(state: ApprovalState, files: readonly ApprovalFile[], rules?: ApprovalFileRules): string | undefined {
   const c = copy.approval.files;
   if (state === "offline") return c.offline;
-  if (rules !== undefined && files.length >= rules.maxFiles) return fill(c.full, { maxFiles: String(rules.maxFiles) });
+  if (rules !== undefined && files.filter((x) => x.state !== "refused").length >= rules.maxFiles) return fill(c.full, { maxFiles: String(rules.maxFiles) });
   return undefined;
 }

@@ -148,6 +148,7 @@ export const copy = {
     /** m2-attachments design.md, Screens F0–F12. Limits and type lists are filled from the app's constants. */
     files: {
       hint: "Optional. Up to {maxFiles} files, {maxFile} each and {maxTotal} in all: {types}.",
+      refusedNotCounted: "Refused files don't count toward these limits.",
       dropHint: "Drag files here, or",
       dropLabel: "Drop or paste files here",
       dropActive: "Drop to add them",
@@ -191,7 +192,8 @@ export const copy = {
         total: "With this file the request would be over {maxTotal}, the most for all files together.",
         count: "A request can have {maxFiles} files at most. Remove one, then add this file again.",
         malware: "The security check refused this file, so it has been deleted.",
-        not_checked: "The check did not finish in time, so this file can't be sent. Remove it and add it again.",
+        /** ADR 0005: timed out, or the scanner could not open it (password-protected, unreadable). */
+        not_checked: "This file couldn't be checked, so it can't be sent. Password-protected PDFs can't be sent. Remove it, or add a copy without a password.",
         upload_failed: "The upload did not finish. Remove it and add it again.",
       },
       gateUploading: "Files are uploading. Send will be available when every file is ready.",

@@ -138,7 +138,7 @@ interface ApprovalFile {
 - `upload_failed` is what the page shows when the browser's POST to storage fails or is aborted by the network; `not_checked` and `malware` come from the row.
 - The component announces, gates Send and moves focus by itself from the `files` it is given; the web dev only keeps `files` current (upload progress, then the row's state by polling or on focus, D3) and calls the actions. Sizes are bytes; the UI formats them.
 - **Opening a file:** in `onOpenFile`, open the new tab synchronously in the click (`const tab = window.open("about:blank", "_blank")`; a tab opened after an `await` is blocked as a pop-up), then set `tab.opener = null` and `tab.location` to the 5-minute link the server action returns (close the tab if it returns nothing); or route through an `apps/web` handler that checks the principal and redirects to the link. Either way the approval page stays where it is, so edits to the question are never lost. Images open in the tab; PDF, text, CSV and Markdown download (D6).
-- `refusal="files_not_ready"` is the D4 outcome. It is kept out of `ApprovalRefusal` so the app's exhaustive map of refusal wordings (`apps/web/src/approval/view.ts`) keeps compiling; the web dev maps the new code when wiring Send.
+- `refusal="files_not_ready"` is the error code `files_not_ready` of the `invalid` outcome (#104). It is kept out of `ApprovalRefusal` so the app's exhaustive map of refusal wordings (`apps/web/src/approval/view.ts`) keeps compiling; the web dev maps the new code when wiring Send.
 - With JavaScript off, the section renders the list and the control, but adding, removing and opening need script (as "Restore agent draft"); a `<noscript>` is not added because the whole upload path needs script and Don't send still works.
 
 ### F1. No files yet
@@ -183,10 +183,10 @@ One sentence, what happened and what to do; never the name of a detection, a sca
 | `total` | With this file the request would be over 50 MB, the most for all files together. |
 | `count` | A request can have 5 files at most. Remove one, then add this file again. |
 | `malware` | The security check refused this file, so it has been deleted. |
-| `not_checked` | The check did not finish in time, so this file can't be sent. Remove it and add it again. |
+| `not_checked` | This file couldn't be checked, so it can't be sent. Password-protected PDFs can't be sent. Remove it, or add a copy without a password. |
 | `upload_failed` | The upload did not finish. Remove it and add it again. |
 
-A file whose name and content disagree (`report.pdf` holding HTML) is a `type` refusal with the same words: the page does not say what the content was. The refused file's bytes are deleted (spec), but its row stays listed until the principal removes it, so the reason can be read.
+`not_checked` covers both a check that did not finish in 10 minutes and a file the scanner could not open (ADR 0005: `UNSUPPORTED`, `ACCESS_DENIED`, `FAILED`, for example an encrypted or unreadable file); the page does not say which, and names the commonest cause the principal can fix. A file whose name and content disagree (`report.pdf` holding HTML) is a `type` refusal with the same words: the page does not say what the content was. The refused file's bytes are deleted (spec), but its row stays listed until the principal removes it, so the reason can be read.
 
 ### F6–F7. Send unavailable and its reason
 
@@ -200,7 +200,7 @@ Don't send is never blocked by files. When the last file becomes ready (or the l
 
 ### F8. Five files
 
-**Choose files** and the drop zone are unavailable and the line under them reads **5 files is the most a request can have. Remove one to add another.** (linked to the button with `aria-describedby`). Refused rows count, so the line also tells the principal to clear them.
+With five files that are not refused, **Choose files** and the drop zone are unavailable and the line under them reads **5 files is the most a request can have. Remove one to add another.** (linked to the button with `aria-describedby`). Refused files stay listed until removed but count toward neither the 5-file limit nor the 50 MB total (#104), so a refused row never blocks adding; while one is listed, the limits sentence of F1 gains **Refused files don't count toward these limits.** The `count` and `total` reasons are computed the same way.
 
 ### F9–F10. Removing; sending
 
@@ -214,7 +214,9 @@ The A4 notice, `role=alert`, focus on it, ending **Nothing was sent and nothing 
 |---|---|---|
 | `outside_participant_rules` with files | It doesn't fit their rules | The participant's rules don't allow this request as it is: they may not take files, or not this much. Remove the files and try Send again, or choose Don't send and ask your agent to find someone else. |
 | `outside_participant_rules` without files | (A4 wording, unchanged) | |
-| `files_not_ready` (D4, a file changed state between the page and Send) | A file isn't ready yet | Send works once every file shows Ready. Wait for the check to finish, or remove the files that are not ready. |
+| `files_not_ready` (a file changed state between the page and Send) | A file isn't ready yet | Send works once every file shows Ready. Wait for the check to finish, or remove the files that are not ready. |
+
+`files_not_ready` arrives from `decideApproval` as the error code inside the existing `invalid` outcome (#104), like the other refusal codes; the web dev passes it as `refusal="files_not_ready"` with `state="refused"`. The decision bar then shows, as on any page with files not ready, the line above Send (**Files are being checked. Send will be available when every file is ready.**, or the refused-file line) with Send unavailable until it clears; Don't send stays available.
 
 The participant's attachment setting is published (proposal), so naming files as a possible cause discloses nothing an agent cannot read; the wording still says "may", because the refusal does not say which rule failed and the page never states the participant's limit.
 
@@ -273,6 +275,8 @@ A file's content, preview or thumbnail (no server-side rendering of files in thi
 ### Review on Storybook (2026-11-08)
 
 `packages/ui`: 98 tests (40 new in `test/attachments.test.tsx`, written first and seen failing: 35 red before the components existed), typecheck and lint green; `apps/web` typecheck, lint and tests green against the new `@a2h/ui`. Storybook build; Playwright (Chromium 1.64) over 83 stories (every "Components/Files", "Screens/Files …", approval screen and approval component story, so the M2 states are re-checked too) at 320, 390 and 1280 px, light and dark, each by `prefers-color-scheme` and by `data-theme`, reduced motion on: axe-core 4.14 (WCAG 2.0/2.1/2.2 A and AA plus best practice), a 44 px target check and a horizontal-overflow check. Result: 996 runs, no finding. The first run found one axe violation (`label-content-name-mismatch` on **Removing…**, named "Remove {name}"); fixed by naming it "Removing {name}", test first. React Aria's drop button is visually hidden (it takes keyboard focus and paste, never a pointer) and is left out of the target check. Keyboard-only pass on "Screens/Files Interactive" at 320 light and 1280 dark: Tab order as above with a visible 2 px ring at every stop; Enter on **Choose files** opens the picker (multiple); choosing a PDF and a file named `eicar-notes.txt` announces "Uploading when_to_call.pdf. Uploading eicar-notes.txt."; Send is unavailable while they upload; the second is refused by the security check, the region says so with the reason and the line above Send reads "Remove the refused file to send."; Space on its Remove removes it, focus moves to the remaining file's Open, the region says "eicar-notes.txt removed. Every file is ready. Send is available." and Send is available; removing the last file moves focus to **Choose files**; Space on Send lands on "Question sent" with focus on the h1. Not run: a screen reader (the announcements were read from the live region's text, not heard), browsers other than Chromium, a real phone's picker (iOS HEIC to JPEG is from Safari's documented behaviour, not observed), drag and drop with a real pointer, the built page in `apps/web` (group 5; Design reviews it on the preview).
+
+**Update after ADR 0005 and #104 (2026-11-08):** `not_checked` wording covers files the scanner cannot open (password-protected PDFs named); refused files no longer count toward the 5-file and 50 MB limits, and the limits sentence says so while one is listed; `files_not_ready` documented as the code inside `invalid`. 99 tests (2 new or changed, seen failing first); Storybook rebuilt, specs regenerated; axe, target and overflow pass re-run on the 47 file stories at 320, 390 and 1280 px, light and dark, both theme mechanisms: 564 runs, no finding. The keyboard pass above was not repeated (no control or focus behaviour changed).
 
 ### Copy questions for the product owner
 

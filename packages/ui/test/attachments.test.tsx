@@ -223,7 +223,7 @@ describe("refusal reasons: plain, short, never naming a detection", () => {
     total: "With this file the request would be over 50 MB, the most for all files together.",
     count: "A request can have 5 files at most. Remove one, then add this file again.",
     malware: "The security check refused this file, so it has been deleted.",
-    not_checked: "The check did not finish in time, so this file can't be sent. Remove it and add it again.",
+    not_checked: "This file couldn't be checked, so it can't be sent. Password-protected PDFs can't be sent. Remove it, or add a copy without a password.",
     upload_failed: "The upload did not finish. Remove it and add it again.",
   };
   for (const [reason, sentence] of Object.entries(expected)) {
@@ -252,6 +252,17 @@ describe("the upload control's limits and unavailable states", () => {
     const html = render(five);
     expect(text(html)).toContain("5 files is the most a request can have. Remove one to add another.");
     expect(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Choose files/.exec(html)?.[0]).toContain("disabled");
+  });
+  it("refused files stay listed but count toward neither the 5-file limit nor the 50 MB total (#104)", () => {
+    const four = [leafletPdf, chartPng, notesMd, readingsCsv, refusedFiles.type, refusedFiles.malware];
+    const html = render(four);
+    expect(text(html)).not.toContain("is the most a request can have");
+    expect(/<button[^>]*>(?:(?!<\/button>)[\s\S])*Choose files/.exec(html)?.[0]).not.toContain("disabled");
+    expect(text(html)).toContain("Files 4 files,");
+    expect(text(html)).toContain("Refused files don't count toward these limits.");
+    expect(text(render([leafletPdf, chartPng, notesMd, readingsCsv, { ...leafletPdf, id: "x", name: "annex.pdf" }, refusedFiles.count]))).toContain(
+      "5 files is the most a request can have. Remove one to add another.",
+    );
   });
   it("offline: adding needs a connection", () => {
     const html = render([leafletPdf], "offline");
@@ -287,6 +298,9 @@ describe("refusals at Send with files", () => {
     const t = text(render([leafletPdf, readingsCsv], "refused", { refusal: "files_not_ready" }));
     expect(t).toContain(f.notReady.title);
     expect(t).toContain("Nothing was sent and nothing is held.");
+    // #104: arrives as code files_not_ready inside the `invalid` outcome; the line above Send still says why.
+    expect(t).toContain("A file isn't ready yet Send works once every file shows Ready. Wait for the check to finish, or remove the files that are not ready.");
+    expect(t).toContain(f.gateChecking);
   });
 });
 
