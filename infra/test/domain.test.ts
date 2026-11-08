@@ -167,7 +167,7 @@ test("web domain: pr-12.dev.<domain> on pr-12, dev.<domain> on dev", () => {
     const rec = stubSst();
     stubOutputs();
     createWeb(stageInfo(name), {
-      storage: { mode: "link", bucket: { name: "bucket" } as unknown as sst.aws.Bucket },
+      storage: { bucketName: "a2h-dev-uploadsbucket-x7k2" },
       mcpUrl: `https://mcp.dev.${APEX}/${name === "dev" ? "" : `${name}/`}mcp`,
       // Group 5 (Data API, D2): the cluster and the ECS valueFrom of the stage's database secret.
       database: {
@@ -183,6 +183,11 @@ test("web domain: pr-12.dev.<domain> on pr-12, dev.<domain> on dev", () => {
     // The authorization server's issuer is on the same hostname (design D1).
     const env = settle(rec.web?.environment) as Record<string, string>;
     assert.equal(env["AUTH_ISSUER"], `https://${host}/api/auth`);
+    // m2-attachments: no bucket link on any stage; the web role's object grants are its own prefix's (files.ts).
+    assert.equal(rec.web?.link, undefined);
+    const grants = JSON.stringify(settle(rec.web?.permissions));
+    assert.ok(grants.includes(`a2h-dev-uploadsbucket-x7k2/tmp/${name}/files/*`), grants);
+    assert.ok(!grants.includes(`a2h-dev-uploadsbucket-x7k2/tmp/${name}/*"`), grants);
   }
 });
 

@@ -1,8 +1,8 @@
-// Who a stage's containers log in as and what they may touch in storage.
+// Who a stage's containers log in as. Storage grants: files.ts storagePermissions (m2-attachments).
 // Pure: no SST globals, no I/O, unit-tested in infra/test/access.test.ts.
 // Contract: openspec/changes/m0-foundation/tasks.md, contract amendment 1
-// ("Per-PR database login", "Scoped storage on previews").
-import { assertAccountId, REGION, STORAGE_AREAS, type StageInfo } from "./config.ts";
+// ("Per-PR database login").
+import { assertAccountId, REGION, type StageInfo } from "./config.ts";
 
 /** JSON key of the password in both the Aurora master secret and `a2h/pr-<n>/db`. */
 export const DB_PASSWORD_KEY = "password";
@@ -203,46 +203,4 @@ export function previewDbCredentials(
     `Secret ${name} is missing or unreadable. The preview workflow creates it with .github/scripts/pr-schema.sh create before sst deploy.`,
     { cause: lookup.cause },
   );
-}
-
-export interface PermissionStatement {
-  actions: string[];
-  resources: string[];
-}
-
-export type StorageAccess =
-  /** dev and prod: SST `link` to the uploads bucket. */
-  | { mode: "link" }
-  /** pr-<n>: object access under the stage's prefix only, no link. */
-  | {
-      mode: "scoped";
-      permissions: PermissionStatement[];
-      environment: { UPLOADS_BUCKET: string };
-    };
-
-export const PREVIEW_OBJECT_ACTIONS = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"];
-
-const BUCKET_NAME = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
-
-/**
- * Storage grant for a stage. pr-* needs the shared bucket's name (a plain
- * string read from SSM at deploy time) to build the object ARNs.
- */
-export function storageAccess(stage: StageInfo, bucketName?: string): StorageAccess {
-  if (stage.kind !== "pr") return { mode: "link" };
-  if (!bucketName || !BUCKET_NAME.test(bucketName)) {
-    throw new Error(`Stage "${stage.name}" needs a valid uploads bucket name, got "${bucketName}".`);
-  }
-  return {
-    mode: "scoped",
-    permissions: [
-      {
-        actions: [...PREVIEW_OBJECT_ACTIONS],
-        resources: STORAGE_AREAS.map(
-          (area) => `arn:aws:s3:::${bucketName}/${area}/${stage.storagePrefix}*`,
-        ),
-      },
-    ],
-    environment: { UPLOADS_BUCKET: bucketName },
-  };
 }
