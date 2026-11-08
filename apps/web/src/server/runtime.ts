@@ -6,6 +6,7 @@
 import { renderMagicLink, stageLabel } from "@a2h/email";
 import { allowlistLoader } from "../../infra/allowlist";
 import { checkSchema, databaseFromEnv } from "../../infra/db";
+import { fileStoreFromEnv, type FileStore } from "../../infra/files";
 import { createMailer } from "../../infra/mail";
 import type { PrincipalsDb } from "@a2h/db";
 import { Allowlist } from "../auth/allowlist";
@@ -22,6 +23,8 @@ export interface Runtime {
   authOn: (db: PrincipalsDb) => Auth;
   isAllowed: (email: string) => Promise<boolean>;
   logger: Logger;
+  /** Attachments in the uploads bucket (m2-attachments D2, D6). */
+  files: FileStore;
 }
 
 let pending: Promise<Runtime> | undefined;
@@ -53,5 +56,6 @@ async function build(): Promise<Runtime> {
     createAuth({ db: database, config, sendMagicLink, isAllowed, logger });
   const auth = authOn(db);
   await syncPreRegisteredClients(db, auth, config.clients, config.mcpUrl);
-  return { config, db, auth, authOn, isAllowed, logger };
+  const files = fileStoreFromEnv(process.env, config.uploadsBucket);
+  return { config, db, auth, authOn, isAllowed, logger, files };
 }

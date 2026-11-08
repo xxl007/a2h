@@ -27,6 +27,8 @@ describe("webConfigFromEnv", () => {
     expect(c.baseURL).toBe("https://pr-12.dev.a2h-protocol.org");
     expect(c.mcpUrl).toBe("https://mcp.dev.a2h-protocol.org/pr-12/mcp");
     expect(c.mailSinkPrefix).toBe("tmp/pr-12/");
+    // Attachment keys (m2-attachments D2): tmp/<prefix>files/… and uploads/<prefix>files/….
+    expect(c.storagePrefix).toBe("pr-12/");
     expect(c.defaultPolicy).toEqual({
       currency: "EUR",
       monthly_budget_minor: 50000,

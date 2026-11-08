@@ -7,14 +7,14 @@
 // Logs carry the request id, the principal id and a code; never the token,
 // the question or a participant's detail.
 import { decideApproval, eq, requests, type A2hDb } from "@a2h/db";
-import type { ApprovalRefusal } from "@a2h/ui";
+import type { ApprovalFilesRefusal, ApprovalRefusal } from "@a2h/ui";
 import { errorFields, type Logger } from "../log";
 import { decidedAt } from "./page-data";
 import { refusalOf } from "./view";
 
 export type ApprovalActionState =
   | { state: "awaiting" }
-  | { state: "refused"; refusal: ApprovalRefusal; question: string }
+  | { state: "refused"; refusal: ApprovalRefusal | ApprovalFilesRefusal; question: string }
   | { state: "error"; reference: string; question?: string }
   | { state: "sent"; decidedAt: string; question: string }
   | { state: "not-sent" }
@@ -74,6 +74,8 @@ export async function decide(deps: DecideDeps, i: DecideInput): Promise<Approval
       case "invalid": {
         // A refused question is not echoed by the decision; the editor keeps what was posted, as the field held it.
         const question = kept ?? "";
+        // A file changed state between the page and Send (m2-attachments D4, design.md F11).
+        if (outcome.error.code === "files_not_ready") return { state: "refused", refusal: "files_not_ready", question };
         const refusal = refusalOf(outcome.error, question);
         if (refusal === undefined) {
           deps.logger.warn("approval send refused without wording", { ...fields, code: outcome.error.code });
