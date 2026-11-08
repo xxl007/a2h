@@ -82,8 +82,17 @@ async function axe(page: Page, label: string): Promise<void> {
 async function smallTargets(page: Page): Promise<string[]> {
   return page.$$eval("main button, main textarea, header button", (els) =>
     els
-      .map((el) => ({ el, r: el.getBoundingClientRect() }))
-      .filter(({ r }) => r.width > 0 && Math.min(r.width, r.height) < 44)
+      .map((el) => {
+        // Visually hidden (clipped, itself or by an ancestor: React Aria's drop button of the files section,
+        // keyboard and paste only) is no pointer target.
+        let hidden = false;
+        for (let n: Element | null = el; n && !hidden; n = n.parentElement) {
+          const s = getComputedStyle(n);
+          hidden = s.clipPath !== "none" || (s.clip !== "auto" && s.clip !== "");
+        }
+        return { el, r: el.getBoundingClientRect(), hidden };
+      })
+      .filter(({ r, hidden }) => !hidden && r.width > 0 && Math.min(r.width, r.height) < 44)
       .map(({ el, r }) => `${(el.textContent || el.tagName).trim()} ${r.width}x${r.height}`),
   );
 }
@@ -334,14 +343,16 @@ test.describe("Requirement: The page is accessible", () => {
     const order = async () => page.evaluate(() => (document.activeElement?.textContent || document.activeElement?.tagName || "").trim());
     await page.locator("body").focus();
     const stops: string[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 6; i++) {
       await page.keyboard.press("Tab");
       stops.push(await order());
       const outline = await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle);
       expect.soft(outline, stops.at(-1)).not.toBe("none");
     }
-    expect(stops).toEqual(["Sign out", "TEXTAREA", "Send · hold €35.00", "Don't send"].map((s) => (s === "TEXTAREA" ? f.question : s)));
-    // Edited: Restore comes between the field and Send.
+    // m2-attachments design.md "Keyboard order and focus": the files section between the question and Send: React Aria's
+    // drop button (no text of its own: "BUTTON", named "Drop or paste files here" by its zone), then Choose files.
+    expect(stops).toEqual(["Sign out", "TEXTAREA", "BUTTON", "Choose files", "Send · hold €35.00", "Don't send"].map((s) => (s === "TEXTAREA" ? f.question : s)));
+    // Edited: Restore comes between the field and the files section.
     await question(page).focus();
     await page.keyboard.type(" Edited");
     await page.keyboard.press("Tab");
@@ -349,6 +360,9 @@ test.describe("Requirement: The page is accessible", () => {
     await page.keyboard.press("Enter");
     await expect(question(page)).toBeFocused();
     await expect(question(page)).toHaveValue(f.question);
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Choose files" })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(send(page)).toBeFocused();
     await page.keyboard.press("Tab");
