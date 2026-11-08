@@ -184,6 +184,7 @@ export const copy = {
       remove: "Remove",
       removeLabel: "Remove {name}",
       removing: "Removing…",
+      removingLabel: "Removing {name}",
       refusal: {
         type: "This type of file can't be sent. Allowed: {types}.",
         size: "This file is over {maxFile}, the most for one file.",

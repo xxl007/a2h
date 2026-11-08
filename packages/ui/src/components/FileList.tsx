@@ -245,7 +245,7 @@ export function FileList({ files, rules, mode, "aria-labelledby": labelledBy, on
               <button
                 type="button"
                 className={styles.action}
-                aria-label={fill(f.removeLabel, { name: file.name })}
+                aria-label={fill(file.removing ? f.removingLabel : f.removeLabel, { name: file.name })}
                 disabled={isDisabled || file.removing === true}
                 onClick={() => remove(file.id)}
               >

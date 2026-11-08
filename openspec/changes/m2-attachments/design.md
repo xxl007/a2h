@@ -168,7 +168,7 @@ The limits come from `fileRules`, so the sentence follows the protocol's constan
 | Checking | `pending` **Checking** | | Remove |
 | Ready | `success` **Ready** | | **Open**, Remove |
 | Refused | `danger` **Refused** | the reason, `--danger-text`, strong | Remove |
-| Being removed | (as before) | | Remove reads **Removing…**, disabled |
+| Being removed | (as before) | | Remove reads **Removing…**, disabled, named "Removing {name}" (its visible word stays in its name) |
 
 Every row: the name on the first line (wraps anywhere), **PDF · 2.4 MB** beneath it in `--text-muted` (types: PDF, PNG image, JPEG image, WebP image, Text, CSV, Markdown, else **Other type**; sizes in bytes, KB, or MB with one decimal, binary units as the limits are stated). The pill sits to the right from about 300 px of row, under the name below that.
 
@@ -269,6 +269,10 @@ A file's content, preview or thumbnail (no server-side rendering of files in thi
 
 - The prototype's meta line "414 / 2000 · 1 attachment" under the question and the participant card "when_to_call.pdf · 140 words · opens here" are not followed: the files have their own section with states, which a count in the meta line cannot show, and word counts need reading the content, which the page never does. **Followed the spec** ("show each file's name, type, size and state").
 - The M2 slot said each row would show "opens here"; replaced by **Open**, a button, because D6 opens files in a new tab or downloads them, never inside the page.
+
+### Review on Storybook (2026-11-08)
+
+`packages/ui`: 98 tests (40 new in `test/attachments.test.tsx`, written first and seen failing: 35 red before the components existed), typecheck and lint green; `apps/web` typecheck, lint and tests green against the new `@a2h/ui`. Storybook build; Playwright (Chromium 1.64) over 83 stories (every "Components/Files", "Screens/Files …", approval screen and approval component story, so the M2 states are re-checked too) at 320, 390 and 1280 px, light and dark, each by `prefers-color-scheme` and by `data-theme`, reduced motion on: axe-core 4.14 (WCAG 2.0/2.1/2.2 A and AA plus best practice), a 44 px target check and a horizontal-overflow check. Result: 996 runs, no finding. The first run found one axe violation (`label-content-name-mismatch` on **Removing…**, named "Remove {name}"); fixed by naming it "Removing {name}", test first. React Aria's drop button is visually hidden (it takes keyboard focus and paste, never a pointer) and is left out of the target check. Keyboard-only pass on "Screens/Files Interactive" at 320 light and 1280 dark: Tab order as above with a visible 2 px ring at every stop; Enter on **Choose files** opens the picker (multiple); choosing a PDF and a file named `eicar-notes.txt` announces "Uploading when_to_call.pdf. Uploading eicar-notes.txt."; Send is unavailable while they upload; the second is refused by the security check, the region says so with the reason and the line above Send reads "Remove the refused file to send."; Space on its Remove removes it, focus moves to the remaining file's Open, the region says "eicar-notes.txt removed. Every file is ready. Send is available." and Send is available; removing the last file moves focus to **Choose files**; Space on Send lands on "Question sent" with focus on the h1. Not run: a screen reader (the announcements were read from the live region's text, not heard), browsers other than Chromium, a real phone's picker (iOS HEIC to JPEG is from Safari's documented behaviour, not observed), drag and drop with a real pointer, the built page in `apps/web` (group 5; Design reviews it on the preview).
 
 ### Copy questions for the product owner
 

@@ -23,8 +23,8 @@ Gate 1 passed 2026-11-08 (all five recommendations). Owners: PD = Protocol dev, 
 
 ## 4. Design (Design)
 
-- [ ] 4.1 `design.md` Screens: file list and upload control in every state, the decision bar with Send unavailable and its reason, sent page with files, phone at 390 px; copy for each refusal reason; static specs in `screens/`
-- [ ] 4.2 `packages/ui`: components and stories, axe and keyboard pass at 320/390/1280 light and dark
+- [x] 4.1 `design.md` Screens: file list and upload control in every state, the decision bar with Send unavailable and its reason, sent page with files, phone at 390 px; copy for each refusal reason; static specs in `screens/` — done 2026-11-08 (design.md Screens F0–F15, 22 specs)
+- [x] 4.2 `packages/ui`: components and stories, axe and keyboard pass at 320/390/1280 light and dark — done 2026-11-08 (996 runs, no finding; design.md "Review on Storybook")
 
 ## 5. Approval page (WD)
 

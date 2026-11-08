@@ -265,9 +265,9 @@ describe("the upload control's limits and unavailable states", () => {
       expect(buttonTags(html).find((b) => b.includes('aria-label="Remove when_to_call_v3.pdf"'))).toContain("disabled");
     }
   });
-  it("a file being removed says so and cannot be pressed twice", () => {
+  it("a file being removed says so, in its name too (label in name, WCAG 2.5.3), and cannot be pressed twice", () => {
     const html = render([{ ...leafletPdf, removing: true }]);
-    const remove = buttonTags(html).find((b) => b.includes('aria-label="Remove when_to_call_v3.pdf"')) ?? "";
+    const remove = buttonTags(html).find((b) => b.includes('aria-label="Removing when_to_call_v3.pdf"')) ?? "";
     expect(remove).toContain("disabled");
     expect(text(remove)).toContain("Removing…");
   });
