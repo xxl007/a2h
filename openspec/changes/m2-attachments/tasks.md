@@ -5,15 +5,15 @@ Gate 1 passed 2026-11-08 (all five recommendations). Owners: PD = Protocol dev, 
 ## 1. Decisions and ADR (PM, PD)
 
 - [x] 1.1 PM: record the Gate 1 answers (types, scanner, limits, participant default, retention) in proposal.md and adjust the deltas if any answer differs from the recommendation — done 2026-11-08: every recommendation accepted; no delta changes
-- [ ] 1.2 PD: ADR 0005 "Malware scanning of uploads" (GuardDuty Malware Protection for S3 vs ClamAV; cost per GB; the provider-neutral result interface of D3); acceptance: ADR merged with the owner's choice
+- [x] 1.2 PD: ADR 0005 "Malware scanning of uploads" (GuardDuty Malware Protection for S3 vs ClamAV; cost per GB; the provider-neutral result interface of D3); acceptance: ADR merged with the owner's choice — done in #103 (ADR 0005: GuardDuty Malware Protection for S3 on `tmp/` only; per-stage EventBridge rule to SQS; tag read control scoped to tmp/; UNSUPPORTED/ACCESS_DENIED/FAILED, incl. password-protected PDFs, refused as not checked)
 
 ## 2. Protocol and data (PD)
 
-- [ ] 2.1 `packages/protocol`: allowed media types and limits as constants (5 files, 25 MB, 50 MB); `RulesOfEngagementSchema.attachments` with its read default; `check_requests` item `files`; JSON Schema export and snapshots; tests for "Setting present", "Rules without the setting", "Request with files", "Request without files"
-- [ ] 2.2 `validateManifest`: attachment setting at the participant-rules stage; pure tests for "Participant does not accept files", "Files over the participant's total", "Request without files is unaffected"
-- [ ] 2.3 `packages/db`: migration 0012 (`request_files`, rules columns), schema, drift test; queries to insert, list, mark, remove and delete files; Data API stand-in tests for every web-side query (amendment 3)
-- [ ] 2.4 `decideApproval`: files `FOR UPDATE`, `files_not_ready`, `attachments` into the manifest and the row, immutability after Send; tests for "Add and send", "Send waits for checking", "Removing the files makes it sendable", "Sent files are fixed", concurrent remove versus Send
-- [ ] 2.5 Seed: simulated personas covering refuse-files and a 5 MB total; seed test pins them
+- [x] 2.1 `packages/protocol`: allowed media types and limits as constants (5 files, 25 MB, 50 MB); `RulesOfEngagementSchema.attachments` with its read default; `check_requests` item `files`; JSON Schema export and snapshots; tests for "Setting present", "Rules without the setting", "Request with files", "Request without files" — done in #104
+- [x] 2.2 `validateManifest`: attachment setting at the participant-rules stage; pure tests for "Participant does not accept files", "Files over the participant's total", "Request without files is unaffected" — done in #104
+- [x] 2.3 `packages/db`: migration 0012 (`request_files`, rules columns), schema, drift test; queries to insert, list, mark, remove and delete files; Data API stand-in tests for every web-side query (amendment 3) — done in #104 (migration 0012 with an immutability trigger; Data API stand-in tests)
+- [x] 2.4 `decideApproval`: files `FOR UPDATE`, `files_not_ready`, `attachments` into the manifest and the row, immutability after Send; tests for "Add and send", "Send waits for checking", "Removing the files makes it sendable", "Sent files are fixed", concurrent remove versus Send — done in #104 (`files_not_ready` as a ProtocolErrorCode in the `invalid` outcome; remove-vs-Send race 12 rounds, both orders)
+- [x] 2.5 Seed: simulated personas covering refuse-files and a 5 MB total; seed test pins them — done in #104 (sim-th-2a91 refuses files, sim-ol-6a23 accepts up to 5 MB)
 
 ## 3. Infra and worker (PD)
 
