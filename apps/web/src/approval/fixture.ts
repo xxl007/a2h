@@ -55,7 +55,8 @@ export const FIXTURE_QUESTION = "Would a patient newly diagnosed with type 2 dia
 /**
  * The poll goes to the first of these whose rules take it now: three
  * simulated participants accept opinions at €10.00 gross, so the flows'
- * Sends spread over three daily interruption limits (10 each, seed).
+ * Sends spread over three daily interruption limits (1000 each since #91:
+ * packages/db/seed/simulated.ts CI_SAFE_INTERRUPTIONS_PER_DAY).
  */
 const POLL_PARTICIPANTS = ["sim-jw-9e48", "sim-cf-4c5e", "sim-ep-5c07"] as const;
 

@@ -6,12 +6,22 @@
 // itself, so with JavaScript off the textarea and the two buttons post the
 // form and the page comes back in its new state. Nothing here formats data,
 // decides anything or calls a model; nothing is queued while offline.
+//
+// Files (m2-attachments task 5.2, design.md F0–F15): a FilesController
+// (src/approval/files-client.ts) keeps `files` current; it lives above the
+// error boundary, so a failed decision call keeps the files with the edits.
+// The page refreshes the files' states while any is uploading or checking,
+// and on focus; it stops when none is.
 import { Component, useActionState, useEffect, useRef, useState, type ReactNode, type SyntheticEvent } from "react";
-import { ApprovalScreen, copy, type ApprovalRequest, type ApprovalState } from "@a2h/ui";
+import { ApprovalScreen, copy, type ApprovalFile, type ApprovalFileRules, type ApprovalRequest, type ApprovalState } from "@a2h/ui";
 import type { ApprovalActionState } from "../../src/approval/decide";
+import { FilesController, xhrUploader, type FileActions } from "../../src/approval/files-client";
 import type { ApprovalPageModel } from "../../src/approval/page-data";
 
 type Action = (prev: ApprovalActionState, form: FormData) => Promise<ApprovalActionState>;
+
+/** How often the page asks for the files' states while one is uploading or being checked. */
+export const FILES_POLL_MS = 3000;
 
 interface Common {
   email: string;
@@ -24,6 +34,64 @@ export interface ApprovalFormProps extends Common {
   action: Action;
   /** The state to start from (tests; the server passes none). */
   initialState?: ApprovalActionState;
+  /** The server actions for the request's files, bound to its id (app/approve/[id]/actions.ts). */
+  fileActions?: FileActions;
+  /** Allowed types and limits (packages/protocol constants, src/approval/files.ts FILE_RULES). */
+  fileRules?: ApprovalFileRules;
+}
+
+interface FilesHandle {
+  files: readonly ApprovalFile[];
+  controller: FilesController | undefined;
+}
+
+/** The request's files and their controller; polls while `busy`. */
+function useFiles(initial: readonly ApprovalFile[], actions: FileActions | undefined): FilesHandle {
+  const [files, setFiles] = useState(initial);
+  const ref = useRef<FilesController | undefined>(undefined);
+  if (ref.current === undefined && actions !== undefined) {
+    ref.current = new FilesController({
+      actions,
+      upload: xhrUploader(),
+      openTab: () => window.open("about:blank", "_blank"),
+      onChange: setFiles,
+      initial,
+    });
+  }
+  const controller = ref.current;
+  const busy = files.some((f) => f.state === "uploading" || f.state === "checking");
+  useEffect(() => {
+    if (!busy || controller === undefined) return;
+    const timer = window.setInterval(() => void controller.refresh(), FILES_POLL_MS);
+    const now = () => {
+      if (document.visibilityState === "visible") void controller.refresh();
+    };
+    window.addEventListener("focus", now);
+    document.addEventListener("visibilitychange", now);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", now);
+      document.removeEventListener("visibilitychange", now);
+    };
+  }, [busy, controller]);
+  return { files, controller };
+}
+
+/** The ApprovalScreen props of the files section. */
+function fileProps(h: FilesHandle, rules: ApprovalFileRules | undefined) {
+  const c = h.controller;
+  return {
+    files: h.files,
+    ...(rules !== undefined ? { fileRules: rules } : {}),
+    ...(c !== undefined
+      ? {
+          onAddFiles: (list: File[]) => void c.add(list),
+          onRemoveFile: (id: string) => void c.remove(id),
+          // Synchronous up to window.open: the tab is opened inside the click.
+          onOpenFile: (id: string) => void c.open(id),
+        }
+      : {}),
+  };
 }
 
 const c = copy.approval;
@@ -56,16 +124,31 @@ function shell(p: Common) {
 
 export function ApprovalForm(props: ApprovalFormProps) {
   const { model } = props;
-  if (model.kind === "awaiting") return <Deciding {...props} request={model.request} now={model.now} />;
+  if (model.kind === "awaiting") return <Deciding {...props} request={model.request} now={model.now} files={model.files} />;
+  if (model.kind === "already-sent") return <AlreadySent {...props} model={model} />;
   const state: ApprovalState = model.kind;
   return (
     <>
       <title>{documentTitle(state)}</title>
+      <ApprovalScreen state={state} {...shell(props)} {...("request" in model ? { request: model.request, decidedAt: model.decidedAt } : {})} />
+    </>
+  );
+}
+
+/** A8 / F13: the sent request, its files listed in read mode and openable. */
+function AlreadySent(props: ApprovalFormProps & { model: Extract<ApprovalPageModel, { kind: "already-sent" }> }) {
+  const { model } = props;
+  const files = useFiles(model.files, props.fileActions);
+  return (
+    <>
+      <title>{documentTitle("already-sent")}</title>
       <ApprovalScreen
-        state={state}
+        state="already-sent"
         {...shell(props)}
-        {...("request" in model ? { request: model.request, decidedAt: model.decidedAt } : {})}
-        {...(model.kind === "already-sent" ? { question: model.question } : {})}
+        request={model.request}
+        decidedAt={model.decidedAt}
+        question={model.question}
+        {...fileProps(files, props.fileRules)}
       />
     </>
   );
@@ -77,8 +160,9 @@ export function ApprovalForm(props: ApprovalFormProps) {
  * nearest error boundary; the boundary remounts the form in the error state
  * (A5) with the text as it was.
  */
-function Deciding(props: ApprovalFormProps & { request: ApprovalRequest; now: string }) {
+function Deciding(props: ApprovalFormProps & { request: ApprovalRequest; now: string; files: readonly ApprovalFile[] }) {
   const latest = useRef<string | undefined>(undefined);
+  const files = useFiles(props.files, props.fileActions);
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
   const initial: ApprovalActionState = failed
@@ -92,7 +176,7 @@ function Deciding(props: ApprovalFormProps & { request: ApprovalRequest; now: st
         setAttempt((a) => a + 1);
       }}
     >
-      <Decision {...props} initial={initial} latest={latest} />
+      <Decision {...props} initial={initial} latest={latest} filesHandle={files} />
     </Boundary>
   );
 }
@@ -114,9 +198,17 @@ function questionOf(s: ApprovalActionState): string | undefined {
   return "question" in s ? s.question : undefined;
 }
 
-function Decision(props: ApprovalFormProps & { request: ApprovalRequest; now: string; initial: ApprovalActionState; latest: { current: string | undefined } }) {
-  const { request, latest } = props;
+function Decision(
+  props: ApprovalFormProps & { request: ApprovalRequest; now: string; initial: ApprovalActionState; latest: { current: string | undefined }; filesHandle: FilesHandle },
+) {
+  const { request, latest, filesHandle } = props;
   const [state, dispatch, pending] = useActionState(props.action, props.initial);
+
+  // F11b: Send found a file not ready; the page shows the files as they are now.
+  const notReady = state.state === "refused" && state.refusal === "files_not_ready";
+  useEffect(() => {
+    if (notReady) void filesHandle.controller?.refresh();
+  }, [notReady, state, filesHandle.controller]);
   const [question, setQuestion] = useState(() => (state.state === "refused" || state.state === "error" ? questionOf(state) : undefined) ?? latest.current ?? request.agentDraft);
   const [pressed, setPressed] = useState<"send" | "dont_send">("send");
   const [offline, setOffline] = useState(false);
@@ -181,6 +273,7 @@ function Decision(props: ApprovalFormProps & { request: ApprovalRequest; now: st
         {...("decidedAt" in state ? { decidedAt: state.decidedAt } : {})}
         {...(state.state === "refused" ? { refusal: state.refusal } : {})}
         {...(state.state === "error" && state.reference ? { reference: state.reference } : {})}
+        {...fileProps(filesHandle, props.fileRules)}
       />
     </div>
   );
