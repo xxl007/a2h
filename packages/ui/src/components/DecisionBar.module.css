@@ -7,3 +7,5 @@
   .buttons { flex-direction: row; justify-content: flex-start; }
   .buttons > * { width: auto; }
 }
+/* The files' reason Send is unavailable, above the buttons so it is read before them. */
+.reason { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text); font-weight: var(--weight-strong); max-width: var(--measure); }

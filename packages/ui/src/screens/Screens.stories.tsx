@@ -3,7 +3,14 @@ import { useState } from "react";
 import {
   agentDraft,
   approvalRequest,
+  chartPng,
   claudeAi,
+  fileRules,
+  leafletPdf,
+  notesMd,
+  photoUploading,
+  readingsCsv,
+  refusedFiles,
   claudeCode,
   connectedClients,
   longName,
@@ -15,6 +22,8 @@ import {
   storyNowLinkEnding,
   storyTimeZone,
 } from "../fixtures.js";
+import type { ApprovalFile } from "../components/FileList.js";
+import { useSimulatedFiles } from "../storybook/simulateFiles.js";
 import { ApprovalScreen, type ApprovalState } from "./ApprovalScreen.js";
 import { CheckEmailScreen, LinkExpiredScreen } from "./CheckEmailScreen.js";
 import { ConnectedClientsScreen } from "./ConnectedClientsScreen.js";
@@ -169,6 +178,77 @@ export const ApprovalInteractive: Story = {
         onQuestionChange={setQuestion}
         decidedAt={decidedAt}
         action={action}
+      />
+    );
+  },
+};
+
+// 7. Approval page with files, m2-attachments design.md F1–F15
+const withFiles = { ...approve, request: approvalRequest, fileRules };
+const photo = (n: number): ApprovalFile => ({ ...chartPng, id: `c${n}`, name: `photo-${n}.jpg`, mediaType: "image/jpeg" });
+export const FilesEmpty: Story = { render: () => <ApprovalScreen {...withFiles} files={[]} /> };
+export const FilesUploading: Story = { render: () => <ApprovalScreen {...withFiles} files={[{ ...leafletPdf, state: "uploading", progress: 0.42 }]} /> };
+export const FilesChecking: Story = { render: () => <ApprovalScreen {...withFiles} files={[{ ...leafletPdf, state: "checking" }]} /> };
+export const FilesReady: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf]} /> };
+export const FilesRefusedType: Story = { render: () => <ApprovalScreen {...withFiles} files={[refusedFiles.type]} /> };
+export const FilesRefusedSize: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, refusedFiles.size]} /> };
+export const FilesRefusedTotal: Story = {
+  render: () => (
+    <ApprovalScreen
+      {...withFiles}
+      files={[
+        { ...leafletPdf, id: "t1", name: "annex-a-full.pdf", sizeBytes: 24 * 1024 * 1024 },
+        { ...leafletPdf, id: "t2", name: "annex-c-full.pdf", sizeBytes: 22 * 1024 * 1024 },
+        refusedFiles.total,
+      ]}
+    />
+  ),
+};
+export const FilesRefusedCount: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, chartPng, notesMd, photo(4), photo(5), refusedFiles.count]} /> };
+export const FilesRefusedSecurityCheck: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, refusedFiles.malware]} /> };
+export const FilesRefusedNotChecked: Story = { render: () => <ApprovalScreen {...withFiles} files={[refusedFiles.not_checked]} /> };
+export const FilesRefusedUploadFailed: Story = { render: () => <ApprovalScreen {...withFiles} files={[refusedFiles.upload_failed]} /> };
+export const FilesMixed: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, chartPng, readingsCsv, photoUploading]} /> };
+export const FilesRefusedListed: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, refusedFiles.type, chartPng]} /> };
+export const FilesFull: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, chartPng, notesMd, photo(4), photo(5)]} /> };
+export const FilesRemoving: Story = { render: () => <ApprovalScreen {...withFiles} files={[{ ...leafletPdf, removing: true }, chartPng]} /> };
+export const FilesSending: Story = { render: () => <ApprovalScreen {...withFiles} state="sending" files={[leafletPdf, chartPng]} /> };
+export const FilesRefusedRules: Story = {
+  render: () => <ApprovalScreen {...withFiles} state="refused" refusal="outside_participant_rules" files={[leafletPdf, chartPng]} />,
+};
+export const FilesNotReadyAtSend: Story = { render: () => <ApprovalScreen {...withFiles} state="refused" refusal="files_not_ready" files={[leafletPdf, readingsCsv]} /> };
+export const FilesOffline: Story = { render: () => <ApprovalScreen {...withFiles} state="offline" files={[leafletPdf, refusedFiles.upload_failed]} /> };
+export const FilesSent: Story = { render: () => <ApprovalScreen {...withFiles} state="sent" decidedAt={decidedAt} files={[leafletPdf, chartPng]} /> };
+export const FilesAlreadySent: Story = { render: () => <ApprovalScreen {...withFiles} state="already-sent" decidedAt={decidedAt} files={[leafletPdf, chartPng]} /> };
+export const FilesNotSent: Story = { render: () => <ApprovalScreen {...withFiles} state="not-sent" files={[leafletPdf, chartPng]} /> };
+/** Phone, 390 px: a photo chosen from the library, uploading (the system picker itself is not drawn). */
+export const FilesPhonePhoto: Story = {
+  globals: { viewport: { value: "phone" } },
+  render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, photoUploading]} />,
+};
+/** Interactive: choose, drop or paste files (a name containing "eicar" is refused by the security check, a ZIP by type), remove, Send. */
+export const FilesInteractive: Story = {
+  render: function Interactive() {
+    const [state, setState] = useState<ApprovalState>("awaiting");
+    const [question, setQuestion] = useState(agentDraft);
+    const sim = useSimulatedFiles(fileRules, []);
+    const action = (form: FormData) => {
+      const decision = form.get("decision");
+      setState(decision === "send" ? "sending" : "not-sending");
+      setTimeout(() => setState(decision === "send" ? "sent" : "not-sent"), 900);
+    };
+    return (
+      <ApprovalScreen
+        {...withFiles}
+        state={state}
+        question={question}
+        onQuestionChange={setQuestion}
+        decidedAt={decidedAt}
+        action={action}
+        files={sim.files}
+        onAddFiles={sim.onAddFiles}
+        onRemoveFile={sim.onRemoveFile}
+        onOpenFile={() => undefined}
       />
     );
   },
