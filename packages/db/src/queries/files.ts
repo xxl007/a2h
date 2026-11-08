@@ -19,7 +19,7 @@ import {
   FileIdSchema,
   type FileState,
 } from "@a2h/protocol";
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lte } from "drizzle-orm";
 import { requestFiles, requests } from "../schema.ts";
 import type { A2hDb } from "./mcp.ts";
 
@@ -311,6 +311,92 @@ export async function deleteUnsentRequestFiles(db: A2hDb, requestId: string, now
       .returning({ object_key: requestFiles.object_key });
     return gone.map((g) => g.object_key);
   });
+}
+
+// ---- what the worker reads (D3, D5; m2-attachments task 3.2) -----------------
+
+/** A file as the worker's jobs see it: never its name. */
+export interface WorkerFileView {
+  id: string;
+  request_id: string;
+  declared_type: AttachmentMediaType;
+  media_type: AttachmentMediaType | null;
+  size_bytes: number;
+  state: FileState;
+  removed: boolean;
+  request_status: string;
+}
+
+/** One file by id for the worker (no name), with its request's status; null if unknown. */
+export async function fileForWorker(db: A2hDb, fileId: string): Promise<WorkerFileView | null> {
+  const [r] = await db
+    .select({
+      id: requestFiles.id,
+      request_id: requestFiles.request_id,
+      declared_type: requestFiles.declared_type,
+      media_type: requestFiles.media_type,
+      size_bytes: requestFiles.size_bytes,
+      state: requestFiles.state,
+      deleted_at: requestFiles.deleted_at,
+      request_status: requests.status,
+    })
+    .from(requestFiles)
+    .innerJoin(requests, eq(requests.id, requestFiles.request_id))
+    .where(eq(requestFiles.id, fileId));
+  if (!r) return null;
+  return {
+    id: r.id,
+    request_id: r.request_id,
+    declared_type: r.declared_type as AttachmentMediaType,
+    media_type: r.media_type as AttachmentMediaType | null,
+    size_bytes: r.size_bytes,
+    state: r.state as FileState,
+    removed: r.deleted_at !== null,
+    request_status: r.request_status,
+  };
+}
+
+/**
+ * Live files still `uploading` or `checking` that were recorded at or before
+ * `createdBefore`, on requests still awaiting approval: the ones the
+ * 10-minute limit refuses as not checked (D3). Oldest first.
+ */
+export async function staleFiles(db: A2hDb, createdBefore: Date, limit: number): Promise<{ id: string; request_id: string }[]> {
+  return db
+    .select({ id: requestFiles.id, request_id: requestFiles.request_id })
+    .from(requestFiles)
+    .innerJoin(requests, eq(requests.id, requestFiles.request_id))
+    .where(
+      and(
+        isNull(requestFiles.deleted_at),
+        inArray(requestFiles.state, ["uploading", "checking"]),
+        lte(requestFiles.created_at, createdBefore),
+        eq(requests.status, "awaiting_approval"),
+      ),
+    )
+    .orderBy(asc(requestFiles.created_at))
+    .limit(limit);
+}
+
+/** Requests that were not sent and still have live files (D5): the `files-delete` job's work. */
+export async function unsentRequestsWithFiles(db: A2hDb, limit: number): Promise<string[]> {
+  const found = await db
+    .selectDistinct({ request_id: requestFiles.request_id })
+    .from(requestFiles)
+    .innerJoin(requests, eq(requests.id, requestFiles.request_id))
+    .where(and(isNull(requestFiles.deleted_at), eq(requests.status, "not_sent")))
+    .limit(limit);
+  return found.map((r) => r.request_id);
+}
+
+/** The live files of a request that was not sent (ids only); [] for a request in any other status. */
+export async function unsentRequestFiles(db: A2hDb, requestId: string): Promise<string[]> {
+  const found = await db
+    .select({ id: requestFiles.id })
+    .from(requestFiles)
+    .innerJoin(requests, eq(requests.id, requestFiles.request_id))
+    .where(and(eq(requestFiles.request_id, requestId), isNull(requestFiles.deleted_at), eq(requests.status, "not_sent")));
+  return found.map((r) => r.id);
 }
 
 // ---- Send (D4) ---------------------------------------------------------------

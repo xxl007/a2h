@@ -11,7 +11,7 @@
 // It logs nothing and never puts a value it read into an error message.
 import { readFileSync } from "node:fs";
 import { OpaqueIdSchema, PUBLIC_KEY_PATTERN } from "@a2h/protocol";
-import type { SigningKeyMaterial, WorkerConfig } from "../src/config.ts";
+import type { FilesConfig, SigningKeyMaterial, WorkerConfig } from "../src/config.ts";
 import type { DbConfig } from "../src/db-config.ts";
 
 type Env = Record<string, string | undefined>;
@@ -107,6 +107,24 @@ function signingFromEnv(env: Env): SigningKeyMaterial {
   return { key_id, private_key_pkcs8, public_key };
 }
 
+const BUCKET_NAME = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+const QUEUE_URL = /^https:\/\/sqs\.[a-z0-9-]+\.amazonaws\.com\/\d{12}\/[A-Za-z0-9_-]{1,80}$/;
+
+/**
+ * The file intake (m2-attachments task 3.2): UPLOADS_BUCKET, the stage's
+ * STORAGE_PREFIX (always `<STAGE>/`, so a preview can never read another
+ * stage's keys) and FILE_EVENTS_QUEUE_URL (the stage's queue, infra/storage.ts).
+ */
+function filesFromEnv(env: Env, stage: string): FilesConfig {
+  const bucket = required(env, "UPLOADS_BUCKET");
+  if (!BUCKET_NAME.test(bucket)) throw invalid("UPLOADS_BUCKET", "a bucket name");
+  const storagePrefix = required(env, "STORAGE_PREFIX");
+  if (storagePrefix !== `${stage}/`) throw invalid("STORAGE_PREFIX", "the stage's own prefix (<STAGE>/)");
+  const queueUrl = required(env, "FILE_EVENTS_QUEUE_URL");
+  if (!QUEUE_URL.test(queueUrl)) throw invalid("FILE_EVENTS_QUEUE_URL", "an SQS queue URL");
+  return { bucket, storagePrefix, queueUrl };
+}
+
 export function workerConfigFromEnv(env: Env = process.env): WorkerConfig {
   const stale = Object.keys(env).find((k) => k.startsWith("PRINCIPAL_"));
   if (stale) {
@@ -125,5 +143,6 @@ export function workerConfigFromEnv(env: Env = process.env): WorkerConfig {
     feeRate: rate(env, "FEE_RATE", { allowOne: false }),
     clearingShare: rate(env, "CLEARING_SHARE", { allowOne: true }),
     signing: signingFromEnv(env),
+    files: filesFromEnv(env, stage),
   };
 }
