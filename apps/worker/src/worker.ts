@@ -213,7 +213,9 @@ export async function startWorker({ config, log, files, dispatchIntervalMs = 5_0
     },
     stop: async () => {
       if (timer) clearInterval(timer);
-      await files?.events.stop();
+      // An SQS long poll can take 20 s: stop taking events without waiting for it (an
+      // unhandled message stays on the queue), so the 20 s pg-boss drain fits ECS's 30 s.
+      if (files) await Promise.race([files.events.stop(), new Promise((r) => setTimeout(r, 2_000).unref())]);
       await inFlight;
       await boss.stop({ graceful: true, timeout: 20_000 });
       await pool.end();
