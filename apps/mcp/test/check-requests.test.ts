@@ -132,6 +132,44 @@ describe("check_requests", { skip: skipWithoutDocker() }, () => {
     assert.ok(!JSON.stringify(result).includes("Margaret") && !JSON.stringify(result).includes("Vale"), "no name before acceptance");
   });
 
+  // m2-attachments (spec platform/attachments "Files never leave through logs,
+  // emails or agents"; protocol/schemas "Requests report their files without
+  // content"). The files are written as the page and the worker write them.
+  test("Scenario: Agent checks a request with files: two files, application/pdf and image/png, sizes in bytes, no file name", async () => {
+    const out = await ask();
+    const files = [
+      ["fAAAAAAAAAAAAAAAAAAAAAA", "Notice patient confidentiel.pdf", "application/pdf", 2 * 1024 * 1024],
+      ["fAQEBAQEBAQEBAQEBAQEBAQ", "Schema insuline.png", "image/png", 300 * 1024],
+    ] as const;
+    for (const [id, name, type, size] of files) {
+      await sqlIn(
+        db,
+        `INSERT INTO request_files (id, request_id, principal_id, name, declared_type, media_type, size_bytes, state, object_key, ready_at)
+         VALUES ($1, $2, $3, $4, $5, $5, $6, 'ready', $7, now())`,
+        [id, out.request_id, TEST_PRINCIPAL.principal_id, name, type, size, `uploads/test/files/${out.request_id}/${id}`],
+      );
+    }
+    assert.equal((await approveOnPage(db, out.approval_url)).kind, "sent");
+    const { result, requests } = await check({ request_id: out.request_id });
+    assert.deepEqual(requests[0]!.files, [
+      { media_type: "application/pdf", size_bytes: 2097152 },
+      { media_type: "image/png", size_bytes: 307200 },
+    ]);
+    assert.ok(texts(result).some((t) => t.includes("Files: 2 attached by the principal (application/pdf, image/png)")), texts(result).join("\n"));
+    const all = JSON.stringify(result);
+    for (const [id, name] of files) {
+      assert.ok(!all.includes(name), "no file name in the result");
+      assert.ok(!all.includes(id), "no file reference in the result");
+    }
+    assert.ok(!all.includes("uploads/"), "no object key in the result");
+  });
+
+  test("Scenario: Request without files: the summary carries zero files", async () => {
+    const id = await send();
+    const { requests } = await check({ request_id: id });
+    assert.deepEqual(requests[0]!.files, []);
+  });
+
   test("Scenario: After acceptance: the display label and whether the participant is identity-verified", async () => {
     const id = await send();
     await transition(id, "sent", "accepted", "participant", "2026-10-27T09:05:00Z");
