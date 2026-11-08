@@ -3,6 +3,7 @@
 // The JSON Schema export of these is what apps/mcp registers.
 import * as z from "zod";
 import { AnswerEnvelopeSchema } from "./answer.ts";
+import { ATTACHMENTS_MAX, FileSummarySchema } from "./attachments.ts";
 import { ProfileSchema } from "./profile.ts";
 import {
   CurrencySchema,
@@ -160,6 +161,8 @@ export const CheckedRequestSchema = z
     approval_expires_at: DatetimeSchema.optional(),
     /** When not sent: why. */
     reason: NotSentReasonSchema.optional(),
+    /** The request's files, in the order attached: type and size only, never a name, a link or content (m2-attachments D8). */
+    files: z.array(FileSummarySchema).max(ATTACHMENTS_MAX),
   })
   .superRefine((r, ctx) => {
     const unsent = r.status === "awaiting_approval" || r.status === "not_sent";

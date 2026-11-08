@@ -8,6 +8,7 @@
 import {
   approvalTokenHash,
   ApprovalTokenSchema,
+  filesNotReadyError,
   type Manifest,
   type NotSentReason,
   type Principal,
@@ -29,6 +30,7 @@ import {
   recordBlockedManifest,
   RequestIdTaken,
 } from "./mcp.ts";
+import { attachmentsForSend } from "./files.ts";
 import { principalWithPolicy } from "./principals.ts";
 
 const DAY_MS = 86_400_000;
@@ -84,6 +86,7 @@ export const NO_RULES: RulesOfEngagement = {
   quiet_hours: null,
   max_interruptions_per_day: 0,
   latency_promise_seconds: 0,
+  attachments: { accepted: false, max_total_bytes: 0 },
 };
 
 /** The participant's rules as published now; without any, NO_RULES. */
@@ -98,6 +101,7 @@ export async function currentRules(db: A2hDb, participantId: string): Promise<Ru
     quiet_hours: r.quiet_start && r.quiet_end && r.quiet_time_zone ? { start: r.quiet_start, end: r.quiet_end, time_zone: r.quiet_time_zone } : null,
     max_interruptions_per_day: r.max_interruptions_per_day,
     latency_promise_seconds: r.latency_promise_seconds,
+    attachments: { accepted: r.attachments_accepted, max_total_bytes: r.attachments_max_total_bytes },
   } as RulesOfEngagement;
 }
 
@@ -256,10 +260,11 @@ async function lock(tx: A2hDb, requestId: string): Promise<RequestRow | undefine
 /**
  * Send or Don't send, in one transaction (D4): lock the request; check the
  * token's hash, the principal, the status and the link's expiry; for Send,
- * load the participant's current rules, the principal's policy and today's
+ * lock the request's files and refuse with `files_not_ready` unless every one
+ * is ready (m2-attachments D4), then load the participant's current rules, the principal's policy and today's
  * counts and run `validateManifest` on the manifest with the approved
- * question; on success store the question and the new delivery time and
- * move to `sent` with its event, otherwise change nothing (a rules-stage
+ * question and the files as `attachments`; on success store the question,
+ * the attachments and the new delivery time and move to `sent` with its event, otherwise change nothing (a rules-stage
  * refusal is counted for the participant). Don't send moves to `not_sent`
  * (`declined`) without validation. A late decision on an expired link moves
  * the request to `not_sent` (`expired`), so a stale link never sends.
@@ -286,6 +291,10 @@ export async function decideApproval(db: A2hDb, d: ApprovalDecision): Promise<Ap
       return { kind: "not_sent", reason: "declined" };
     }
 
+    // The files, locked with the request (m2-attachments D4): Send waits until every one is ready.
+    const files = await attachmentsForSend(tx, row.id);
+    if (!files.ready) return { kind: "invalid", error: filesNotReadyError() };
+
     // Settled under the lock, after the token and principal checks: the draft is read for nobody else.
     const question = approvedQuestion(d.decision.question, row.agent_draft ?? row.question);
     const owner = await principalWithPolicy(tx, row.principal_id);
@@ -297,13 +306,16 @@ export async function decideApproval(db: A2hDb, d: ApprovalDecision): Promise<Ap
     const [who] = await tx.select({ handle: participants.handle }).from(participants).where(eq(participants.id, row.participant_id));
     const participant = { participant_id: row.participant_id, handle: who!.handle, rules: await currentRules(tx, row.participant_id) };
     const facts = await approvalFacts(tx, { principal: owner.principal, currency: policy.currency, participant, now: d.now, approval: "recorded" });
-    const manifest = { ...manifestOfRequest(row, participant.handle), question };
+    // The manifest as it will be delivered: the approved question and exactly the files listed now.
+    const manifest: Manifest = { ...manifestOfRequest(row, participant.handle), question };
+    if (files.attachments.length > 0) manifest.attachments = files.attachments;
+    else delete manifest.attachments;
     const v = validateManifest(manifest, facts, policy);
     if (!v.ok) {
       if (v.blocked) await recordBlockedManifest(tx, { ...v.blocked, request_id: row.id });
       return { kind: "invalid", error: v.error };
     }
-    await moveTo(tx, row, "principal", "approve", d.now, { question, deliver_at: new Date(v.deliver_at) });
+    await moveTo(tx, row, "principal", "approve", d.now, { question, deliver_at: new Date(v.deliver_at), attachments: manifest.attachments ?? null });
     return { kind: "sent", question, deliver_at: v.deliver_at, eta: v.eta, deferred: v.deferred, held_minor: row.bid_minor, currency: row.currency };
   });
 }

@@ -18,7 +18,8 @@
         "invalid_transition",
         "conflict",
         "answer_unverified",
-        "unauthorized"
+        "unauthorized",
+        "files_not_ready"
       ]
     },
     "stage": {

@@ -23,6 +23,12 @@ export const PROTOCOL_ERROR_CODES = [
    * tool needs one). Sign in again; nothing was done.
    */
   "unauthorized",
+  /**
+   * Send on the approval page while a file is still uploading or being
+   * checked, or a refused file is still listed (m2-attachments D4). Nothing
+   * changed; retry once every file is ready or removed.
+   */
+  "files_not_ready",
 ] as const;
 export const ProtocolErrorCodeSchema = z.enum(PROTOCOL_ERROR_CODES);
 export type ProtocolErrorCode = z.infer<typeof ProtocolErrorCodeSchema>;
@@ -62,6 +68,8 @@ export const PARTICIPANT_BLOCK_CODES = [
   "quiet_hours",
   "interruption_budget",
   "latency_mismatch",
+  "attachments_not_accepted",
+  "attachments_over_total",
 ] as const;
 export const ParticipantBlockCodeSchema = z.enum(PARTICIPANT_BLOCK_CODES);
 export type ParticipantBlockCode = z.infer<typeof ParticipantBlockCodeSchema>;

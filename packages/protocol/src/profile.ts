@@ -1,6 +1,7 @@
 // Participant-side published shapes: profile (what discovery shows) and rules
 // of engagement (what validation enforces). PRD §6.3, §7.2, §7.3.
 import * as z from "zod";
+import { AttachmentSettingSchema, DEFAULT_ATTACHMENT_SETTING } from "./attachments.ts";
 import {
   CurrencySchema,
   FreeLaneKindSchema,
@@ -87,5 +88,13 @@ export const RulesOfEngagementSchema = z.strictObject({
   quiet_hours: QuietHoursSchema.nullable(),
   max_interruptions_per_day: z.int().min(0),
   latency_promise_seconds: SecondsSchema,
+  /**
+   * Whether files are accepted and up to what total (m2-attachments D7).
+   * Optional on read: rules recorded before the setting existed read as the
+   * default (files accepted up to 50 MB).
+   */
+  attachments: AttachmentSettingSchema.default(DEFAULT_ATTACHMENT_SETTING),
 });
 export type RulesOfEngagement = z.infer<typeof RulesOfEngagementSchema>;
+/** Rules as a caller may write them: the attachment setting may be left out. */
+export type RulesOfEngagementInput = z.input<typeof RulesOfEngagementSchema>;

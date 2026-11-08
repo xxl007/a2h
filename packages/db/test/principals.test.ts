@@ -11,7 +11,7 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { RATE_LIMIT_WINDOWS, rateLimitWindowStart, validateManifest, type Manifest, type ValidationFacts } from "@a2h/protocol";
+import { RATE_LIMIT_WINDOWS, rateLimitWindowStart, validateManifest, type Manifest, type ValidationFactsInput } from "@a2h/protocol";
 import {
   bumpRateLimit,
   ensurePrincipal,
@@ -102,7 +102,7 @@ describe("principal queries (Postgres 17)", { skip }, () => {
         data_terms: { storage: "principal_workspace", attribution: "not_attributed", training: "off" },
         principal_id: principal.principal_id,
       };
-      const facts: ValidationFacts = {
+      const facts: ValidationFactsInput = {
         now: "2026-10-21T08:42:00+02:00",
         principal,
         participant: {
