@@ -1,6 +1,7 @@
 import type { ConnectedClient } from "./components/ClientRow.js";
 import type { ApprovalRequest } from "./screens/ApprovalScreen.js";
 import type { ClientSummary } from "./components/types.js";
+import type { ApprovalFile, ApprovalFileRefusal, ApprovalFileRules } from "./components/FileList.js";
 
 /** Story fixtures. Addresses use the reserved example.com domain. */
 export const principalEmail = "galem@example.com";
@@ -86,4 +87,32 @@ export const pollStressRequest: ApprovalRequest = {
     { id: "c", label: "封面 C：黄昏的安静街道" },
     { id: "d", label: "Supercalifragilisticexpialidocious-cover-D-with-a-very-long-unbroken-label" },
   ],
+};
+
+// ---- m2-attachments ------------------------------------------------------------------------
+
+/** The limits and types packages/protocol fixes (proposal decisions 1 and 3); the app passes its constants. */
+export const fileRules: ApprovalFileRules = {
+  accept: ["application/pdf", "image/png", "image/jpeg", "image/webp", "text/plain", "text/csv", "text/markdown"],
+  maxFiles: 5,
+  maxFileBytes: 25 * 1024 * 1024,
+  maxTotalBytes: 50 * 1024 * 1024,
+};
+
+const MB = 1024 * 1024;
+export const leafletPdf: ApprovalFile = { id: "f-pdf", name: "when_to_call_v3.pdf", mediaType: "application/pdf", sizeBytes: Math.round(2.4 * MB), state: "ready" };
+export const chartPng: ApprovalFile = { id: "f-png", name: "glucose-thresholds-chart.png", mediaType: "image/png", sizeBytes: 418 * 1024, state: "ready" };
+export const readingsCsv: ApprovalFile = { id: "f-csv", name: "readings_week_42.csv", mediaType: "text/csv", sizeBytes: 36 * 1024, state: "checking" };
+export const photoUploading: ApprovalFile = { id: "f-jpg", name: "IMG_2041.jpg", mediaType: "image/jpeg", sizeBytes: Math.round(3.1 * MB), state: "uploading", progress: 0.42 };
+export const notesMd: ApprovalFile = { id: "f-md", name: "reviewer-notes.md", mediaType: "text/markdown", sizeBytes: 3 * 1024, state: "ready" };
+
+/** One refused file per reason (design.md, Screens F5). */
+export const refusedFiles: Record<ApprovalFileRefusal, ApprovalFile> = {
+  type: { id: "r-type", name: "leaflet-source.zip", mediaType: "application/zip", sizeBytes: Math.round(1.2 * MB), state: "refused", refusal: "type" },
+  size: { id: "r-size", name: "clinic-walkthrough-scan.pdf", mediaType: "application/pdf", sizeBytes: Math.round(31.5 * MB), state: "refused", refusal: "size" },
+  total: { id: "r-total", name: "annex-b-full.pdf", mediaType: "application/pdf", sizeBytes: Math.round(19 * MB), state: "refused", refusal: "total" },
+  count: { id: "r-count", name: "photo-6.jpg", mediaType: "image/jpeg", sizeBytes: Math.round(1.8 * MB), state: "refused", refusal: "count" },
+  malware: { id: "r-malware", name: "notes.txt", mediaType: "text/plain", sizeBytes: 68, state: "refused", refusal: "malware" },
+  not_checked: { id: "r-unchecked", name: "patient-diary-template.pdf", mediaType: "application/pdf", sizeBytes: Math.round(4.2 * MB), state: "refused", refusal: "not_checked" },
+  upload_failed: { id: "r-failed", name: "IMG_2042.jpg", mediaType: "image/jpeg", sizeBytes: Math.round(2.9 * MB), state: "refused", refusal: "upload_failed" },
 };

@@ -1,8 +1,19 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { AuthShell, formActionProps, type AuthShellProps } from "../components/AuthShell.js";
 import { DecisionBar } from "../components/DecisionBar.js";
 import { Fact, FactList, FactNote, Mono, OptionList } from "../components/FactList.js";
 import { fillNodes } from "../components/fillNodes.js";
+import {
+  FileAnnouncer,
+  fileHint,
+  FileList,
+  filesFact,
+  filesGate,
+  gateText,
+  type ApprovalFile,
+  type ApprovalFileRules,
+} from "../components/FileList.js";
+import { FileUpload } from "../components/FileUpload.js";
 import { LinkValidity } from "../components/LinkValidity.js";
 import { LocalTime } from "../components/LocalTime.js";
 import { Notice } from "../components/Notice.js";
@@ -54,6 +65,11 @@ export interface ApprovalRequest {
 
 /** ProtocolError code (and content class where known) of a refused Send. */
 export type ApprovalRefusal = keyof typeof copy.approval.refused;
+/**
+ * Send refused because a file was not ready when it was recorded (m2-attachments D4). Kept apart
+ * from ApprovalRefusal, whose list the app maps one to one; the page accepts either.
+ */
+export type ApprovalFilesRefusal = "files_not_ready";
 
 export type ApprovalState =
   | "awaiting"
@@ -78,7 +94,7 @@ export interface ApprovalScreenProps {
   onQuestionChange?: (value: string) => void;
   /** ISO: when the request was sent or refused ("sent", "already-sent", "already-not-sent"). */
   decidedAt?: string;
-  refusal?: ApprovalRefusal;
+  refusal?: ApprovalRefusal | ApprovalFilesRefusal;
   /** Request id of the failed HTTP call, for the error notice. */
   reference?: string;
   /** Posts `question` and `decision` ("send" | "dont_send"). */
@@ -94,6 +110,21 @@ export interface ApprovalScreenProps {
   now?: string;
   /** Fixed zone for stories and tests; pages leave it out and get the viewer's zone and clock. */
   timeZone?: string;
+
+  // ---- Files (m2-attachments design.md, Screens F0–F12) ----
+  /**
+   * The request's files in the order the principal added them, with their states. Leave it out
+   * only on a page that has no files feature; pass [] for a request without files.
+   */
+  files?: readonly ApprovalFile[];
+  /** Allowed types and limits, from packages/protocol's constants. Required with `files`. */
+  fileRules?: ApprovalFileRules;
+  /** Files chosen, dropped or pasted. The app checks limits, adds rows and uploads. */
+  onAddFiles?: (files: File[]) => void;
+  /** Remove a file (any state; for an upload in progress, also abort it). */
+  onRemoveFile?: (id: string) => void;
+  /** Open a ready file: the app fetches a short-lived link and opens it in a new tab. */
+  onOpenFile?: (id: string) => void;
 }
 
 /** /approve/[id] (m2-approval-page design.md, Screens A1–A12). */
@@ -169,6 +200,19 @@ export function ApprovalScreen(props: ApprovalScreenProps) {
           </h2>
           <p className={approval.questionAsSent}>{question}</p>
         </section>
+        {props.files !== undefined && props.files.length > 0 && (
+          <section className={styles.section} aria-labelledby="sent-files">
+            <h2 className={styles.h2} id="sent-files">
+              {c.files.sentHeading}
+            </h2>
+            <FileList
+              files={props.files}
+              mode="read"
+              aria-labelledby="sent-files"
+              {...(props.onOpenFile !== undefined ? { onOpen: props.onOpenFile } : {})}
+            />
+          </section>
+        )}
       </AuthShell>
     );
   }
@@ -190,6 +234,7 @@ export function ApprovalScreen(props: ApprovalScreenProps) {
         ) : (
           <>
             <p className={styles.lead}>{fill(c.notSentBody, { participant: request.participant.label })}</p>
+            {props.files !== undefined && props.files.length > 0 && <p className={styles.body}>{c.files.notSent}</p>}
             <p className={styles.body}>{c.notSentAgent}</p>
           </>
         )}
@@ -210,6 +255,11 @@ export function ApprovalScreen(props: ApprovalScreenProps) {
       {...(props.refusal !== undefined ? { refusal: props.refusal } : {})}
       {...(props.reference !== undefined ? { errorReference: props.reference } : {})}
       {...(props.action !== undefined ? { action: props.action } : {})}
+      {...(props.files !== undefined ? { files: props.files } : {})}
+      {...(props.fileRules !== undefined ? { fileRules: props.fileRules } : {})}
+      {...(props.onAddFiles !== undefined ? { onAddFiles: props.onAddFiles } : {})}
+      {...(props.onRemoveFile !== undefined ? { onRemoveFile: props.onRemoveFile } : {})}
+      {...(props.onOpenFile !== undefined ? { onOpenFile: props.onOpenFile } : {})}
     />
   );
 }
@@ -219,22 +269,35 @@ interface AwaitingDecisionProps {
   request: ApprovalRequest;
   question: string;
   onQuestionChange?: (value: string) => void;
-  refusal?: ApprovalRefusal;
+  refusal?: ApprovalRefusal | ApprovalFilesRefusal;
   errorReference?: string;
   action?: FormAction;
   time: (iso: string) => ReactNode;
   shell: Omit<AuthShellProps, "children">;
   now?: string;
   timeZone?: string;
+  files?: readonly ApprovalFile[];
+  fileRules?: ApprovalFileRules;
+  onAddFiles?: (files: File[]) => void;
+  onRemoveFile?: (id: string) => void;
+  onOpenFile?: (id: string) => void;
 }
 
-function AwaitingDecision({ state, request, question: initial, onQuestionChange, refusal, errorReference, action, time, shell, now, timeZone }: AwaitingDecisionProps) {
+function AwaitingDecision(props: AwaitingDecisionProps) {
+  const { state, request, question: initial, onQuestionChange, refusal, errorReference, action, time, shell, now, timeZone, files, fileRules } = props;
   const c = copy.approval;
   const [own, setOwn] = useState(initial);
   const question = onQuestionChange ? initial : own;
   const setQuestion = (v: string) => (onQuestionChange ? onQuestionChange(v) : setOwn(v));
   const s = questionStatus(question, request.agentDraft, request.questionMaxLength);
   const errorId = useId();
+  const gateId = useId();
+  const gate = filesGate(files ?? []);
+  const gateReason = gateText(gate);
+  const sendBlockedBy = [!s.canSend ? errorId : null, gateReason !== undefined ? gateId : null].filter((x): x is string => x !== null).join(" ");
+  const chooseRef = useRef<HTMLButtonElement>(null);
+  const focusChoose = useCallback(() => chooseRef.current?.focus(), []);
+  const unavailable = files !== undefined ? addUnavailable(state, files, fileRules) : undefined;
   const busy = state === "sending" || state === "not-sending";
   const notice = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -253,8 +316,8 @@ function AwaitingDecision({ state, request, question: initial, onQuestionChange,
 
       <div ref={notice} className={approval.notices}>
         {state === "refused" && refusal !== undefined && (
-          <Notice tone="danger" title={c.refused[refusal].title} live="alert" focusable>
-            <p>{c.refused[refusal].body}</p>
+          <Notice tone="danger" title={refusedCopy(refusal, files).title} live="alert" focusable>
+            <p>{refusedCopy(refusal, files).body}</p>
             <p>{c.refusedFooter}</p>
           </Notice>
         )}
@@ -280,11 +343,32 @@ function AwaitingDecision({ state, request, question: initial, onQuestionChange,
           errorId={errorId}
         />
 
-        {/*
-          Attachments slot (next change, proposal decision 1): the list of files the participant
-          will consult goes here, between the question and the request details, under the
-          heading copy.approval.attachmentsHeading. Not rendered in this change.
-        */}
+        {files !== undefined && (
+          <section className={styles.section} aria-labelledby="request-files">
+            <h2 className={styles.h2} id="request-files">
+              {c.attachmentsHeading}
+            </h2>
+            {fileRules !== undefined && <p className={styles.muted}>{fileHint(fileRules)}</p>}
+            <FileList
+              files={files}
+              mode="edit"
+              aria-labelledby="request-files"
+              isDisabled={busy}
+              onEmptied={focusChoose}
+              {...(fileRules !== undefined ? { rules: fileRules } : {})}
+              {...(props.onOpenFile !== undefined ? { onOpen: props.onOpenFile } : {})}
+              {...(props.onRemoveFile !== undefined ? { onRemove: props.onRemoveFile } : {})}
+            />
+            <FileUpload
+              accept={fileRules?.accept ?? []}
+              buttonRef={chooseRef}
+              isDisabled={busy || unavailable !== undefined}
+              {...(unavailable !== undefined ? { disabledReason: unavailable } : {})}
+              {...(props.onAddFiles !== undefined ? { onAddFiles: props.onAddFiles } : {})}
+            />
+            <FileAnnouncer files={files} {...(fileRules !== undefined ? { rules: fileRules } : {})} />
+          </section>
+        )}
 
         <section className={styles.section} aria-labelledby="request-details">
           <h2 className={styles.h2} id="request-details">
@@ -307,6 +391,12 @@ function AwaitingDecision({ state, request, question: initial, onQuestionChange,
               )}
               {request.scale !== undefined && <span>{fill(c.scale, { min: String(request.scale.min), max: String(request.scale.max) })}</span>}
             </Fact>
+            {files !== undefined && (
+              <Fact term={c.files.fact}>
+                <span>{filesFact(files)}</span>
+                {files.some((x) => x.state !== "refused") && <FactNote>{c.files.factNote}</FactNote>}
+              </Fact>
+            )}
             <Fact term={c.hold}>
               {m.lane === "paid" ? (
                 <>
@@ -337,8 +427,9 @@ function AwaitingDecision({ state, request, question: initial, onQuestionChange,
           dontSendLabel={c.dontSend}
           dontSendPendingLabel={c.dontSendPending}
           {...(state === "sending" ? { pending: "send" as const } : state === "not-sending" ? { pending: "dont-send" as const } : {})}
-          sendDisabled={!s.canSend}
-          {...(!s.canSend ? { sendDescribedBy: errorId } : {})}
+          sendDisabled={!s.canSend || !gate.canSend}
+          {...(sendBlockedBy !== "" ? { sendDescribedBy: sendBlockedBy } : {})}
+          {...(gateReason !== undefined ? { reason: gateReason, reasonId: gateId } : {})}
           note={
             <>
               {c.decisionNote}
@@ -349,4 +440,19 @@ function AwaitingDecision({ state, request, question: initial, onQuestionChange,
       </form>
     </AuthShell>
   );
+}
+
+/** The refusal notice's words; "outside the participant's rules" says files may be the cause when there are any. */
+function refusedCopy(refusal: ApprovalRefusal | ApprovalFilesRefusal, files: readonly ApprovalFile[] | undefined): { title: string; body: string } {
+  if (refusal === "files_not_ready") return copy.approval.files.notReady;
+  if (refusal === "outside_participant_rules" && files !== undefined && files.length > 0) return copy.approval.files.rulesWithFiles;
+  return copy.approval.refused[refusal];
+}
+
+/** Why the upload control is unavailable, when the principal can do something about it. */
+function addUnavailable(state: ApprovalState, files: readonly ApprovalFile[], rules?: ApprovalFileRules): string | undefined {
+  const c = copy.approval.files;
+  if (state === "offline") return c.offline;
+  if (rules !== undefined && files.length >= rules.maxFiles) return fill(c.full, { maxFiles: String(rules.maxFiles) });
+  return undefined;
 }

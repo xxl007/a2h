@@ -1,0 +1,21 @@
+/* m2-attachments design.md F0. Phone first: one full-width "Choose files" button, no drag hint. */
+.upload { display: flex; flex-direction: column; gap: var(--space-2); max-width: var(--measure); }
+.zone { display: flex; flex-direction: column; align-items: stretch; gap: var(--space-2); border-radius: var(--radius-lg); }
+.zone[data-focus-visible] { outline: 2px solid var(--focus); outline-offset: 2px; }
+.hint { display: none; font-size: var(--text-md); line-height: var(--leading-md); color: var(--text-muted); }
+.choose { width: 100%; }
+.choose[data-focus-visible] { outline: 2px solid var(--focus); outline-offset: 2px; }
+.reason { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); }
+@media (min-width: 600px) {
+  .zone {
+    flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-4);
+    border: 1px dashed var(--border-strong);
+  }
+  .hint { display: inline; }
+  .choose { width: auto; }
+  /* A file is being dragged over the zone: the accent marks the platform's target (skill §3.1). */
+  .zone[data-drop-target] { border: 2px solid var(--accent); padding: calc(var(--space-5) - 1px) calc(var(--space-4) - 1px); }
+  .zone[data-disabled] { border-style: solid; border-color: var(--border); }
+}
