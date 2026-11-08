@@ -48,6 +48,8 @@ const calls: Record<string, () => unknown> = {
   fileSummaryOf: () => protocol.fileSummaryOf([{ media_type: "application/pdf", size_bytes: 10 }]),
   filesNotReadyError: () => protocol.filesNotReadyError(),
   formatFileId: () => protocol.formatFileId(new Uint8Array(16).fill(7)),
+  fileObjectKey: () => protocol.fileObjectKey("tmp", "pr-12/", "A2H-7f3c", "fAQEBAQEBAQEBAQEBAQEBAQ"),
+  parseFileObjectKey: () => protocol.parseFileObjectKey("tmp/pr-12/files/A2H-7f3c/fAQEBAQEBAQEBAQEBAQEBAQ", "pr-12/"),
   totalBytes: () => protocol.totalBytes([{ size_bytes: 10 }, { size_bytes: 5 }]),
   formatHandle: () => protocol.formatHandle("mv", new Uint8Array([0x7f, 0x3c])),
   formatRequestId: () => protocol.formatRequestId(new Uint8Array([0x7f, 0x3c])),
