@@ -121,6 +121,8 @@ async function toChecked(r: RequestRecord, deps: ToolDeps): Promise<CheckedReque
     ...(url ? { approval_url: url } : {}),
     ...(r.status === "awaiting_approval" && r.approval_expires_at ? { approval_expires_at: r.approval_expires_at.toISOString() } : {}),
     ...(r.status === "not_sent" && r.not_sent_reason ? { reason: r.not_sent_reason } : {}),
+    // Type and size only, in the order attached (m2-attachments D8): never a name, a ref or a key.
+    files: r.files,
   };
   if (r.status !== "answered") return checked;
 
@@ -174,6 +176,7 @@ function render(r: CheckedRequest): string {
       ? "free lane, nothing held"
       : `${money(r.held_minor, r.currency)} ${r.hold_status === "held" ? "held" : r.hold_status === "released" ? "held, now released (nothing charged)" : "held"}`;
   lines.push(`  Money: ${hold}${r.cleared_minor !== undefined ? `; cleared ${money(r.cleared_minor, r.currency)}, the rest released` : ""}`);
+  if (r.files.length > 0) lines.push(`  Files: ${r.files.length} attached by the principal (${r.files.map((f) => f.media_type).join(", ")}); their content is not available to agents.`);
   if (r.answer && r.answer_display) {
     lines.push(`  Human answer from ${r.handle}${r.simulated ? " (simulated participant)" : ""}, answered personally: ${r.answer.answered_personally ? "yes" : "no"}`);
     lines.push(...bodyLines(r.answer.body, "    "));

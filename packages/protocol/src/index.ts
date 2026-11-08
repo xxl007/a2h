@@ -2,6 +2,7 @@
 // helpers. No I/O, no clock, no randomness: ids, times and keys are arguments.
 export * from "./primitives.ts";
 export * from "./profile.ts";
+export * from "./attachments.ts";
 export * from "./manifest.ts";
 export * from "./answer.ts";
 export * from "./errors.ts";

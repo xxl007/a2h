@@ -4,9 +4,12 @@
 // (apps/mcp) owns validation, display and logging.
 import {
   type BlockedManifest,
+  type FileSummary,
+  fileSummaryOf,
   type FreeLaneKind,
   type NotSentReason,
   type RatingSummary,
+  RequestAttachmentSchema,
   type RequestStatus,
   type RulesOfEngagement,
   type SigningKeyStatus,
@@ -15,10 +18,10 @@ import {
   type TypeRule,
   type WhoMayAsk,
 } from "@a2h/protocol";
-import { and, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, notInArray, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type { PrincipalsDb } from "./principals.ts";
-import { answers, blockedManifests, participants, profiles, requestEvents, requests, rules, ruleTypes, signingKeys } from "../schema.ts";
+import { answers, blockedManifests, participants, profiles, requestEvents, requestFiles, requests, rules, ruleTypes, signingKeys } from "../schema.ts";
 
 /** The database handle the mcp service uses (Drizzle over node-postgres). */
 export type McpDb = NodePgDatabase<Record<string, unknown>>;
@@ -69,6 +72,8 @@ async function loadPublished(db: A2hDb, where?: ReturnType<typeof eq>): Promise<
       quiet_time_zone: rules.quiet_time_zone,
       max_interruptions_per_day: rules.max_interruptions_per_day,
       latency_promise_seconds: rules.latency_promise_seconds,
+      attachments_accepted: rules.attachments_accepted,
+      attachments_max_total_bytes: rules.attachments_max_total_bytes,
     })
     .from(participants)
     .innerJoin(profiles, eq(profiles.participant_id, participants.id))
@@ -106,6 +111,7 @@ async function loadPublished(db: A2hDb, where?: ReturnType<typeof eq>): Promise<
           : null,
       max_interruptions_per_day: r.max_interruptions_per_day,
       latency_promise_seconds: r.latency_promise_seconds,
+      attachments: { accepted: r.attachments_accepted, max_total_bytes: r.attachments_max_total_bytes },
     },
   }));
 }
@@ -222,6 +228,12 @@ export interface RequestRecord {
   participant: { participant_id: string; handle: string; display_label: string; simulated: boolean; identity_verified: boolean };
   /** Gross reserve basis: the participant's current net reserve for the intent, if any. */
   reserve_net_minor: number | null;
+  /**
+   * The request's files, type and size only (m2-attachments D8): once sent,
+   * the manifest's attachments; while awaiting approval, the files ready so
+   * far; none when not sent.
+   */
+  files: FileSummary[];
   events: Array<{ to_status: RequestStatus; at: Date }>;
   answer: {
     participant_id: string;
@@ -264,6 +276,7 @@ export async function findRequests(db: McpDb, principalId: string, q: RequestQue
       approval_token_hash: requests.approval_token_hash,
       approval_expires_at: requests.approval_expires_at,
       not_sent_reason: requests.not_sent_reason,
+      attachments: requests.attachments,
       participant_id: participants.id,
       handle: participants.handle,
       display_label: participants.display_label,
@@ -300,6 +313,20 @@ export async function findRequests(db: McpDb, principalId: string, q: RequestQue
     .from(answers)
     .leftJoin(signingKeys, eq(signingKeys.key_id, answers.key_id))
     .where(inArray(answers.request_id, ids));
+  const awaitingIds = rows.filter((r) => r.status === "awaiting_approval").map((r) => r.id);
+  const readyFiles =
+    awaitingIds.length === 0
+      ? []
+      : await db
+          .select({ request_id: requestFiles.request_id, media_type: requestFiles.media_type, size_bytes: requestFiles.size_bytes })
+          .from(requestFiles)
+          .where(and(inArray(requestFiles.request_id, awaitingIds), eq(requestFiles.state, "ready"), isNull(requestFiles.deleted_at)))
+          .orderBy(asc(requestFiles.seq));
+  const filesOf = (r: (typeof rows)[number]): FileSummary[] => {
+    if (r.status === "awaiting_approval") return fileSummaryOf(readyFiles.filter((f) => f.request_id === r.id && f.media_type !== null) as { media_type: string; size_bytes: number }[]);
+    if (r.status === "not_sent") return [];
+    return fileSummaryOf(RequestAttachmentSchema.array().nullable().parse(r.attachments));
+  };
   return rows.map((r) => {
     const a = answerRows.find((x) => x.request_id === r.id);
     return {
@@ -322,6 +349,7 @@ export async function findRequests(db: McpDb, principalId: string, q: RequestQue
         identity_verified: r.identity_verified,
       },
       reserve_net_minor: r.reserve_net_minor,
+      files: filesOf(r),
       events: events.filter((e) => e.request_id === r.id).map((e) => ({ to_status: e.to_status as RequestStatus, at: e.at })),
       answer: a
         ? {

@@ -5,6 +5,7 @@
 // throttle; the first failure is returned.
 import * as z from "zod";
 import { approvalLinkExpiry } from "./approval.ts";
+import { totalBytes } from "./attachments.ts";
 import { classifyForbiddenContent, type ForbiddenContentClass } from "./content-rules.ts";
 import type { BlockedManifest, ParticipantBlockCode, ProtocolError, ProtocolErrorCode, ProtocolStage } from "./errors.ts";
 import { type Manifest, ManifestSchema, PrincipalSchema } from "./manifest.ts";
@@ -43,6 +44,8 @@ export const ValidationFactsSchema = z.strictObject({
   approval: z.enum(["none", "pending", "recorded"]),
 });
 export type ValidationFacts = z.infer<typeof ValidationFactsSchema>;
+/** Facts as a caller may pass them: rules may leave the attachment setting out (read as the default). */
+export type ValidationFactsInput = z.input<typeof ValidationFactsSchema>;
 
 export interface ValidationOptions {
   /** `approval` (default) runs every stage; `delivery` re-checks at fan-out and skips budget and throttle, already counted. */
@@ -53,7 +56,7 @@ export type ValidationResult =
   | { ok: true; deferred: boolean; deliver_at: string; eta: string }
   | { ok: false; error: ProtocolError; blocked?: BlockedManifest };
 
-const DETAIL: Record<Exclude<ProtocolErrorCode, "not_found" | "invalid_transition" | "schema_invalid" | "forbidden_content" | "answer_unverified" | "unauthorized">, string> = {
+const DETAIL: Record<Exclude<ProtocolErrorCode, "not_found" | "invalid_transition" | "schema_invalid" | "forbidden_content" | "answer_unverified" | "unauthorized" | "files_not_ready">, string> = {
   conflict: "The approval does not match these arguments.",
   principal_not_accountable: "The principal is not verified and accountable for this request.",
   principal_not_verified_for_lane: "This request type needs a real-name verified principal.",
@@ -145,7 +148,7 @@ function deliveryInstant(ms: number, qh: QuietHours): number {
  * the question). Throws a TypeError if `facts` or `policy` are malformed:
  * those are the caller's errors, not the principal's.
  */
-export function validateManifest(manifest: unknown, factsIn: ValidationFacts, policyIn: ValidationPolicy, options: ValidationOptions = {}): ValidationResult {
+export function validateManifest(manifest: unknown, factsIn: ValidationFactsInput, policyIn: ValidationPolicy, options: ValidationOptions = {}): ValidationResult {
   const facts = parseCaller(ValidationFactsSchema, factsIn, "facts");
   const policy = parseCaller(ValidationPolicySchema, policyIn, "policy");
   const phase = options.phase ?? "approval";
@@ -188,6 +191,12 @@ export function validateManifest(manifest: unknown, factsIn: ValidationFacts, po
   }
   if (rules.who_may_ask === "organisations_only" && facts.principal.identity_mode !== "verified_organisation") {
     return block(facts, "asker_not_allowed");
+  }
+  // Files (m2-attachments D7): only a request with files meets the setting.
+  const files = m.attachments ?? [];
+  if (files.length > 0) {
+    if (!rules.attachments.accepted) return block(facts, "attachments_not_accepted");
+    if (totalBytes(files) > rules.attachments.max_total_bytes) return block(facts, "attachments_over_total");
   }
   let deliverAt = now;
   if (rules.quiet_hours) {

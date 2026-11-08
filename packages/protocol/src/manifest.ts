@@ -1,8 +1,8 @@
 // The manifest: the request as the principal approves it and as it will be
 // delivered (protocol skill §2, §4, §5).
 import * as z from "zod";
+import { ATTACHMENTS_MAX, ATTACHMENTS_MAX_TOTAL_BYTES, RequestAttachmentSchema, totalBytes } from "./attachments.ts";
 import {
-  AttachmentSchema,
   AudienceSchema,
   CurrencySchema,
   DatetimeSchema,
@@ -17,7 +17,6 @@ import {
 } from "./primitives.ts";
 
 export const QUESTION_MAX_LENGTH = 2000;
-export const ATTACHMENTS_MAX = 5;
 
 /** Data terms (PRD §11): storage scope, attribution, training (default off, opt-in per request by the participant). */
 export const DataTermsSchema = z.strictObject({
@@ -70,7 +69,12 @@ const requestFields = {
   currency: CurrencySchema.describe("ISO 4217 code of bid_minor, e.g. EUR."),
   expires_at: DatetimeSchema.describe("ISO 8601 date-time with offset after which the request expires and the hold is released."),
   data_terms: DataTermsSchema.describe("Storage, attribution and training terms shown to the participant before acceptance."),
-  attachments: z.array(AttachmentSchema).max(ATTACHMENTS_MAX).optional(),
+  /** Files the principal attached on the approval page (m2-attachments D4); never from the agent. */
+  attachments: z
+    .array(RequestAttachmentSchema)
+    .max(ATTACHMENTS_MAX)
+    .refine((a) => totalBytes(a) <= ATTACHMENTS_MAX_TOTAL_BYTES, "attachments together at most 50 MB")
+    .optional(),
 };
 
 type LaneFields = { lane: "paid" | "free" | "bounty"; free_lane?: unknown; bid_minor: number };
