@@ -3,7 +3,7 @@
 // Every name is fictional; every handle starts with `sim-`; every label ends
 // with "(simulated)". Topics are the defaults proposed for Gate 1 decision 3
 // and can change here without a spec change.
-import type { RatingSummary, RulesOfEngagement, SimulatedPersona, Topic, TypeRule } from "@a2h/protocol";
+import { DEFAULT_ATTACHMENT_SETTING, type RatingSummary, type RulesOfEngagement, type SimulatedPersona, type Topic, type TypeRule } from "@a2h/protocol";
 
 export interface SeedPersona {
   persona: SimulatedPersona;
@@ -60,6 +60,7 @@ function rules(types: TypeRule[], extra: Partial<RulesOfEngagement> = {}): Rules
     quiet_hours: null,
     max_interruptions_per_day: CI_SAFE_INTERRUPTIONS_PER_DAY,
     latency_promise_seconds: 6 * HOUR,
+    attachments: { ...DEFAULT_ATTACHMENT_SETTING },
     ...extra,
   };
 }
@@ -96,7 +97,8 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     "sim-th-2a91", "Thomas Hartley", "prompt",
     [{ topic: "residential conveyancing in England", evidence: "licence" }],
     [4.6, 31, 8 * HOUR],
-    rules([eur("knowledge", 4500), eur("verification", 3500)], { latency_promise_seconds: 12 * HOUR }),
+    // m2-attachments task 2.5: the persona whose rules refuse files ("Participant does not accept files").
+    rules([eur("knowledge", 4500), eur("verification", 3500)], { latency_promise_seconds: 12 * HOUR, attachments: { accepted: false, max_total_bytes: 0 } }),
   ),
   participant(
     "sim-ep-5c07", "Eleanor Pryce", "slow",
@@ -143,7 +145,8 @@ export const SEED_PARTICIPANTS: readonly SeedParticipant[] = [
     "sim-ol-6a23", "Oliver Lang", "prompt",
     [{ topic: "web accessibility audits (WCAG)", evidence: "job_title" }],
     [4.8, 63, 4 * HOUR],
-    rules([eur("judgment", 3000), eur("verification", 2500), eur("action", 6000)]),
+    // m2-attachments task 2.5: the persona that accepts files up to 5 MB in all ("Files over the participant's total").
+    rules([eur("judgment", 3000), eur("verification", 2500), eur("action", 6000)], { attachments: { accepted: true, max_total_bytes: 5 * 1024 * 1024 } }),
   ),
   participant(
     "sim-cf-4c5e", "Clara Finch", "slow",

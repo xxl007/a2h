@@ -2,6 +2,7 @@
 // platform/attachments, protocol/schemas; design D1, D7, D8). Pure: the
 // randomness of a file id is an argument.
 import * as z from "zod";
+import type { ProtocolError } from "./errors.ts";
 import { AttachmentSchema, OpaqueIdSchema } from "./primitives.ts";
 
 /** At most this many files per request (proposal decision 3). */
@@ -98,4 +99,13 @@ export function formatFileId(randomness: Uint8Array): string {
   }
   if (bits > 0) out += B64URL[(value << (6 - bits)) & 63];
   return out;
+}
+
+/**
+ * The refusal of Send while a file is uploading or being checked, or a
+ * refused file is still listed (design D4). Category text only: no file
+ * name, no detection.
+ */
+export function filesNotReadyError(): ProtocolError {
+  return { code: "files_not_ready", stage: "lifecycle", retryable: true, detail: "Files are still being checked, or a refused file is still attached." };
 }

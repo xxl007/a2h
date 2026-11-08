@@ -16,6 +16,8 @@ import {
   FILE_STATES,
   FileIdSchema,
   fileSummaryOf,
+  filesNotReadyError,
+  ProtocolErrorSchema,
   formatFileId,
   ManifestSchema,
   ProfileSchema,
@@ -141,4 +143,10 @@ describe("the manifest's attachments (design D4)", () => {
     assert.equal(ok([att("text/html", 10)]), false, "type not allowed");
     assert.equal(ok(Array.from({ length: 6 }, (_, i) => att("text/csv", 10, i))), false, "six files");
   });
+});
+
+test("files_not_ready: the refusal of Send while files are checked (design D4), a ProtocolError at the lifecycle stage, retryable, naming no file", () => {
+  const e = filesNotReadyError();
+  assert.ok(ProtocolErrorSchema.safeParse(e).success);
+  assert.deepEqual([e.code, e.stage, e.retryable], ["files_not_ready", "lifecycle", true]);
 });

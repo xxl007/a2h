@@ -46,6 +46,7 @@ const calls: Record<string, () => unknown> = {
   clear: () => protocol.clear(2500, 3000, 0.5),
   fee: () => protocol.fee(3125, 0.2),
   fileSummaryOf: () => protocol.fileSummaryOf([{ media_type: "application/pdf", size_bytes: 10 }]),
+  filesNotReadyError: () => protocol.filesNotReadyError(),
   formatFileId: () => protocol.formatFileId(new Uint8Array(16).fill(7)),
   totalBytes: () => protocol.totalBytes([{ size_bytes: 10 }, { size_bytes: 5 }]),
   formatHandle: () => protocol.formatHandle("mv", new Uint8Array([0x7f, 0x3c])),
