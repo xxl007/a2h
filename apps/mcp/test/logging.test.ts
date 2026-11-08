@@ -148,4 +148,42 @@ describe("structured logging (D9)", { skip: skipWithoutDocker() }, () => {
       await client.close();
     }
   });
+
+  // m2-attachments task 3.3; spec platform/attachments "Logs of an upload"
+  // (the mcp part: the agent's refused attachments, and check_requests on a
+  // request whose files were uploaded, checked and attached on the page). The
+  // worker's part is apps/worker/test/files.test.ts, the page's is task 5.3.
+  test("files: no log line carries a file name, a file reference or an object key, whether the agent sends attachments or checks a request with files", async () => {
+    const NAMES = ["Compte-rendu Mme Durand.pdf", "radio-thorax-durand.png"];
+    const IDS = ["fLOGAAAAAAAAAAAAAAAAAAA", "fLOGBBBBBBBBBBBBBBBBBBB"];
+    const client = await modernClient(server.url);
+    try {
+      server.logs.length = 0;
+      // The agent tries to attach files itself, with name-like references.
+      await callRaw(client, "request_human", { ...BASE, attachments: [{ ref: NAMES[0], media_type: "application/pdf", size_bytes: 1000 }] });
+      // The principal attaches two files on the page, they are checked, and the request is sent.
+      const asked = await client.callTool({ name: "request_human", arguments: BASE });
+      const out = RequestHumanOutputSchema.parse(asked.structuredContent);
+      for (const [i, type] of (["application/pdf", "image/png"] as const).entries()) {
+        await sqlIn(
+          db,
+          `INSERT INTO request_files (id, request_id, principal_id, name, declared_type, media_type, size_bytes, state, object_key, ready_at)
+           VALUES ($1, $2, $3, $4, $5, $5, 2048, 'ready', $6, now())`,
+          [IDS[i], out.request_id, TEST_PRINCIPAL.principal_id, NAMES[i], type, `uploads/test/files/${out.request_id}/${IDS[i]}`],
+        );
+      }
+      assert.equal((await approveOnPage(db, out.approval_url!)).kind, "sent");
+      const checked = await client.callTool({ name: "check_requests", arguments: { request_id: out.request_id } });
+      assert.ok(texts(checked).join("\n").includes("Files: 2"), "the agent is told files exist");
+      await client.callTool({ name: "check_requests", arguments: { status: "sent" } });
+      assert.ok(server.logs.length >= 4);
+      assertClean(server.logs);
+      const raw = JSON.stringify(server.logs);
+      for (const text of [...NAMES, "Durand", ...IDS, "uploads/", "files/"]) assert.ok(!raw.includes(text), `a log line carries "${text}"`);
+      const refused = toolLines()[0]!;
+      assert.deepEqual([refused.tool, refused.outcome, refused.code], ["request_human", "error", "schema_invalid"]);
+    } finally {
+      await client.close();
+    }
+  });
 });
