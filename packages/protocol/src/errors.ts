@@ -62,6 +62,8 @@ export const PARTICIPANT_BLOCK_CODES = [
   "quiet_hours",
   "interruption_budget",
   "latency_mismatch",
+  "attachments_not_accepted",
+  "attachments_over_total",
 ] as const;
 export const ParticipantBlockCodeSchema = z.enum(PARTICIPANT_BLOCK_CODES);
 export type ParticipantBlockCode = z.infer<typeof ParticipantBlockCodeSchema>;
