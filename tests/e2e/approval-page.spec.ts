@@ -214,18 +214,33 @@ test.describe("platform/approval-page from real request_human links", () => {
       await open(page, await paid());
       await page.locator("body").focus();
       const stops: string[] = [];
-      for (let i = 0; i < 4; i++) {
+      for (let i = 0; i < 6; i++) {
         await page.keyboard.press("Tab");
-        stops.push(await page.evaluate(() => (document.activeElement?.tagName === "TEXTAREA" ? "TEXTAREA" : (document.activeElement?.textContent ?? "").trim())));
-        expect.soft(await page.evaluate(() => getComputedStyle(document.activeElement!).outlineStyle), stops.at(-1)).not.toBe("none");
+        // By accessible name (m2-attachments: the files section's drop button has no text, only a name).
+        stops.push(
+          (await page.evaluate(() => document.activeElement?.tagName === "TEXTAREA"))
+            ? "TEXTAREA"
+            : (/^- \w+ "(.*)"/.exec(await page.locator(":focus").ariaSnapshot())?.[1] ?? "(no accessible name)"),
+        );
+        // A visually hidden control's ring is drawn on its zone (React Aria's drop button).
+        const ring = await page.evaluate(() => {
+          const el = document.activeElement!;
+          const zone = el.closest("[data-focus-visible]");
+          return getComputedStyle(zone && zone !== el ? zone : el).outlineStyle;
+        });
+        expect.soft(ring, stops.at(-1)).not.toBe("none");
       }
-      expect(stops).toEqual(["Sign out", "TEXTAREA", "Send · hold €35.00", "Don't send"]);
+      // m2-attachments design.md "Keyboard order and focus": the files section (drop button, Choose files) sits between the question and Send.
+      expect(stops).toEqual(["Sign out", "TEXTAREA", "Drop or paste files here", "Choose files", "Send · hold €35.00", "Don't send"]);
       await question(page).focus();
       await page.keyboard.type(" Edited");
       await page.keyboard.press("Tab");
       await expect(restore(page)).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(question(page)).toHaveValue(MV_QUESTION);
+      await page.keyboard.press("Tab");
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("button", { name: "Choose files" })).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(send(page)).toBeFocused();
       await page.keyboard.press("Tab");
