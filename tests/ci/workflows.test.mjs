@@ -522,6 +522,10 @@ function assertFileFlows(f, j, tokens, at, writer) {
     assert.equal(st.env?.A2H_E2E_REQUIRE_FILE_STORAGE, undefined, `${f} verify ${st.name}: on a preview only the probe sets the requirement`);
   }
   for (const file of LONG_FILE_FILES) assert.ok(runs(steps(j)[start], file), `${f}: the background start runs ${file}`);
+  // pr-108 (run 42714300614): node --test runs (CPUs − 1) files at once, 3 on a GitHub runner; the fourth long file
+  // waited and the job hit its 30 minutes. All four run at once.
+  const longFiles = LONG_FILES.length + LONG_FILE_FILES.length;
+  assert.match(steps(j)[start].run, new RegExp(`--test-concurrency=${longFiles}\\b`), `${f}: the ${longFiles} long files run concurrently`);
   assert.match(String(writer.env?.FILES ?? ""), /steps\.files\.outcome/, `${f}: the Verification line reads the file step`);
   assert.match(writer.run, /FAILED \(file flows\)/, `${f}: a file-flow failure is named in the Verification line`);
   // The probe's branches, run as the runner runs them, with a stand-in for the script.

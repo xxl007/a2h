@@ -13,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { sniffFile } from "../../apps/worker/src/files/sniff.ts";
 import { fileEventOf } from "../../apps/worker/infra/file-events.ts";
 import { objectCreated, scanResult, SCAN_UNSUPPORTED_MARKER, SCAN_WITHHOLD_MARKER } from "../local/fake-scanner.ts";
-import { eicar, F, KB, MB, pdfOfSize, pngOfSize, textOfSize } from "./files.ts";
+import { actionResult, eicar, F, KB, MB, pdfOfSize, pngOfSize, textOfSize } from "./files.ts";
 
 const FIXTURES = fileURLToPath(new URL("../fixtures/files/", import.meta.url));
 const TESTS = fileURLToPath(new URL("../", import.meta.url));
@@ -52,6 +52,27 @@ test("EICAR: the standard 68-byte test string, built at run time; no file under 
     readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.name === "node_modules" || e.name.startsWith(".") || e.name === "test-results" ? [] : e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
   const holders = walk(TESTS).filter((p) => readFileSync(p, "latin1").includes(s));
   assert.deepEqual(holders, []);
+});
+
+test("actionResult reads a server action's answer, including strings React sends as text rows (a deployed stage's long policies)", () => {
+  // Local: everything inline.
+  assert.deepEqual(actionResult('0:{"a":"$@1","f":"","b":"x"}\n1:{"kind":"refused","refusal":"count"}\n'), { kind: "refused", refusal: "count" });
+  // Deployed (session token in the policy): long strings become `id:T<hex byte length>,<text>` rows, with no newline after them,
+  // referenced as "$id"; "$$" escapes a string that starts with "$".
+  const policy = "P".repeat(1500);
+  const token = "é".repeat(600); // multibyte: the length is in bytes
+  const text =
+    `0:{"a":"$@1","f":"","b":"x"}\n` +
+    `2:T${Buffer.byteLength(policy).toString(16)},${policy}` +
+    `3:T${Buffer.byteLength(token).toString(16)},${token}` +
+    `1:{"kind":"added","file":{"id":"fA","name":"$$5 notes.pdf"},"upload":{"url":"https://b.s3/","fields":{"Policy":"$2","X-Amz-Security-Token":"$3"}}}\n`;
+  assert.deepEqual(actionResult(text), {
+    kind: "added",
+    file: { id: "fA", name: "$5 notes.pdf" },
+    upload: { url: "https://b.s3/", fields: { Policy: policy, "X-Amz-Security-Token": token } },
+  });
+  assert.deepEqual(actionResult('0:{"a":"$@1"}\n1:{"url":null}\n'), { url: null });
+  assert.equal(actionResult("<html>502</html>"), undefined);
 });
 
 test("the fake scanner's events read, through the worker's real adapter, as AWS's would", () => {

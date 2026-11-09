@@ -204,18 +204,59 @@ export interface CapturedAction {
   body: string;
 }
 
-/** The JSON of a server action's response (React flight lines `n:{…}`): the last line that parses as an object. */
+/**
+ * The answer of a server action, from its React Flight response: rows
+ * `<hex id>:<json>\n`, and text rows `<hex id>:T<hex byte length>,<text>`
+ * (no newline after them) for long strings, which the JSON rows reference as
+ * "$<hex id>" ("$$" escapes a string starting with "$"). A deployed stage's
+ * upload policy carries a session token and is long enough to be sent that
+ * way. Returns the last object row with `kind` or `url`, references resolved.
+ */
 export function actionResult(text: string): Record<string, unknown> | undefined {
+  const bytes = Buffer.from(text, "utf8");
+  const rows = new Map<string, unknown>();
+  const texts = new Map<string, string>();
   let out: Record<string, unknown> | undefined;
-  for (const line of text.split("\n")) {
-    const at = line.indexOf(":");
-    if (at < 0) continue;
-    try {
-      const v: unknown = JSON.parse(line.slice(at + 1));
-      if (v && typeof v === "object" && !Array.isArray(v) && ("kind" in v || "url" in v)) out = v;
-    } catch {
-      // not JSON
+  let i = 0;
+  while (i < bytes.length) {
+    const colon = bytes.indexOf(0x3a, i);
+    if (colon < 0) break;
+    const id = bytes.subarray(i, colon).toString("latin1");
+    if (!/^[0-9a-f]+$/.test(id)) {
+      const nl = bytes.indexOf(0x0a, i);
+      if (nl < 0) break;
+      i = nl + 1;
+      continue;
     }
+    if (bytes[colon + 1] === 0x54 /* T */) {
+      const comma = bytes.indexOf(0x2c, colon);
+      const length = parseInt(bytes.subarray(colon + 2, comma).toString("latin1"), 16);
+      texts.set(id, bytes.subarray(comma + 1, comma + 1 + length).toString("utf8"));
+      i = comma + 1 + length;
+      continue;
+    }
+    let nl = bytes.indexOf(0x0a, colon);
+    if (nl < 0) nl = bytes.length;
+    try {
+      rows.set(id, JSON.parse(bytes.subarray(colon + 1, nl).toString("utf8")));
+    } catch {
+      // not a JSON row
+    }
+    i = nl + 1;
+  }
+  const resolve = (v: unknown): unknown => {
+    if (typeof v === "string" && v.startsWith("$")) {
+      if (v.startsWith("$$")) return v.slice(1);
+      const ref = v.slice(1);
+      if (texts.has(ref)) return texts.get(ref);
+      return v;
+    }
+    if (Array.isArray(v)) return v.map(resolve);
+    if (v && typeof v === "object") return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, resolve(x)]));
+    return v;
+  };
+  for (const v of rows.values()) {
+    if (v && typeof v === "object" && !Array.isArray(v) && ("kind" in v || "url" in v)) out = resolve(v) as Record<string, unknown>;
   }
   return out;
 }
