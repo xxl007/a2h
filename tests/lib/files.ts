@@ -320,6 +320,23 @@ export async function guessObject(policy: UploadPolicy, key: string): Promise<nu
   return res.status;
 }
 
+/**
+ * An action's answer as an assertion may print it: no policy, signature or
+ * link ever reaches a log (the repository and its CI logs are public).
+ */
+export function redact(result: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!result) return result;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(result)) {
+    if (k === "upload") out[k] = "<an upload policy>";
+    else if (k === "url") out[k] = typeof v === "string" ? "<a link>" : v;
+    else if (k === "file") out[k] = { state: (v as { state?: unknown } | null)?.state };
+    else if (k === "files") out[k] = Array.isArray(v) ? `<${v.length} files>` : v;
+    else out[k] = v;
+  }
+  return out;
+}
+
 /** The add action's answer for a file: the policy when added. */
 export function policyOf(result: Record<string, unknown> | undefined): UploadPolicy | undefined {
   const upload = result?.["upload"] as UploadPolicy | undefined;

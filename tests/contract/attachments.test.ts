@@ -60,6 +60,7 @@ import {
   pdfOfSize,
   pillOf,
   pngOfSize,
+  redact,
   replayAction,
   rowText,
   textOfSize,
@@ -181,7 +182,7 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
       const fileId = fileIdOf(add.result);
       assert.ok(fileId, "the add action returned the file");
       const again = await replayAction(page, add.action, [a.out.request_id, { name: "late.pdf", type: "application/pdf", size: 1000 }]);
-      assert.equal(again?.["kind"], "unavailable", `add after Send: ${JSON.stringify(again)}`);
+      assert.equal(again?.["kind"], "unavailable", `add after Send: ${JSON.stringify(redact(again))}`);
       // Remove after a decision: "Remove a file" below (it needs the remove action's id).
       const after = await checkOne(c, a.out.request_id);
       assert.deepEqual(after.files, r.files, "the files of a sent request never change");
@@ -213,7 +214,7 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
       // Not part of the request: removing it again is a no-op; after Don't send nothing can be removed.
       await dontSend(page);
       const late = await replayAction(page, removed.action, [a.out.request_id, String(removed.args[1])]);
-      assert.equal(late?.["kind"], "unavailable", `remove after the decision: ${JSON.stringify(late)}`);
+      assert.equal(late?.["kind"], "unavailable", `remove after the decision: ${JSON.stringify(redact(late))}`);
     } finally {
       await closePage(page);
     }
@@ -265,12 +266,12 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
       const unhold = await holdBrowserUploads(page, webOrigin(a.out.approval_url));
       const big = { name: "minutes-big.pdf", mimeType: "application/pdf", buffer: Buffer.alloc(25 * MB + 1, 0x20) };
       const added = await captureAction(page, addOf("minutes-big.pdf"), () => addFiles(page, [big]));
-      assert.deepEqual(added.result, { kind: "refused", refusal: "size" });
+      assert.deepEqual(redact(added.result), { kind: "refused", refusal: "size" });
       assert.ok((await rowText(page, "minutes-big.pdf")).includes(COPY.refusedSize));
       // 20 + 20 MB held, then 20 MB more: over 50 MB in all.
       await addFiles(page, [pdfOfSize(20 * MB, "part-1.pdf"), pdfOfSize(20 * MB, "part-2.pdf")]);
       const third = await captureAction(page, addOf("part-3.pdf"), () => addFiles(page, [pdfOfSize(20 * MB, "part-3.pdf")]));
-      assert.deepEqual(third.result, { kind: "refused", refusal: "total" });
+      assert.deepEqual(redact(third.result), { kind: "refused", refusal: "total" });
       assert.ok((await rowText(page, "part-3.pdf")).includes(COPY.refusedTotal));
       const objects = await localObjects(a.out.request_id);
       if (objects) assert.deepEqual(objects, [], "nothing was stored for the refused files (the others were never posted)");
@@ -288,13 +289,13 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
       const unhold = await holdBrowserUploads(page, webOrigin(a.out.approval_url));
       // Six chosen at once: the sixth is refused, by the server, with the limit stated.
       const sixth = await captureAction(page, addOf("notes-clean.txt"), () => addFiles(page, [F.pdf(), F.png(), F.jpeg(), F.webp(), F.csv(), F.text()]));
-      assert.deepEqual(sixth.result, { kind: "refused", refusal: "count" });
+      assert.deepEqual(redact(sixth.result), { kind: "refused", refusal: "count" });
       await until("the sixth file's refusal", 15_000, async () => ((await rowText(page, "notes-clean.txt")).includes(COPY.refusedCount) ? true : undefined), 300);
       // The page then offers no way to add more, and says why; the server refuses a seventh asked for directly.
       assert.ok((await mainText(page)).includes("5 files is the most a request can have. Remove one to add another."));
       assert.equal(await files.choose(page).isDisabled(), true, "Choose files is unavailable with 5 files");
       const seventh = await replayAction(page, sixth.action, [a.out.request_id, { name: "seventh.pdf", type: "application/pdf", size: 1000 }]);
-      assert.deepEqual(seventh, { kind: "refused", refusal: "count" });
+      assert.deepEqual(redact(seventh), { kind: "refused", refusal: "count" });
       await unhold();
       await dontSend(page);
     } finally {
@@ -350,8 +351,8 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
       assert.equal(await openLink(other, a.out.approval_url), PAGE.wrongPrincipal);
       const asB = await replayAction(other, opened.action, [a.out.request_id, fileId]);
       const unknown = await replayAction(other, opened.action, [a.out.request_id, "fAAAAAAAAAAAAAAAAAAAAAA"]);
-      assert.deepEqual(asB, { url: null }, "B gets nothing");
-      assert.deepEqual(unknown, asB, "the answer for A's file is the answer for no file");
+      assert.deepEqual(redact(asB), { url: null }, "B gets nothing");
+      assert.deepEqual(redact(unknown), redact(asB), "the answer for A's file is the answer for no file");
       assert.ok(!(await mainText(other)).includes("chart.png"), "B's page does not list A's file");
       await dontSend(page);
     } finally {

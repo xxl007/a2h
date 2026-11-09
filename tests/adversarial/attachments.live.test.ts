@@ -57,6 +57,7 @@ import {
   pillOf,
   policyOf,
   postToStorage,
+  redact,
   REQUIRE_CHECKS,
   replayAction,
   rowText,
@@ -150,11 +151,11 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
 
       // B on B's own page, A's request id in the arguments (B's cookie holds B's token): refused.
       const viaOwnPage = await replayAction(pb, theirs.added.action, [ra.out.request_id, { name: "b.pdf", type: "application/pdf", size: 100 }]);
-      assert.equal(viaOwnPage?.["kind"], "unavailable", JSON.stringify(viaOwnPage));
+      assert.equal(viaOwnPage?.["kind"], "unavailable", JSON.stringify(redact(viaOwnPage)));
       // B opens A's link (B's browser now holds A's token for A's page), then adds there: refused.
       assert.equal(await openLink(pb, ra.out.approval_url), PAGE.wrongPrincipal);
       const withALink = await replayAction(pb, theirs.added.action, [ra.out.request_id, { name: "b.pdf", type: "application/pdf", size: 100 }], new URL(localLink(ra.out.approval_url)).pathname);
-      assert.equal(withALink?.["kind"], "unavailable", JSON.stringify(withALink));
+      assert.equal(withALink?.["kind"], "unavailable", JSON.stringify(redact(withALink)));
       // B's own policy with its key bent onto A's file: storage refuses it (the policy fixes the key).
       const bent = await postToStorage(theirs.policy, F.png().buffer, { key: mine.policy.fields["key"]! });
       assert.equal(bent.status, 403, `B's policy wrote A's key: ${bent.status} ${bent.code}`);
@@ -285,8 +286,8 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
       if (ANONYMOUS_ENFORCED) assert.equal((await fetchLink(unsigned.toString())).status, 403, "the link without its signature");
       const opened = await captureAction(page, (args) => args.length === 2 && typeof args[1] === "string", () => openedLink(page, "diagram.webp").then(() => undefined));
       assert.equal(await openLink(other, r.out.approval_url), PAGE.wrongPrincipal);
-      assert.deepEqual(await replayAction(other, opened.action, opened.args), { url: null }, "B asking for A's file");
-      assert.deepEqual(await replayAction(page, opened.action, [r.out.request_id, "f".padEnd(23, "A")]), { url: null }, "A guessing an id");
+      assert.deepEqual(redact(await replayAction(other, opened.action, opened.args)), { url: null }, "B asking for A's file");
+      assert.deepEqual(redact(await replayAction(page, opened.action, [r.out.request_id, "f".padEnd(23, "A")])), { url: null }, "A guessing an id");
       await dontSend(page);
     } finally {
       await closePage(page);
@@ -366,10 +367,16 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
         }
         const removeCsv = await captureAction(page, (args) => args.length === 2 && typeof args[1] === "string", () => files.remove(page, "figures.csv").click());
         await until("the row to go", 15_000, async () => ((await files.row(page, "figures.csv").count()) === 0 ? true : undefined), 300);
-        const [removed, sent] = await Promise.all([replayAction(page, removeCsv.action, [r.out.request_id, pngId]), decide(page, "send")]);
+        // Send is clicked at once; the remove leaves after a delay that grows each round (0, 150, 300 ms …), so that
+        // some rounds see Send first and others the remove first.
+        const delay = ((round - 1) % 6) * 150;
+        const [removed, sent] = await Promise.all([
+          new Promise((res) => setTimeout(res, delay)).then(() => replayAction(page, removeCsv.action, [r.out.request_id, pngId])),
+          decide(page, "send"),
+        ]);
         const after = await checkOne(a, r.out.request_id);
         const gone = removed?.["kind"] === "removed";
-        t.diagnostic(`round ${round}: remove → ${String(removed?.["kind"])}, Send → ${sent.heading}, files sent: ${after.files.length}`);
+        t.diagnostic(`round ${round} (remove after ${delay} ms): remove → ${String(removed?.["kind"])}, Send → ${sent.heading}, files sent: ${after.files.length}`);
         if (sent.heading === PAGE.sent || after.status !== "awaiting_approval") {
           if (after.files.length === 1) {
             assert.ok(!gone, `round ${round}: the request was sent with a file the remove call reports removed`);
