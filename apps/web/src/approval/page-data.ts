@@ -6,16 +6,18 @@
 // request's state. A link past its expiry shows as expired before the
 // worker's minute job moves the request (D6).
 import { approvalTokenHash, ApprovalTokenSchema } from "@a2h/protocol";
-import { and, eq, participants, requestEvents, requests, type A2hDb } from "@a2h/db";
-import type { ApprovalRequest } from "@a2h/ui";
+import { and, eq, listRequestFiles, participants, requestEvents, requests, type A2hDb } from "@a2h/db";
+import type { ApprovalFile, ApprovalRequest } from "@a2h/ui";
+import { approvalFileOf } from "./files";
 import { approvalRequestView } from "./view";
 
 export type ApprovalPageModel =
   | { kind: "expired" }
   | { kind: "wrong-principal" }
   /** `now`: the server's clock at render (ISO), the first paint of the link validity line (design.md decision bar). */
-  | { kind: "awaiting"; request: ApprovalRequest; now: string }
-  | { kind: "already-sent"; request: ApprovalRequest; question: string; decidedAt: string }
+  | { kind: "awaiting"; request: ApprovalRequest; now: string; files: ApprovalFile[] }
+  /** `files`: the request's files in the order added (m2-attachments design.md F0, F13); [] without files. */
+  | { kind: "already-sent"; request: ApprovalRequest; question: string; decidedAt: string; files: ApprovalFile[] }
   | { kind: "already-not-sent"; request: ApprovalRequest; decidedAt: string };
 
 export interface ApprovalPageQuery {
@@ -53,17 +55,20 @@ export async function loadApprovalPage(db: A2hDb, q: ApprovalPageQuery): Promise
 
   if (r.status === "awaiting_approval") {
     if (r.approval_expires_at === null || r.approval_expires_at.getTime() <= q.now.getTime()) return EXPIRED;
-    return { kind: "awaiting", request: approvalRequestView(r, found.participant, q), now: q.now.toISOString() };
+    const files = (await listRequestFiles(db, r.id)).map(approvalFileOf);
+    return { kind: "awaiting", request: approvalRequestView(r, found.participant, q), now: q.now.toISOString(), files };
   }
   if (r.status === "not_sent") {
     if (r.not_sent_reason !== "declined") return EXPIRED;
     return { kind: "already-not-sent", request: approvalRequestView(r, found.participant, q), decidedAt: await decidedAt(db, r.id, r.updated_at) };
   }
   // Sent, and whatever happened since (accepted, answered, expired after sending…): it left on this page.
+  const files = (await listRequestFiles(db, r.id)).map(approvalFileOf);
   return {
     kind: "already-sent",
     request: approvalRequestView(r, found.participant, q),
     question: r.question,
     decidedAt: await decidedAt(db, r.id, r.updated_at),
+    files,
   };
 }
