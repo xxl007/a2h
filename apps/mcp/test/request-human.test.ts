@@ -436,8 +436,23 @@ describe("request_human", { skip: skipWithoutDocker() }, () => {
 
   // ---- Shapes outside this change ---------------------------------------------
 
+  // m2-attachments task 3.3; spec protocol/request-approval "Attachments from the agent".
+  test("Scenario: Attachments from the agent: schema_invalid naming attachments and the approval page as the way to add files; nothing created", async () => {
+    const { db, server } = await fresh();
+    const result = await ask(server.url, { ...BASE, attachments: [{ ref: "att-1", media_type: "application/pdf", size_bytes: 1000 }] });
+    const error = errorOf(result);
+    assert.equal(error.code, "schema_invalid");
+    assert.equal(error.stage, "schema");
+    assert.equal(error.retryable, false);
+    assert.match(error.detail ?? "", /attachments/);
+    assert.match(error.detail ?? "", /principal/);
+    assert.match(error.detail ?? "", /approval page/);
+    assert.doesNotMatch(error.detail ?? "", /M3|not supported yet/, "files exist now: the refusal points at the page, not at a milestone");
+    assert.match(texts(result).join("\n"), /approval page/, "the text the agent reads says it too");
+    assert.deepEqual(await writeCounts(db), { requests: 0, request_events: 0, blocked_manifests: 0, answers: 0 });
+  });
+
   for (const [field, value, milestone] of [
-    ["attachments", [{ ref: "att-1", media_type: "application/pdf", size_bytes: 1000 }], "M3"],
     ["audience", "panel_sample", "M3"],
     ["audience", "population_in_place", "M3"],
     ["audience", "role_qualified_first_to_accept", "M3"],

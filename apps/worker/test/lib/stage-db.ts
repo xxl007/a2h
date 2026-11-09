@@ -101,6 +101,7 @@ export function testConfig(db: DbConfig, overrides: Partial<WorkerConfig> = {}):
     feeRate: 0.2,
     clearingShare: 0.5,
     signing: testSigningKey("a2h-pr-12-0000000000000001"),
+    files: { bucket: "a2h-test-uploads", storagePrefix: `${STAGE}/`, queueUrl: "https://sqs.eu-west-3.amazonaws.com/000000000000/a2h-test" },
     ...overrides,
   };
 }

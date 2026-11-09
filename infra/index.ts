@@ -1,6 +1,5 @@
 // Entry point imported by the root sst.config.ts inside run(), after the
 // permissions-boundary $transform is registered.
-import { storageAccess } from "./access.ts";
 import { createAllowlist } from "./allowlist.ts";
 import { domain, EMAIL_SENDER_NONE, stageInfo, type StageInfo } from "./config.ts";
 import { albBaseUrl, createAlb, createCluster, getAlb, getCluster } from "./cluster.ts";
@@ -10,7 +9,7 @@ import { createMcp } from "./mcp.ts";
 import { webBaseUrl } from "./service-env.ts";
 import { publishShared, readShared } from "./shared.ts";
 import { createStageSecrets } from "./stage-secrets-resources.ts";
-import { createUploads, type StorageGrant } from "./storage.ts";
+import { createFileEvents, createUploads, type StorageGrant } from "./storage.ts";
 import { createVpc, getVpc } from "./vpc.ts";
 import { attachWebAcl, createEdgeAcls } from "./waf.ts";
 import { createWeb, WEB_NOT_DEPLOYED, type WebDatabase } from "./web.ts";
@@ -41,7 +40,8 @@ function ownResources(stage: StageInfo): Base {
   const cluster = createCluster(vpc);
   const alb = createAlb(stage, vpc);
   const database = createDatabase(stage, vpc);
-  const uploads = createUploads();
+  // The bucket and its account-level file pipeline: CORS, tag policy, the GuardDuty plan, alarms (ADR 0005).
+  const uploads = createUploads(stage);
   const email = createEmail();
   const db = masterAccess(stage, database);
   // Edge rate limit (m1-hosted-connector D5): REGIONAL on this ALB, CLOUDFRONT for the web.
@@ -50,7 +50,7 @@ function ownResources(stage: StageInfo): Base {
     cluster,
     alb,
     db,
-    storage: { mode: "link", bucket: uploads },
+    storage: { bucketName: uploads.name },
     email,
     webDatabase: { clusterArn: database.clusterArn, secretValueFrom: "DB_PASSWORD" in db.ssm ? db.ssm.DB_PASSWORD : undefined },
     emailSender: email ? email.sender : EMAIL_SENDER_NONE,
@@ -76,8 +76,8 @@ function ownResources(stage: StageInfo): Base {
 async function borrowedResources(stage: StageInfo, command: string): Promise<Base> {
   const ids = await readShared();
   const vpc = getVpc(ids.vpcId);
-  const storage = storageAccess(stage, ids.uploadsBucket);
-  if (storage.mode !== "scoped") throw new Error(`Stage ${stage.name} must not link the bucket.`);
+  // dev's bucket, under this stage's prefix only (files.ts storagePermissions validates the name).
+  const storage: StorageGrant = { bucketName: ids.uploadsBucket };
   const db = await previewAccess(stage, ids.auroraClusterId, command);
   return {
     cluster: getCluster(ids.clusterId, vpc),
@@ -111,7 +111,9 @@ export async function deploy(stageName: string, command: string) {
   // parameter too (dev the shared name, a preview /a2h/pr-<n>/…), read by
   // its web Lambda; a preview without it fails closed for everyone.
   createAllowlist(stage);
-  const deps = { stage, cluster, db, storage, email, secrets };
+  // Every stage routes its own tmp/<prefix>files/ events into its own queue (ADR 0005 item 4).
+  const fileEvents = createFileEvents(stage, storage.bucketName);
+  const deps = { stage, cluster, db, storage, fileEvents, email, secrets };
 
   const albUrl = albBaseUrl(stage, alb);
   const mcpUrl = $interpolate`${albUrl}${stage.mcpBasePath}`;

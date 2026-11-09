@@ -26,4 +26,14 @@ export interface WorkerConfig {
   /** Clearing share `s` (ADR 0002). */
   clearingShare: number;
   signing: SigningKeyMaterial;
+  /** Where files are stored and where their events arrive (m2-attachments task 3.2). */
+  files: FilesConfig;
+}
+
+/** The file intake's deployment settings; business code sees only FileStore and FileEventSource. */
+export interface FilesConfig {
+  bucket: string;
+  /** `<STAGE>/`. */
+  storagePrefix: string;
+  queueUrl: string;
 }

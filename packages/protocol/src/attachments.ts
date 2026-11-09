@@ -3,7 +3,7 @@
 // randomness of a file id is an argument.
 import * as z from "zod";
 import type { ProtocolError } from "./errors.ts";
-import { AttachmentSchema, OpaqueIdSchema } from "./primitives.ts";
+import { AttachmentSchema, OpaqueIdSchema, REQUEST_ID_PATTERN } from "./primitives.ts";
 
 /** At most this many files per request (proposal decision 3). */
 export const ATTACHMENTS_MAX = 5;
@@ -108,4 +108,53 @@ export function formatFileId(randomness: Uint8Array): string {
  */
 export function filesNotReadyError(): ProtocolError {
   return { code: "files_not_ready", stage: "lifecycle", retryable: true, detail: "Files are still being checked, or a refused file is still attached." };
+}
+
+// ---- the malware scan (ADR 0005 items 4 to 6) ---------------------------------
+
+/**
+ * What a scan concluded, whatever scanner produced it: `clean` (nothing
+ * found), `threat` (malware found), `error` (the scanner could not read or
+ * finish the file, for example a password-protected PDF). The detection name,
+ * hash and reasons are dropped by the scanner's adapter and have no place here.
+ */
+export const FILE_SCAN_OUTCOMES = ["clean", "threat", "error"] as const;
+export const FileScanOutcomeSchema = z.enum(FILE_SCAN_OUTCOMES);
+export type FileScanOutcome = z.infer<typeof FileScanOutcomeSchema>;
+
+/** The provider-neutral scan result the worker codes against (ADR 0005 item 5). */
+export const FileScanResultSchema = z.strictObject({
+  file_id: FileIdSchema,
+  outcome: FileScanOutcomeSchema,
+});
+export type FileScanResult = z.infer<typeof FileScanResultSchema>;
+
+// ---- where a file is stored (design D2, D3) -----------------------------------
+
+/** `tmp`: uploaded, not yet checked; `uploads`: checked and clean. */
+export const FILE_AREAS = ["tmp", "uploads"] as const;
+export type FileArea = (typeof FILE_AREAS)[number];
+
+const STORAGE_PREFIX_PATTERN = /^[a-z0-9][a-z0-9-]*\/$/;
+
+/** `<area>/<STORAGE_PREFIX>files/<request_id>/<file_id>`: the only keys files are stored under. */
+export function fileObjectKey(area: FileArea, storagePrefix: string, requestId: string, fileId: string): string {
+  if (!STORAGE_PREFIX_PATTERN.test(storagePrefix)) throw new RangeError("malformed storage prefix");
+  if (!REQUEST_ID_PATTERN.test(requestId)) throw new RangeError("malformed request id");
+  if (!FILE_ID_PATTERN.test(fileId)) throw new RangeError("malformed file id");
+  return `${area}/${storagePrefix}files/${requestId}/${fileId}`;
+}
+
+/** The area, request and file of a key of this stage's files; null for any other key. */
+export function parseFileObjectKey(key: string, storagePrefix: string): { area: FileArea; request_id: string; file_id: string } | null {
+  for (const area of FILE_AREAS) {
+    const head = `${area}/${storagePrefix}files/`;
+    if (!key.startsWith(head)) continue;
+    const parts = key.slice(head.length).split("/");
+    if (parts.length !== 2) return null;
+    const [requestId, fileId] = parts as [string, string];
+    if (!REQUEST_ID_PATTERN.test(requestId) || !FILE_ID_PATTERN.test(fileId)) return null;
+    return { area, request_id: requestId, file_id: fileId };
+  }
+  return null;
 }
