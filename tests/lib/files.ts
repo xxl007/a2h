@@ -4,7 +4,7 @@
 // the page's add action returned, and a replay of the page's own server
 // actions with other arguments.
 //
-// Fixtures (6.3): the small ones are committed under tests/fixtures/files/
+// Fixtures (6.3): the small ones are committed under tests/fixtures/files/ (the ZIP is built here: *.zip is ignored)
 // (each under 1 KB); anything large is generated here; the EICAR test string
 // is built from parts at run time (local/fake-scanner.ts `eicar`), never
 // committed whole.
@@ -66,7 +66,8 @@ export const F = {
   markdown: (): FileInput => ({ name: "summary.md", mimeType: "text/markdown", buffer: fixture("summary.md") }),
   /** An HTML document named and declared as a PDF (spec "Name and content disagree"). */
   disguisedHtml: (): FileInput => ({ name: "report.pdf", mimeType: "application/pdf", buffer: fixture("report-html.pdf") }),
-  zip: (): FileInput => ({ name: "bundle.zip", mimeType: "application/zip", buffer: fixture("bundle.zip") }),
+  /** An empty ZIP archive (its end-of-central-directory record), built here: the repository ignores *.zip. */
+  zip: (): FileInput => ({ name: "bundle.zip", mimeType: "application/zip", buffer: Buffer.concat([Buffer.from("PK\x05\x06", "latin1"), Buffer.alloc(18)]) }),
   exe: (): FileInput => ({ name: "setup.exe", mimeType: "application/x-msdownload", buffer: fixture("setup.exe") }),
   /** The EICAR test string in a file named notes.txt (spec "Malicious file"); built at run time. */
   eicar: (): FileInput => ({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from(eicar(), "latin1") }),

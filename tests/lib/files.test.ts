@@ -20,7 +20,7 @@ const TESTS = fileURLToPath(new URL("../", import.meta.url));
 
 test("every committed fixture is under 1 KB (nothing over 1 MB is committed)", () => {
   const names = readdirSync(FIXTURES);
-  assert.ok(names.length >= 10, `fixtures: ${names.join(", ")}`);
+  assert.ok(names.length >= 9, `fixtures: ${names.join(", ")}`);
   for (const n of names) assert.ok(statSync(join(FIXTURES, n)).size < KB, `${n} is ${statSync(join(FIXTURES, n)).size} bytes`);
 });
 
