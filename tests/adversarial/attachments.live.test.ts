@@ -126,6 +126,8 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
   async function addHeld(page: Page, r: Awaiting, file: { name: string; mimeType: string; buffer: Buffer }) {
     const release = await holdBrowserUploads(page, origin(r));
     const added = await captureAction(page, addOf(file.name), () => addFiles(page, [file]));
+    // Released only once the page has had its (held) upload answered.
+    await afterUpload(page, file.name);
     await release();
     const policy = policyOf(added.result);
     const id = fileIdOf(added.result);

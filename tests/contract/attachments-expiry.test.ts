@@ -23,7 +23,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Browser } from "@playwright/test";
 import { checkOne, grossReserve, manifest, principalClient, requestAwaiting, shortestExpiry, until, untilStatusNot, type A2hClient } from "./a2h.ts";
 import { closePage, launch, localLink, mainText, openLink, PAGE, pageAs, pageSkip } from "../lib/approval-page.ts";
-import { addFiles, afterCheck, COPY, F, fetchLink, holdBrowserUploads, LOCAL_S3, localObjects, openedLink, pillOf, rowText, type Outcome } from "../lib/files.ts";
+import { addFiles, afterCheck, afterUpload, COPY, F, fetchLink, holdBrowserUploads, LOCAL_S3, localObjects, openedLink, pillOf, rowText, type Outcome } from "../lib/files.ts";
 import { SCAN_WITHHOLD_MARKER } from "../local/fake-scanner.ts";
 
 const SECOND = 1000;
@@ -85,6 +85,7 @@ describe("files, long flows (m2-attachments, live)", { skip: SKIP, concurrency: 
       // Nothing reaches storage: the page believes its upload succeeded, so no scan can ever come.
       const release = await holdBrowserUploads(page, new URL(localLink(r.out.approval_url)).origin);
       await addFiles(page, [F.pdf()]);
+      await afterUpload(page, "leaflet.pdf");
       await release();
       // On the local stage, also a stored file whose result the fake scanner withholds.
       const withheld = { name: "withheld.txt", mimeType: "text/plain", buffer: Buffer.from(`notes\n${SCAN_WITHHOLD_MARKER}\n`) };

@@ -12,7 +12,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type { Browser } from "@playwright/test";
 import { grossReserve, manifest, principalClient, requestAwaiting, type A2hClient } from "../contract/a2h.ts";
 import { closePage, decide, launch, localLink, openLink, PAGE, pageAs, pageSkip } from "../lib/approval-page.ts";
-import { addFiles, addOf, captureAction, F, holdBrowserUploads, policyOf, postToStorage } from "../lib/files.ts";
+import { addFiles, addOf, afterUpload, captureAction, F, holdBrowserUploads, policyOf, postToStorage } from "../lib/files.ts";
 
 const SECOND = 1000;
 const OL = "sim-ol-6a23";
@@ -38,6 +38,7 @@ describe("adversarial: an expired upload policy (m2-attachments, live, long)", {
       assert.equal(await openLink(page, r.out.approval_url), PAGE.awaiting);
       const release = await holdBrowserUploads(page, new URL(localLink(r.out.approval_url)).origin);
       const added = await captureAction(page, addOf("leaflet.pdf"), () => addFiles(page, [F.pdf()]));
+      await afterUpload(page, "leaflet.pdf");
       await release();
       const policy = policyOf(added.result);
       assert.ok(policy, "the add action returned a policy");

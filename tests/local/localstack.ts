@@ -25,7 +25,8 @@ function docker(args: string[]): string {
   return execFileSync("docker", args, { encoding: "utf8" }).trim();
 }
 
-export async function startLocalStorage({ webOrigin, bucket = "a2h-uploads-local" }: { webOrigin: string; bucket?: string }): Promise<LocalStorage> {
+/** `cors: false`: no CORS on the bucket, as dev's bucket is for previews until dev deploys m2-attachments. */
+export async function startLocalStorage({ webOrigin, bucket = "a2h-uploads-local", cors = true }: { webOrigin: string; bucket?: string; cors?: boolean }): Promise<LocalStorage> {
   const name = `a2h-qa-localstack-${process.pid}`;
   docker(["run", "-d", "--name", name, "-p", "127.0.0.1::4566", "-e", "SERVICES=s3,sqs", "-e", "S3_SKIP_SIGNATURE_VALIDATION=0", "-e", "EAGER_SERVICE_LOADING=1", LOCALSTACK_IMAGE]);
   const stop = (): Promise<void> => {
@@ -55,7 +56,7 @@ export async function startLocalStorage({ webOrigin, bucket = "a2h-uploads-local
     const sqs = new SQSClient({ endpoint, region: REGION, credentials: CREDENTIALS });
     await s3.send(new CreateBucketCommand({ Bucket: bucket, CreateBucketConfiguration: { LocationConstraint: REGION } }));
     // As infra/storage.ts gives each stage's web origin: POST only.
-    await s3.send(
+    if (cors) await s3.send(
       new PutBucketCorsCommand({
         Bucket: bucket,
         CORSConfiguration: { CORSRules: [{ AllowedOrigins: [webOrigin], AllowedMethods: ["POST"], AllowedHeaders: ["*"], MaxAgeSeconds: 600 }] },

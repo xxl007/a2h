@@ -40,6 +40,9 @@
 //       https://web.a2h.test (request_human issues https links only); the
 //       suites open them on A2H_LOCAL_WEB_URL (tests/lib/approval-page.ts
 //       `localLink`).
+//   A2H_LOCAL_CORS=0: the bucket without CORS (a preview today: the browser
+//       cannot upload). A2H_LOCAL_SCANNER=0: no fake scanner (storage
+//       without checks: no event, no result). Both for the gating runs.
 //   A2H_LOCAL_LOG_FILE=<path>: every MCP and worker log line is also
 //       appended there (the local check of spec "Logs of an upload").
 //
@@ -135,14 +138,14 @@ let storage: LocalStorage | undefined;
 let scanner: FakeScanner | undefined;
 let files: WorkerFiles | undefined;
 if (filesOn) {
-  storage = await startLocalStorage({ webOrigin: localWebUrl });
+  storage = await startLocalStorage({ webOrigin: localWebUrl, cors: process.env["A2H_LOCAL_CORS"] !== "0" });
   files = {
     store: new S3FileStore(storage.s3, storage.bucket),
     events: new SqsFileEvents(sqsQueueClient(storage.sqs, storage.queueUrl), { bucket: storage.bucket, storagePrefix: STORAGE_PREFIX }, workerLog, { errorBackoffMs: 1000 }),
     storagePrefix: STORAGE_PREFIX,
     scanRetryDelaySeconds: 2,
   };
-  scanner = startFakeScanner({ s3: storage.s3, sqs: storage.sqs, bucket: storage.bucket, queueUrl: storage.queueUrl, prefix: `tmp/${STORAGE_PREFIX}files/`, log: workerLog });
+  if (process.env["A2H_LOCAL_SCANNER"] !== "0") scanner = startFakeScanner({ s3: storage.s3, sqs: storage.sqs, bucket: storage.bucket, queueUrl: storage.queueUrl, prefix: `tmp/${STORAGE_PREFIX}files/`, log: workerLog });
 }
 
 let worker: RunningWorker | undefined = await startWorker({ config, log: workerLog, ...(files ? { files } : {}) });
