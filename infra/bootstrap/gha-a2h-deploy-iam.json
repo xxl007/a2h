@@ -71,6 +71,17 @@
       }
     },
     {
+      "Sid": "PassScannerRoleToMalwareProtectionOnly",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::442123849268:role/a2h-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "malware-protection-plan.guardduty.amazonaws.com"
+        }
+      }
+    },
+    {
       "Sid": "ServiceLinkedRoles",
       "Effect": "Allow",
       "Action": "iam:CreateServiceLinkedRole",

@@ -42,7 +42,7 @@ export function createWeb(
   },
 ): sst.aws.Nextjs | undefined {
   if (!hasNextApp()) return undefined;
-  const store = storageArgs(deps.storage);
+  const store = storageArgs(deps.storage, stage, "web");
   // Better Auth's secret (cookie signatures, hashes, the encryption of its
   // signing keys): 32 random bytes per stage, kept secret in state like the
   // stage's approval key (stage-secrets-resources.ts).
@@ -76,12 +76,12 @@ export function createWeb(
     // and SST's link would place the password in the function's
     // environment. It uses the Data API instead (m1-hosted-connector D2):
     // IAM on the cluster ARN and the stage's database secret, no password.
-    // Storage: dev/prod link the bucket; pr-* get object access under their
-    // own prefix only (server function role; contract amendment 1); the mail
-    // sink writes under tmp/<prefix>mail/ (D6), inside that grant.
-    link: store.link,
+    // Storage: no link on any stage; object grants under the stage's own
+    // prefix (files.ts storagePermissions): upload into tmp/<p>files/, read
+    // uploads/<p>files/ only when tagged clean, delete either (m2-attachments
+    // D2, D5, D6), and the mail sink tmp/<p>mail/ (m1-hosted-connector D6).
     permissions: dbPermissions
-      ? dbPermissions.apply((p) => [...store.permissions, ...p])
+      ? $util.all([store.permissions, dbPermissions]).apply(([s, p]) => [...s, ...p])
       : store.permissions,
     environment: $util
       .all([plain, deps.mcpUrl, deps.database.clusterArn, secretArn ?? "", authSecret.base64, $util.output(store.environment)])

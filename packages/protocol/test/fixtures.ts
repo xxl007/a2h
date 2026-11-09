@@ -202,6 +202,12 @@ export const fixtures: Record<string, Fixture> = {
   FileStateSchema: { pass: "checking", fail: "scanning", path: [] },
   FileRefusedReasonSchema: { pass: "malware", fail: "virus", path: [] },
   FileIdSchema: { pass: "fAQEBAQEBAQEBAQEBAQEBAQ", fail: "-AQEBAQEBAQEBAQEBAQEBAQ", path: [] },
+  FileScanOutcomeSchema: { pass: "threat", fail: "infected", path: [] },
+  FileScanResultSchema: {
+    pass: { file_id: "fAQEBAQEBAQEBAQEBAQEBAQ", outcome: "clean" },
+    fail: { file_id: "fAQEBAQEBAQEBAQEBAQEBAQ", outcome: "threat", threat: "EICAR-Test-File" },
+    path: [],
+  },
   AttachmentSchema: {
     pass: { ref: "att_1", media_type: "application/pdf", size_bytes: 120000 },
     fail: { ref: "att_1", media_type: "application/pdf", size_bytes: 1.5 },

@@ -1,6 +1,7 @@
 // Entry point of the A2H worker (ECS Fargate). Configuration comes from the
 // environment through the deployment adapter (infra/env.ts).
 import { workerConfigFromEnv } from "../infra/env.ts";
+import { deployedFiles } from "../infra/files.ts";
 import { errorFields } from "./error-log.ts";
 import { startWorker, type WorkerLogLine } from "./worker.ts";
 
@@ -10,7 +11,8 @@ const log = (line: WorkerLogLine) => console.log(JSON.stringify({ stage, ...line
 let stopping = false;
 
 async function main() {
-  const worker = await startWorker({ config: workerConfigFromEnv(), log });
+  const config = workerConfigFromEnv();
+  const worker = await startWorker({ config, log, files: deployedFiles(config.files, log) });
   log({ level: "info", msg: "worker started" });
 
   // ECS sends SIGTERM and kills the task 30 s later; stop() waits up to 20 s

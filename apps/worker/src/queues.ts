@@ -12,7 +12,38 @@ export const QUEUES = {
   simulate: "simulate",
   /** Scheduled every minute: sent/accepted past expiry → expired (task 5.4). */
   expire: "expire",
+  /** m2-attachments D3: the content check of an uploaded object. Data: { file_id }. */
+  fileCheck: "file-check",
+  /** m2-attachments D3, ADR 0005: one FileScanResult. Retried while the content check has not run. */
+  fileScan: "file-scan",
+  /** Scheduled every minute: the 10-minute limit, and a files-delete per request not sent. */
+  filesSweep: "files-sweep",
+  /** m2-attachments D5: delete the files of one request not sent. Data: { request_id }. */
+  filesDelete: "files-delete",
 } as const;
+
+export interface FileCheckJob {
+  file_id: string;
+}
+
+export interface FilesDeleteJob {
+  request_id: string;
+}
+
+/** Every minute (pg-boss cron). */
+export const FILES_SWEEP_CRON = "* * * * *";
+
+/**
+ * The file queues, created only where the worker has file storage. A scan
+ * result that overtakes the content check is retried every
+ * `scanRetryDelaySeconds` (default 10 s) for well over the 10-minute limit.
+ */
+export async function createFileQueues(boss: PgBoss, { scanRetryDelaySeconds = 10 }: { scanRetryDelaySeconds?: number } = {}): Promise<void> {
+  await boss.createQueue(QUEUES.fileCheck, { retryLimit: 5, retryDelay: 5 });
+  await boss.createQueue(QUEUES.fileScan, { retryLimit: Math.ceil(900 / scanRetryDelaySeconds), retryDelay: scanRetryDelaySeconds });
+  await boss.createQueue(QUEUES.filesSweep, { policy: "singleton", retryLimit: 3, retryDelay: 10 });
+  await boss.createQueue(QUEUES.filesDelete, { policy: "exclusive", retryLimit: 10, retryDelay: 60 });
+}
 
 export interface DeliverJob {
   request_id: string;

@@ -168,6 +168,21 @@ test("no secret in plain environment: no value looks like key material, no *_KEY
   }
 });
 
+test("m2-attachments: only the worker gets its file-events queue; both keep UPLOADS_BUCKET and STORAGE_PREFIX", () => {
+  for (const s of STAGES) {
+    const mcp = serviceEnvNames("mcp", stageInfo(s));
+    const worker = serviceEnvNames("worker", stageInfo(s));
+    for (const name of ["UPLOADS_BUCKET", "STORAGE_PREFIX"]) {
+      assert.ok(worker.includes(name), `worker ${s} ${name}`);
+      assert.ok(mcp.includes(name), `mcp ${s} ${name}`);
+    }
+    assert.ok(worker.includes("FILE_EVENTS_QUEUE_URL"), `worker ${s}`);
+    assert.ok(!mcp.includes("FILE_EVENTS_QUEUE_URL"), `mcp ${s}`);
+    assert.equal(plainEnvironment("worker", stageInfo(s))["STORAGE_PREFIX"], stageInfo(s).storagePrefix, "the worker refuses any prefix but <STAGE>/");
+    assert.equal(stageInfo(s).storagePrefix, `${s}/`);
+  }
+});
+
 test("names per service: both get the database; only the worker the signing key, only mcp the approval key", () => {
   for (const s of STAGES) {
     const mcp = serviceEnvNames("mcp", stageInfo(s));

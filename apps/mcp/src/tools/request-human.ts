@@ -90,7 +90,16 @@ function outsideThisChange(input: RequestHumanInput): ProtocolError | null {
     retryable: false,
     detail: `Invalid field: ${field} (${why}; introduced in M3).`,
   });
-  if (input.attachments !== undefined) return refuse("attachments", "attachments are not supported yet");
+  // m2-attachments (spec protocol/request-approval "Attachments from the agent"):
+  // files exist, but only the principal adds them, on the approval page.
+  if (input.attachments !== undefined) {
+    return {
+      code: "schema_invalid",
+      stage: "schema",
+      retryable: false,
+      detail: "Invalid field: attachments (agents cannot attach files; the principal adds files on the approval page before choosing Send). Send the request without attachments.",
+    };
+  }
   if (input.audience !== "named_individual") return refuse("audience", "only named_individual for now");
   if (input.time_shape !== "one_shot") return refuse("time_shape", "only one_shot for now");
   return null;
