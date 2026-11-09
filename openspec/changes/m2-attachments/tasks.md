@@ -17,9 +17,9 @@ Gate 1 passed 2026-11-08 (all five recommendations). Owners: PD = Protocol dev, 
 
 ## 3. Infra and worker (PD)
 
-- [ ] 3.1 `infra/`: bucket CORS for each stage's web origin (POST only), prefix-scoped grants for web (`tmp/*/files/` write, `uploads/*/files/` read) and worker (both areas read, write, delete), scanner protection plan and event routing per ADR 0005; infra tests
-- [ ] 3.2 `apps/worker`: `file-check` (content sniffing; tests per type, including "Name and content disagree"), scan-result handling (clean, threat, error), the 10-minute `not_checked` job, `files-delete` on not_sent; tests for "Clean file", "Malicious file", "Scan does not finish", "Don't send", "Link expires"
-- [ ] 3.3 `apps/mcp`: `check_requests` files summary; `request_human` refusal wording for `attachments` ("Attachments from the agent"); "Agent checks a request with files"; logging test that no file name appears
+- [x] 3.1 `infra/`: bucket CORS for each stage's web origin (POST only), prefix-scoped grants for web (`tmp/*/files/` write, `uploads/*/files/` read) and worker (both areas read, write, delete), scanner protection plan and event routing per ADR 0005; infra tests — done in #106 (applies to dev's bucket only when dev deploys from main: previews borrow dev's bucket, so CORS, the tag policy and the scanner are absent on previews until then)
+- [x] 3.2 `apps/worker`: `file-check` (content sniffing; tests per type, including "Name and content disagree"), scan-result handling (clean, threat, error), the 10-minute `not_checked` job, `files-delete` on not_sent; tests for "Clean file", "Malicious file", "Scan does not finish", "Don't send", "Link expires" — done in #106
+- [x] 3.3 `apps/mcp`: `check_requests` files summary; `request_human` refusal wording for `attachments` ("Attachments from the agent"); "Agent checks a request with files"; logging test that no file name appears — done in #106
 
 ## 4. Design (Design)
 
@@ -28,9 +28,9 @@ Gate 1 passed 2026-11-08 (all five recommendations). Owners: PD = Protocol dev, 
 
 ## 5. Approval page (WD)
 
-- [ ] 5.1 Server actions: add (limits, presigned POST), remove, open (presigned GET), each behind the page's principal and token checks; tests for "Too large", "Too many", "Another account", "Old link", "Principal opens their file"
-- [ ] 5.2 Page: upload with progress straight to S3, states by polling or on focus, Send gating, refusal messages; Playwright for "Add and send", "Refused file blocks Send until removed", "Remove a file", "Files on a sent request", "Keyboard and phone"
-- [ ] 5.3 Logging: file names never logged (test over every new log line)
+- [x] 5.1 Server actions: add (limits, presigned POST), remove, open (presigned GET), each behind the page's principal and token checks; tests for "Too large", "Too many", "Another account", "Old link", "Principal opens their file" — done in #107
+- [x] 5.2 Page: upload with progress straight to S3, states by polling or on focus, Send gating, refusal messages; Playwright for "Add and send", "Refused file blocks Send until removed", "Remove a file", "Files on a sent request", "Keyboard and phone" — done in #107 (verify pr-107 run 42688729808: Too large, Refused file blocks Send, both Keyboard and phone ran; the 5 upload- and scan-dependent tests skipped because dev's bucket has no POST CORS yet; they ran green locally against LocalStack)
+- [x] 5.3 Logging: file names never logged (test over every new log line) — done in #107
 
 ## 6. Verification (QA)
 
