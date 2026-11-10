@@ -4,8 +4,8 @@
 // through db-migrate.sh.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import pg from "pg";
 import * as protocol from "@a2h/protocol";
 import { SEED_DEV_BUDGET_MULTIPLIER, SEED_PERSONAS, SEED_PARTICIPANTS, SEED_PRINCIPAL, SEED_PRINCIPAL_POLICY } from "../seed/simulated.ts";
@@ -13,6 +13,7 @@ import { principalWithPolicy } from "../src/index.ts";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { SEED_SQL_PATH, seedSql } from "../seed/sql.ts";
 import { migrate, skipWithoutDocker, startPostgres, statementsOf, type PgContainer } from "./lib/postgres.ts";
+import { sourceFiles } from "./lib/walk.ts";
 
 describe("the simulated set", () => {
   test("twelve participants, handles unique", () => {
@@ -139,13 +140,11 @@ describe("daily interruption caps", () => {
 
   test(`no other CI flow names ${CAP_PERSONA}: under tests/ and apps/web only the two interruption-budget suites do`, () => {
     const root = new URL("../../../", import.meta.url).pathname;
-    const skip = new Set(["node_modules", "dist", ".next", ".turbo", "test-results", "playwright-report", "coverage"]);
+    // Never enters node_modules or a dot-directory: another check may create and delete files there meanwhile (review B2).
+    const skip = new Set(["node_modules", "dist", "test-results", "playwright-report", "coverage"]);
     const naming: string[] = [];
     for (const dir of ["tests", "apps/web"]) {
-      for (const d of readdirSync(join(root, dir), { recursive: true, withFileTypes: true })) {
-        const path = join(d.parentPath, d.name);
-        if (!d.isFile() || !/\.(ts|tsx|mts|js|mjs|cjs)$/.test(d.name)) continue;
-        if (relative(root, path).split(sep).some((part) => skip.has(part))) continue;
+      for (const path of sourceFiles(join(root, dir), skip)) {
         const source = readFileSync(path, "utf8");
         if (!source.includes(CAP_PERSONA)) continue;
         naming.push(relative(root, path));

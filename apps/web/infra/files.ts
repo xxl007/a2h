@@ -21,8 +21,12 @@ export interface PresignedUpload {
 }
 
 export interface FileStore {
-  /** A POST policy bound to `key`, 1..`maxBytes` bytes and exactly `contentType`. */
-  presignUpload(i: { key: string; contentType: string; maxBytes: number; expiresSeconds: number }): Promise<PresignedUpload>;
+  /**
+   * A POST policy bound to `key`, exactly `sizeBytes` bytes (the size the
+   * principal declared and the limits were checked against: review B1) and
+   * exactly `contentType`.
+   */
+  presignUpload(i: { key: string; contentType: string; sizeBytes: number; expiresSeconds: number }): Promise<PresignedUpload>;
   /** A GET link to `key` served with `contentType` and the given disposition (no file name). */
   presignDownload(i: { key: string; contentType: string; disposition: "inline" | "attachment"; expiresSeconds: number }): Promise<string>;
   deleteObject(key: string): Promise<void>;
@@ -48,7 +52,7 @@ export function createFileStore(o: FileStoreOptions): FileStore {
         Bucket: o.bucket,
         Key: i.key,
         Fields: { "Content-Type": i.contentType },
-        Conditions: [["content-length-range", 1, i.maxBytes], { "Content-Type": i.contentType }],
+        Conditions: [["content-length-range", i.sizeBytes, i.sizeBytes], { "Content-Type": i.contentType }],
         Expires: i.expiresSeconds,
       });
       return { url: post.url, fields: post.fields };

@@ -154,7 +154,8 @@ export async function addFile(deps: FilesDeps, c: FilesCaller, input: unknown): 
         const upload = await deps.store.presignUpload({
           key: uploadKey(deps.storagePrefix, c.requestId, id),
           contentType: outcome.file.declared_type,
-          maxBytes: ATTACHMENT_MAX_BYTES,
+          // Exactly the declared size: the stored object is the one the limits were checked against (review B1).
+          sizeBytes: outcome.file.size_bytes,
           expiresSeconds: FILE_LINK_SECONDS,
         });
         deps.logger.info("file added", { ...fields, file_id: id, code: "file_added" });

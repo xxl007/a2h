@@ -406,6 +406,12 @@ export const requestFiles = pgTable(
     state: code("state", FILE_STATES).notNull(),
     refused_reason: code("refused_reason", FILE_REFUSED_REASONS),
     object_key: varchar("object_key", { length: 512 }).notNull(),
+    /**
+     * The ETag (unquoted) of the object the content check read (review B1): a
+     * clean verdict applies, and the copy to uploads/ is made, only for these
+     * bytes. Set with `checking`; null before. Never logged.
+     */
+    checked_etag: varchar("checked_etag", { length: 128 }),
     /** The order attached: what the list, the manifest and check_requests follow. */
     seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity().notNull(),
     created_at: createdAt(),

@@ -3,7 +3,7 @@
 // (design D2, D3) shared by the web app (presigned POST) and the worker.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FILE_SCAN_OUTCOMES, FileScanResultSchema, fileObjectKey, parseFileObjectKey } from "../src/index.ts";
+import { FILE_SCAN_OUTCOMES, FileObjectEtagSchema, FileScanResultSchema, fileObjectKey, parseFileObjectKey } from "../src/index.ts";
 
 const FILE = "fAAAAAAAAAAAAAAAAAAAAAA";
 const REQUEST = "A2H-7f3c";
@@ -15,6 +15,16 @@ test("FileScanResult is { file_id, outcome } with outcome clean | threat | error
   assert.ok(!FileScanResultSchema.safeParse({ file_id: "report.pdf", outcome: "clean" }).success, "an opaque file id only");
   // No room for a detection name, a hash or a reason: the shape is closed.
   assert.ok(!FileScanResultSchema.safeParse({ file_id: FILE, outcome: "threat", threat: "EICAR-Test-File" }).success);
+});
+
+test("FileScanResult carries the ETag of the object the scanner read, so a verdict binds to exact bytes (B1)", () => {
+  const etag = "9b2cf535f27731c974343645a3985328";
+  assert.ok(FileScanResultSchema.safeParse({ file_id: FILE, outcome: "clean", etag }).success);
+  assert.ok(FileScanResultSchema.safeParse({ file_id: FILE, outcome: "clean", etag: "d41d8cd98f00b204e9800998ecf8427e-3" }).success, "a multipart ETag");
+  assert.ok(!FileScanResultSchema.safeParse({ file_id: FILE, outcome: "clean", etag: `"${etag}"` }).success, "unquoted: the adapters strip S3's quotes");
+  assert.ok(!FileScanResultSchema.safeParse({ file_id: FILE, outcome: "clean", etag: "" }).success);
+  assert.ok(!FileScanResultSchema.safeParse({ file_id: FILE, outcome: "clean", etag: "x".repeat(129) }).success);
+  assert.ok(FileObjectEtagSchema.safeParse(etag).success);
 });
 
 test("object keys: <area>/<STORAGE_PREFIX>files/<request_id>/<file_id>", () => {

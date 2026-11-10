@@ -8,10 +8,11 @@
 // stage's key, the uploads area, the scanner's validation object, other
 // events) is acknowledged and ignored.
 import { DeleteMessageCommand, ReceiveMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import { parseFileObjectKey, type FileScanOutcome } from "@a2h/protocol";
+import { parseFileObjectKey, type FileScanOutcome, type FileScanResult } from "@a2h/protocol";
 import { errorFields } from "../src/error-log.ts";
 import type { FileEvent, FileEventSource } from "../src/files/events.ts";
 import type { Log, WorkerLogLine } from "../src/log.ts";
+import { unquoteEtag } from "./s3-store.ts";
 
 export interface FileEventsOptions {
   /** The uploads bucket (UPLOADS_BUCKET). */
@@ -78,7 +79,11 @@ export function fileEventOf(body: string, { bucket, storagePrefix }: FileEventsO
       const reason = Array.isArray(reasons) ? str(reasons[0]) : undefined;
       if (reason && CODE.test(reason)) log["reason"] = reason;
     }
-    return { event: { kind: "scanned", result: { file_id: key.file_id, outcome } }, log };
+    // The ETag of the object scanned binds the verdict to exact bytes (review B1); missing or malformed, a
+    // clean verdict makes nothing ready. Not logged: it is a hash of the content.
+    const etag = unquoteEtag(str(object["eTag"]));
+    const scanResult: FileScanResult = etag === undefined ? { file_id: key.file_id, outcome } : { file_id: key.file_id, outcome, etag };
+    return { event: { kind: "scanned", result: scanResult }, log };
   }
 
   return ignored("other_event");

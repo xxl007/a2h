@@ -77,14 +77,19 @@ test("actionResult reads a server action's answer, including strings React sends
 
 test("the fake scanner's events read, through the worker's real adapter, as AWS's would", () => {
   const o = { bucket: "a2h-uploads-local", storagePrefix: "pr-12/" };
+  // The adapter keeps the scanned object's ETag (m2-attachments review B1); its value is the fake's to choose.
+  const scanned = (body: string) => {
+    const e = fileEventOf(body, o).event;
+    return e?.kind === "scanned" ? { kind: e.kind, result: { file_id: e.result.file_id, outcome: e.result.outcome } } : e;
+  };
   const key = "tmp/pr-12/files/A2H-7f3c/fAAAAAAAAAAAAAAAAAAAAAA";
   assert.deepEqual(fileEventOf(objectCreated(o.bucket, key, 10), o).event, { kind: "created", file_id: "fAAAAAAAAAAAAAAAAAAAAAA" });
-  assert.deepEqual(fileEventOf(scanResult(o.bucket, key, "NO_THREATS_FOUND"), o).event, { kind: "scanned", result: { file_id: "fAAAAAAAAAAAAAAAAAAAAAA", outcome: "clean" } });
+  assert.deepEqual(scanned(scanResult(o.bucket, key, "NO_THREATS_FOUND")), { kind: "scanned", result: { file_id: "fAAAAAAAAAAAAAAAAAAAAAA", outcome: "clean" } });
   const threat = fileEventOf(scanResult(o.bucket, key, "THREATS_FOUND"), o);
-  assert.deepEqual(threat.event, { kind: "scanned", result: { file_id: "fAAAAAAAAAAAAAAAAAAAAAA", outcome: "threat" } });
+  assert.deepEqual(scanned(scanResult(o.bucket, key, "THREATS_FOUND")), { kind: "scanned", result: { file_id: "fAAAAAAAAAAAAAAAAAAAAAA", outcome: "threat" } });
   assert.doesNotMatch(JSON.stringify(threat), /EICAR/, "the detection name stops at the adapter");
   const unsupported = fileEventOf(scanResult(o.bucket, key, "UNSUPPORTED"), o);
-  assert.deepEqual(unsupported.event, { kind: "scanned", result: { file_id: "fAAAAAAAAAAAAAAAAAAAAAA", outcome: "error" } });
+  assert.deepEqual(scanned(scanResult(o.bucket, key, "UNSUPPORTED")), { kind: "scanned", result: { file_id: "fAAAAAAAAAAAAAAAAAAAAAA", outcome: "error" } });
   assert.equal(unsupported.log["reason"], "PASSWORD_PROTECTED");
   // Another stage's key is ignored, as on a deployed stage.
   assert.equal(fileEventOf(objectCreated(o.bucket, key.replace("pr-12/", "pr-13/"), 10), o).event, null);

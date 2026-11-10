@@ -2,8 +2,14 @@
 // 3.2): an object store and a source of file events (objects created, scan
 // results). They let the whole file path run locally and in tests without
 // S3, GuardDuty or SQS: a test or a local run emits the events a scanner would.
+import { createHash } from "node:crypto";
 import type { FileEvent, FileEventSource } from "./events.ts";
 import type { FileStore, ObjectHead } from "./store.ts";
+
+/** The ETag S3 gives a single-part upload (MD5 hex, unquoted): what MemoryFileStore reports. */
+export function etagOf(content: Uint8Array): string {
+  return createHash("md5").update(content).digest("hex");
+}
 
 export interface StoredObject {
   content: Uint8Array;
@@ -14,6 +20,8 @@ export class MemoryFileStore implements FileStore {
   readonly objects = new Map<string, StoredObject>();
   /** Test hook: runs inside `copy`, after the bytes are written. */
   onCopy: (() => Promise<void>) | undefined;
+  /** Test hook: runs at the start of every `delete`, before the object goes. */
+  beforeDelete: (() => Promise<void>) | undefined;
   /** Test hook: every delete fails while true. */
   failDeletes = false;
 
@@ -31,20 +39,21 @@ export class MemoryFileStore implements FileStore {
 
   head(key: string, length: number): Promise<ObjectHead | null> {
     const o = this.objects.get(key);
-    return Promise.resolve(o ? { bytes: o.content.subarray(0, length), size: o.content.length } : null);
+    return Promise.resolve(o ? { bytes: o.content.subarray(0, length), size: o.content.length, etag: etagOf(o.content) } : null);
   }
 
-  async copy(from: string, to: string, contentType: string): Promise<void> {
+  async copy(from: string, to: string, contentType: string, ifMatch: string): Promise<"copied" | "changed"> {
     const o = this.objects.get(from);
-    if (!o) throw new Error("copy: no such object");
+    if (!o || etagOf(o.content) !== ifMatch) return "changed";
     this.objects.set(to, { content: o.content, content_type: contentType });
     if (this.onCopy) await this.onCopy();
+    return "copied";
   }
 
-  delete(key: string): Promise<void> {
-    if (this.failDeletes) return Promise.reject(new Error("delete: storage unavailable"));
+  async delete(key: string): Promise<void> {
+    if (this.beforeDelete) await this.beforeDelete();
+    if (this.failDeletes) throw new Error("delete: storage unavailable");
     this.objects.delete(key);
-    return Promise.resolve();
   }
 }
 
