@@ -268,8 +268,13 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
       const added = await captureAction(page, addOf("minutes-big.pdf"), () => addFiles(page, [big]));
       assert.deepEqual(redact(added.result), { kind: "refused", refusal: "size" });
       assert.ok((await rowText(page, "minutes-big.pdf")).includes(COPY.refusedSize));
-      // 20 + 20 MB held, then 20 MB more: over 50 MB in all.
-      await addFiles(page, [pdfOfSize(20 * MB, "part-1.pdf"), pdfOfSize(20 * MB, "part-2.pdf")]);
+      // 20 + 20 MB recorded through the page's own add action (no upload at all: the limit reads declared sizes, and
+      // a file whose upload failed would no longer count; pr-108's first run lost two held 20 MB uploads that way),
+      // then 20 MB more chosen in the browser: over 50 MB in all.
+      for (const name of ["part-1.pdf", "part-2.pdf"]) {
+        const r = await replayAction(page, added.action, [a.out.request_id, { name, type: "application/pdf", size: 20 * MB }]);
+        assert.equal(r?.["kind"], "added", `${name}: ${JSON.stringify(redact(r))}`);
+      }
       const third = await captureAction(page, addOf("part-3.pdf"), () => addFiles(page, [pdfOfSize(20 * MB, "part-3.pdf")]));
       assert.deepEqual(redact(third.result), { kind: "refused", refusal: "total" });
       assert.ok((await rowText(page, "part-3.pdf")).includes(COPY.refusedTotal));
