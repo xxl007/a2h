@@ -53,9 +53,21 @@ export async function pageAs(browser: Browser, who: Who | null, options: Browser
   return context.newPage();
 }
 
+/**
+ * The local stage's links name https://web.a2h.test (request_human issues
+ * https links only); with A2H_LOCAL_WEB_URL set (a local `next start`), they
+ * are opened there. Deployed stages: the link unchanged.
+ */
+export function localLink(link: string): string {
+  const local = process.env["A2H_LOCAL_WEB_URL"]?.trim().replace(/\/$/, "");
+  const u = new URL(link);
+  if (!local || u.origin !== "https://web.a2h.test") return link;
+  return `${local}${u.pathname}${u.search}`;
+}
+
 /** `https://<web>/approve/<id>` without the token. */
 export function barePath(link: string): string {
-  const u = new URL(link);
+  const u = new URL(localLink(link));
   return `${u.origin}${u.pathname}`;
 }
 
@@ -86,7 +98,7 @@ export async function alerts(page: Page): Promise<string[]> {
  * is never in the address bar after this. Returns the page's heading.
  */
 export async function openLink(page: Page, link: string): Promise<string> {
-  await page.goto(link, { waitUntil: "load", timeout: 30_000 });
+  await page.goto(localLink(link), { waitUntil: "load", timeout: 30_000 });
   const at = page.url();
   assert.ok(!at.includes("?t=") && !at.includes("&t="), `the token is still in the address bar of ${requestIdOf(link)}`);
   return heading(page);

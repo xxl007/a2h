@@ -182,7 +182,7 @@ describe("adversarial: manifest validation fails closed (live)", () => {
     test(`known limit of the deterministic rules (D6, OPEN): ${label}`, { todo: "reported to the PM; a classifier is an M3 proposal" }, async () => {
       const raw = await firstLeg(c, manifest(DM, "judgment", 3200, question));
       assert.ok(!isInputRequired(raw), "a URL elicitation was not expected from a forms-only client");
-      assert.equal(raw.isError, true, `this evasion gets past the content rules: recorded as ${JSON.stringify(raw.structuredContent)}`);
+      assert.equal(raw.isError, true, `this evasion gets past the content rules: recorded as ${JSON.stringify(raw.structuredContent).replace(/([?&]t=)[^"&]+/g, "$1<token>")}`);
       assert.equal(errorOf(raw).code, "forbidden_content");
     });
   }

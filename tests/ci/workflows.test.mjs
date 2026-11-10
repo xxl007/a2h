@@ -344,7 +344,9 @@ function assertVerifyJob(f) {
   // m2-approval-page 6.1/6.2: on previews the expiry flows (an approval link lasts at least fifteen minutes,
   // design D2) run in the background for about 23 minutes alongside the suites: 30 is the preview's bound.
   // dev keeps 15 (no expiry flows after a merge).
-  const bound = f === "preview.yml" ? 30 : 15;
+  // m2-attachments 6.1: dev's own file step (file flows and the live EICAR, with a real scanner) adds about
+  // 6 minutes: 25 is dev's bound.
+  const bound = f === "preview.yml" ? 30 : 25;
   assert.equal(j["timeout-minutes"] <= bound, true, `${f} verify must stay under ${bound} minutes`);
   const creds = indexOf(j, isCreds, `${f} verify AWS credentials`);
   assert.equal(steps(j).filter(isCreds).length, 1, `${f} verify: one credentials step`);
@@ -463,6 +465,87 @@ function assertSignIn(f, j, creds, at) {
   assert.match(String(writer.env?.TOKENS ?? ""), /steps\.tokens\.outcome/, `${f}: the outcome reads the token step`);
   assert.match(String(writer.env?.WEB_E2E ?? ""), /steps\.web-e2e\.outcome/, `${f}: the outcome reads the web e2e step`);
   assertExpiryFlows(f, j, tokens, at, writer);
+  assertFileFlows(f, j, tokens, at, writer);
+}
+
+// --- m2-attachments 6.1, 6.2: the file flows -----------------------------------------
+// Previews borrow dev's uploads bucket, whose POST CORS, S3 → EventBridge and scanner come with dev's
+// deploy from main. Each verify job runs the file suites in a step of their own (id files). On dev that
+// step requires storage and checks (A2H_E2E_REQUIRE_FILE_STORAGE / _CHECKS = 1: a skip fails) and runs
+// the live EICAR case against GuardDuty. On a preview a CORS preflight against the bucket for POST from
+// the preview's origin (storage-cors.sh, step id files-probe) decides: allowed → both requirements go to
+// GITHUB_ENV for every later step; refused → the tests may skip, said in one notice line.
+const FILE_SUITES = ["contract/attachments.test.ts", "adversarial/attachments.live.test.ts"];
+const LONG_FILE_FILES = ["contract/attachments-expiry.test.ts", "adversarial/attachments-expiry.live.test.ts"];
+
+function assertFileFlows(f, j, tokens, at, writer) {
+  assert.equal(j.env?.A2H_FILE_SUITES, "own-step", `${f} verify: the general contract and adversarial steps leave the file suites to their own step`);
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  for (const file of FILE_SUITES) assert.ok(pkg.scripts.files.includes(file), `the files script runs ${file}`);
+  const filesStep = indexOf(j, (s) => s.id === "files", `${f} verify file flows step`);
+  const s = steps(j)[filesStep];
+  assert.ok(runs(s, "pnpm --filter @a2h/tests files"), `${f}: the file step runs the files script`);
+  assert.equal(String(s.env?.A2H_FILE_STEP), "1", `${f}: the file step opts in`);
+  assert.match(String(s.env?.A2H_MCP_URL ?? ""), /needs\.deploy\.outputs\.mcp/);
+  assert.ok(Math.max(...at) < filesStep, `${f}: the file flows run after the suites`);
+  const flood = indexOf(j, (st) => st.id === "dcr-flood", `${f} verify DCR flood`);
+  assert.ok(filesStep < flood, `${f}: the file flows run before the DCR flood`);
+  assert.equal(s["continue-on-error"], undefined, `${f}: a failing file flow fails the job`);
+  for (const st of steps(j)) {
+    if (st.id !== "files") assert.equal(st.env?.A2H_FILE_STEP, undefined, `${f} verify ${st.name}: only the file step opts in`);
+  }
+  const webE2e = steps(j).find((st) => runs(st, "@a2h/web e2e"));
+  if (f === "deploy.yml") {
+    for (const st of [s, webE2e]) {
+      assert.equal(String(st.env?.A2H_E2E_REQUIRE_FILE_STORAGE), "1", `dev ${st.name}: storage required (dev owns the bucket's CORS)`);
+      assert.equal(String(st.env?.A2H_E2E_REQUIRE_FILE_CHECKS), "1", `dev ${st.name}: checks required (dev runs the scanner)`);
+    }
+    assert.ok(!steps(j).some((st) => runs(st, "storage-cors.sh")), "dev needs no probe: it requires storage outright");
+    assert.match(String(writer.env?.FILES ?? ""), /steps\.files\.outcome/, `${f}: the summary reads the file step`);
+    assert.match(writer.run, /\$\{?FILES/, `${f}: the summary lists the file step`);
+    return;
+  }
+  // preview: the probe decides, before anything that reads the flags (the long flows start right after the sign-in).
+  const probe = indexOf(j, (st) => st.id === "files-probe", `${f} verify storage probe`);
+  const p = steps(j)[probe];
+  assert.ok(runs(p, ".github/scripts/storage-cors.sh"), `${f}: the probe runs storage-cors.sh`);
+  assert.match(p.run, /A2H_MAIL_SINK_BUCKET/, `${f}: the probe asks about the stage's uploads bucket`);
+  assert.match(String(p.env?.WEB_URL ?? ""), /needs\.deploy\.outputs\.web/, `${f}: the probe asks for the preview's own origin`);
+  assert.match(p.run, /A2H_E2E_REQUIRE_FILE_STORAGE=1/);
+  assert.match(p.run, /A2H_E2E_REQUIRE_FILE_CHECKS=1/);
+  assert.match(p.run, /GITHUB_ENV/);
+  assert.match(p.run, /::notice::/, `${f}: a refused probe says why once`);
+  const sink = indexOf(j, (st) => runs(st, "A2H_MAIL_SINK_BUCKET=") && runs(st, "GITHUB_ENV"), `${f} verify mail sink`);
+  const start = indexOf(j, (st) => st.id === "long-start", `${f} verify expiry flows start`);
+  assert.ok(sink < probe && probe < tokens && tokens < start, `${f}: sink, probe, sign-in, then the long flows`);
+  for (const st of steps(j)) {
+    assert.equal(st.env?.A2H_E2E_REQUIRE_FILE_STORAGE, undefined, `${f} verify ${st.name}: on a preview only the probe sets the requirement`);
+  }
+  for (const file of LONG_FILE_FILES) assert.ok(runs(steps(j)[start], file), `${f}: the background start runs ${file}`);
+  // pr-108 (run 42714300614): node --test runs (CPUs − 1) files at once, 3 on a GitHub runner; the fourth long file
+  // waited and the job hit its 30 minutes. All four run at once.
+  const longFiles = LONG_FILES.length + LONG_FILE_FILES.length;
+  assert.match(steps(j)[start].run, new RegExp(`--test-concurrency=${longFiles}\\b`), `${f}: the ${longFiles} long files run concurrently`);
+  assert.match(String(writer.env?.FILES ?? ""), /steps\.files\.outcome/, `${f}: the Verification line reads the file step`);
+  assert.match(writer.run, /FAILED \(file flows\)/, `${f}: a file-flow failure is named in the Verification line`);
+  // The probe's branches, run as the runner runs them, with a stand-in for the script.
+  for (const [code, required] of [[0, true], [1, false]]) {
+    const dir = mkdtempSync(join(tmpdir(), "a2h-probe-"));
+    try {
+      const env = join(dir, "env");
+      writeFileSync(env, "");
+      const script = `fake_probe() { return ${code}; }\n${p.run.replace(/\.github\/scripts\/storage-cors\.sh/, "fake_probe")}`;
+      const r = spawnSync("bash", ["-e", "-c", script], { encoding: "utf8", env: { PATH: process.env.PATH, GITHUB_ENV: env, WEB_URL: "https://pr-12.dev.a2h-protocol.org", A2H_MAIL_SINK_BUCKET: "a2h-dev-uploads", STAGE: "pr-12" } });
+      assert.equal(r.status, 0, `probe exit ${code}: the step must not fail (${r.stderr})`);
+      const written = readFileSync(env, "utf8");
+      assert.equal(written.includes("A2H_E2E_REQUIRE_FILE_STORAGE=1") && written.includes("A2H_E2E_REQUIRE_FILE_CHECKS=1"), required, `probe exit ${code}: requirement ${required}`);
+      if (!required) assert.match(r.stdout, /::notice::/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+  const failing = spawnSync("bash", ["-e", "-c", `fake_probe() { return 2; }\n${p.run.replace(/\.github\/scripts\/storage-cors\.sh/, "fake_probe")}`], { encoding: "utf8", env: { PATH: process.env.PATH, GITHUB_ENV: "/dev/null", WEB_URL: "https://pr-12.dev.a2h-protocol.org", A2H_MAIL_SINK_BUCKET: "b", STAGE: "pr-12" } });
+  assert.notEqual(failing.status, 0, `${f}: a probe that got no answer fails the step`);
 }
 
 // --- m2-approval-page 6.1, 6.2: the expiry flows ---------------------------------
