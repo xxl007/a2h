@@ -5,7 +5,7 @@
 //
 //   case F1  uploading to another principal's request
 //   case F2  reusing an expired upload policy        (long: adversarial/attachments-expiry.live.test.ts)
-//   case F3  a body larger than the policy, or than declared
+//   case F3  a body of another size than declared (larger, smaller, over 25 MB)
 //   case F4  content-type spoofing (policy field, declared type, bytes)
 //   case F5  EICAR (through the page, and posted straight to storage)
 //   case F6  reading a file by guessing its address
@@ -20,7 +20,7 @@
 // whatever body it wants with the policy. Storage is reached from Node (no
 // CORS involved): the storage cases run on any stage whose web role may write
 // its upload area, previews included. The cases that need a check result
-// (F3 declared size, F4 bytes, F5, F7, F8) are skipped without one unless
+// (F3 the exact size, F4 bytes, F5, F7, F8, F9) are skipped without one unless
 // A2H_E2E_REQUIRE_FILE_CHECKS=1.
 //
 // Each case was first run red against a one-line weakening on the local
@@ -185,25 +185,34 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
     }
   });
 
-  test("case F3: a body larger than the policy is refused by storage; a body larger than declared is refused by the content check", async (t) => {
+  test("case F3: a body of any size other than the declared one is refused by storage (over 25 MB, larger, smaller); only the declared size is stored", async (t) => {
     const page = await pageAs(browser, "a");
     try {
       const r = await awaitingOn(page, a, "Is the attached agenda clear?");
       const small = pdfOfSize(1024, "agenda.pdf");
       const { policy, id } = await addHeld(page, r, small);
-      // Over the policy's 25 MB.
-      const over = await postToStorage(policy, Buffer.concat([small.buffer, Buffer.alloc(25 * MB + 1 - small.buffer.length, 0x20)]));
-      assert.equal(over.status, 400, `25 MB + 1 byte stored: ${over.status}`);
-      assert.equal(over.code, "EntityTooLarge");
-      // Within the policy but four times what was declared (a way round the 50 MB total): stored, then refused.
-      const bigger = pdfOfSize(4096, "agenda.pdf").buffer;
-      const within = await postToStorage(policy, bigger);
-      assert.ok(within.status === 204 || within.status === 201 || within.status === 200, `storage refused a body within the policy: ${within.status} ${within.code}`);
+      // The policy binds the size exactly (review B1): over 25 MB, four times what was declared (a way round the
+      // 50 MB total), one byte more, one byte less, a quarter of it.
+      const refusals: [string, Buffer, string][] = [
+        ["25 MB + 1 byte", Buffer.concat([small.buffer, Buffer.alloc(25 * MB + 1 - small.buffer.length, 0x20)]), "EntityTooLarge"],
+        ["4096 bytes", pdfOfSize(4096, "agenda.pdf").buffer, "EntityTooLarge"],
+        ["1025 bytes", pdfOfSize(1025, "agenda.pdf").buffer, "EntityTooLarge"],
+        ["1023 bytes", pdfOfSize(1023, "agenda.pdf").buffer, "EntityTooSmall"],
+        ["256 bytes", pdfOfSize(256, "agenda.pdf").buffer, "EntityTooSmall"],
+      ];
+      for (const [what, body, code] of refusals) {
+        const got = await postToStorage(policy, body);
+        assert.equal(got.status, 400, `${what} for 1024 declared stored: ${got.status}`);
+        assert.equal(got.code, code, `${what} for 1024 declared`);
+      }
+      const objects = await localObjects(r.out.request_id);
+      if (objects) assert.ok(!objects.some((k) => k.endsWith(id)), "a refused body left an object");
+      // The declared size is stored, and checked as any file.
+      const exact = await postToStorage(policy, small.buffer);
+      assert.ok(exact.status < 300, `storage refused the declared size: ${exact.status} ${exact.code}`);
       const v = await verdict(page, "agenda.pdf");
       if (!need(t, v)) return;
-      assert.equal(v.pill, "Refused", `a body larger than declared became ${v.pill}`);
-      const objects = await localObjects(r.out.request_id);
-      if (objects) assert.ok(!objects.some((k) => k.endsWith(id)), "the refused body is deleted");
+      assert.equal(v.pill, "Ready", v.text);
       await dontSend(page);
     } finally {
       await closePage(page);
@@ -419,17 +428,19 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
       // A disguised body: an executable's header in a file declared as text (the content check would refuse it).
       const exe = (size: number) => Buffer.concat([Buffer.from("MZ", "latin1"), Buffer.alloc(size - 2, 0x90)]);
       const plan = [
-        { what: "same size", file: textOfSize(SIZE, "minutes-a.txt"), swap: exe(SIZE) },
-        { what: "larger", file: textOfSize(SIZE, "minutes-b.txt"), swap: exe(4 * SIZE) },
-      ];
+        // Storage takes it (the policy binds the size, not the bytes): the pinned ETag must refuse it, as not checked.
+        { what: "same size", file: textOfSize(SIZE, "minutes-a.txt"), swap: exe(SIZE), storage: "stored" },
+        // Storage refuses it (the policy binds the size exactly): the first version stays, and may become Ready.
+        { what: "larger", file: textOfSize(SIZE, "minutes-b.txt"), swap: exe(4 * SIZE), storage: "EntityTooLarge" },
+      ] as const;
       // 1. The file is added (N bytes, text/plain), its scan held; 2. valid content posted.
-      const held: { what: string; name: string; first: Buffer; swap: Buffer; id: string; policy: UploadPolicy }[] = [];
+      const held: { what: string; name: string; first: Buffer; swap: Buffer; storage: string; id: string; policy: UploadPolicy }[] = [];
       for (const p of plan) {
         const { policy, id } = await addHeld(page, r, p.file);
         await scanControl("hold", id);
         const first = await postToStorage(policy, p.file.buffer);
         assert.ok(first.status < 300, `${p.what}: storage refused the valid first body: ${first.status} ${first.code}`);
-        held.push({ what: p.what, name: p.file.name, first: p.file.buffer, swap: p.swap, id, policy });
+        held.push({ what: p.what, name: p.file.name, first: p.file.buffer, swap: p.swap, storage: p.storage, id, policy });
       }
       // The worker's content check passed on the first version, and the scanner has read it (its verdict held).
       const firstEtag = new Map<string, unknown>();
@@ -439,12 +450,15 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
         firstEtag.set(h.id, scanned["etag"]);
       }
       // 3. Before the clean result is applied: other bytes, the same still-valid policy.
+      const problems: string[] = [];
       const swapped = new Map<string, boolean>();
       for (const h of held) {
         const second = await postToStorage(h.policy, h.swap);
         const stored = second.status < 300;
         swapped.set(h.id, stored);
         t.diagnostic(`${h.what}: second POST (${h.swap.length} bytes for ${h.first.length} declared) → storage ${second.status}${second.code ? ` ${second.code}` : ""}`);
+        if (h.storage === "stored") assert.ok(stored, `${h.what}: storage refused a body of the declared size (${second.status} ${second.code}): the swap is not exercised`);
+        else if (stored || second.code !== h.storage) problems.push(`${h.what}: the second POST was not refused by storage with ${h.storage}: ${second.status} ${second.code ?? ""}`.trim());
         if (stored) {
           const now = await localObjectBytes("tmp", r.out.request_id, h.id);
           assert.ok(now?.equals(h.swap), `${h.what}: storage answered ${second.status} but does not hold the second body`);
@@ -454,7 +468,6 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
       for (const h of held) await scanControl("release", h.id);
       for (const h of held) await localLogLine(`${h.what}: the first version's verdict sent`, { msg: "fake scanner: result sent twice", key_tail: h.id, etag: String(firstEtag.get(h.id)) });
 
-      const problems: string[] = [];
       for (const h of held) {
         const v = await verdict(page, h.name);
         if (!need(t, v)) return;
@@ -468,9 +481,9 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
           if (v.pill === "Ready") problems.push(`${h.what}: Ready with ${bytes} in uploads/`);
           else if (!v.text.includes(COPY.refusedNotChecked)) problems.push(`${h.what}: refused, but not as not checked: ${v.text.replace(h.name, "<name>")}`);
           if (copied !== undefined) problems.push(`${h.what}: ${bytes} copied into uploads/`);
-        } else if (v.pill === "Ready" && !copied?.equals(h.first)) {
-          // Storage refused the second body: Ready is right only with the bytes that were checked and scanned.
-          problems.push(`${h.what}: Ready with ${bytes} in uploads/ (the second POST was refused by storage)`);
+        } else if (v.pill !== "Ready" || !copied?.equals(h.first)) {
+          // Storage refused the second body: the checked version is still there, scanned clean: Ready, with those bytes only.
+          problems.push(`${h.what}: ${v.pill} with ${bytes} in uploads/ (the second POST was refused by storage: Ready with the checked bytes expected)`);
         }
       }
       // Send stays blocked while a file is refused, and nothing was sent or held.
