@@ -303,9 +303,29 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
       const bent = await fetchLink(u.toString());
       assert.equal(bent.status, 403, `a link bent to another file: ${bent.status}`);
       assert.equal(bent.code, "SignatureDoesNotMatch");
+      // The link without its signature. The link carries response-content-type and
+      // response-content-disposition overrides; S3 refuses those on an anonymous GET with
+      // 400 InvalidRequest before it looks at the key. Dropping the whole query gives a
+      // plain anonymous GET of the uploads/ key, which the bucket policy must refuse (403).
+      // Either way: an S3 error document, never the file's bytes.
       const unsigned = new URL(link);
       for (const p of [...unsigned.searchParams.keys()]) if (p.startsWith("X-Amz-")) unsigned.searchParams.delete(p);
-      if (ANONYMOUS_ENFORCED) assert.equal((await fetchLink(unsigned.toString())).status, 403, "the link without its signature");
+      assert.ok([...unsigned.searchParams.keys()].some((p) => p.startsWith("response-")), "the link carries response-* overrides");
+      const bare = new URL(unsigned);
+      bare.search = "";
+      assert.match(bare.pathname, /\/uploads\//, "the link reads the clean area");
+      if (ANONYMOUS_ENFORCED) {
+        const sent = F.webp().buffer;
+        for (const [what, url, status, code] of [
+          ["the link without its signature", unsigned, 400, "InvalidRequest"],
+          ["the link without its signature or response overrides", bare, 403, "AccessDenied"],
+        ] as const) {
+          const got = await fetchLink(url.toString());
+          assert.equal(got.status, status, `${what}: ${got.status} ${got.code ?? ""}`.trim());
+          assert.equal(got.code, code, what);
+          assert.ok(!got.body.includes(sent), `${what}: the file's bytes came back`);
+        }
+      }
       const opened = await captureAction(page, (args) => args.length === 2 && typeof args[1] === "string", () => openedLink(page, "diagram.webp").then(() => undefined));
       assert.equal(await openLink(other, r.out.approval_url), PAGE.wrongPrincipal);
       assert.deepEqual(redact(await replayAction(other, opened.action, opened.args)), { url: null }, "B asking for A's file");
