@@ -305,15 +305,15 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
       assert.equal(bent.code, "SignatureDoesNotMatch");
       // The link without its signature. The link carries response-content-type and
       // response-content-disposition overrides; S3 refuses those on an anonymous GET with
-      // 400 InvalidRequest before it looks at the key. Stripping them too gives a plain
-      // anonymous GET of the uploads/ key, which the bucket policy must refuse (403).
+      // 400 InvalidRequest before it looks at the key. Dropping the whole query gives a
+      // plain anonymous GET of the uploads/ key, which the bucket policy must refuse (403).
       // Either way: an S3 error document, never the file's bytes.
       const unsigned = new URL(link);
       for (const p of [...unsigned.searchParams.keys()]) if (p.startsWith("X-Amz-")) unsigned.searchParams.delete(p);
       assert.ok([...unsigned.searchParams.keys()].some((p) => p.startsWith("response-")), "the link carries response-* overrides");
       const bare = new URL(unsigned);
-      for (const p of [...bare.searchParams.keys()]) if (p.startsWith("response-")) bare.searchParams.delete(p);
-      assert.equal(bare.search, "", "nothing but the key is left");
+      bare.search = "";
+      assert.match(bare.pathname, /\/uploads\//, "the link reads the clean area");
       if (ANONYMOUS_ENFORCED) {
         const sent = F.webp().buffer;
         for (const [what, url, status, code] of [
