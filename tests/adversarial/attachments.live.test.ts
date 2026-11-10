@@ -11,6 +11,7 @@
 //   case F6  reading a file by guessing its address
 //   case F7  adding, removing or refusing a file after Send; re-posting a sent file
 //   case F8  racing remove and Send
+//   case F9  re-upload between the content check and the scan result (local stage: the scan is held)
 //
 // The instruments (tests/lib/files.ts): the upload policy the page's add
 // action returns, the page's own server actions replayed with other
@@ -49,6 +50,10 @@ import {
   guessObject,
   holdBrowserUploads,
   LOCAL_S3,
+  KB,
+  LOCAL_LOG_FILES,
+  localLogLine,
+  localObjectBytes,
   localObjects,
   MB,
   NO_CHECKS,
@@ -61,6 +66,8 @@ import {
   REQUIRE_CHECKS,
   replayAction,
   rowText,
+  scanControl,
+  textOfSize,
   type Outcome,
   type UploadPolicy,
 } from "../lib/files.ts";
@@ -75,6 +82,12 @@ const PAGE_AB = pageSkip("a", "b") || (process.env["A2H_TOKEN_2"] ? false : "nee
 const RACE_ROUNDS = Number(process.env["A2H_RACE_ROUNDS"] ?? 2);
 /** LocalStack does not enforce bucket access for anonymous callers: the unsigned reads are a deployed stage's. */
 const ANONYMOUS_ENFORCED = !LOCAL_S3;
+/** F9 holds a scan result back: only the local stage's fake scanner can, and the stage's log says when the check and the scan happened. */
+const SCAN_HOLD: string | false = !LOCAL_S3
+  ? "needs the local stage with files (A2H_LOCAL_S3_ENDPOINT): holding a scan result is the fake scanner's control; GuardDuty cannot be held"
+  : LOCAL_LOG_FILES.length === 0
+    ? "needs A2H_LOCAL_LOG_FILES (the local stage's log: when the content check passed and the scan was held)"
+    : false;
 
 function need(t: TestContext, o: Outcome): o is Extract<Outcome, { kind: "pill" }> {
   if (o.kind === "skip") {
@@ -395,6 +408,83 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
       } finally {
         await closePage(page);
       }
+    }
+  });
+
+  test("case F9: re-upload between the content check and the scan result → never Ready with bytes other than the ones checked and scanned; refused as not checked (or the second POST refused by storage); Send blocked; nothing copied into uploads/", { skip: SCAN_HOLD }, async (t) => {
+    const page = await pageAs(browser, "a");
+    try {
+      const r = await awaitingOn(page, a, "Do the attached meeting notes record every decision taken?");
+      const SIZE = 2 * KB;
+      // A disguised body: an executable's header in a file declared as text (the content check would refuse it).
+      const exe = (size: number) => Buffer.concat([Buffer.from("MZ", "latin1"), Buffer.alloc(size - 2, 0x90)]);
+      const plan = [
+        { what: "same size", file: textOfSize(SIZE, "minutes-a.txt"), swap: exe(SIZE) },
+        { what: "larger", file: textOfSize(SIZE, "minutes-b.txt"), swap: exe(4 * SIZE) },
+      ];
+      // 1. The file is added (N bytes, text/plain), its scan held; 2. valid content posted.
+      const held: { what: string; name: string; first: Buffer; swap: Buffer; id: string; policy: UploadPolicy }[] = [];
+      for (const p of plan) {
+        const { policy, id } = await addHeld(page, r, p.file);
+        await scanControl("hold", id);
+        const first = await postToStorage(policy, p.file.buffer);
+        assert.ok(first.status < 300, `${p.what}: storage refused the valid first body: ${first.status} ${first.code}`);
+        held.push({ what: p.what, name: p.file.name, first: p.file.buffer, swap: p.swap, id, policy });
+      }
+      // The worker's content check passed on the first version, and the scanner has read it (its verdict held).
+      const firstEtag = new Map<string, unknown>();
+      for (const h of held) {
+        await localLogLine(`${h.what}: the content check of the first version`, { msg: "file type checked", file_id: h.id });
+        const scanned = await localLogLine(`${h.what}: the scan of the first version, held`, { msg: "fake scanner: result held", key_tail: h.id });
+        firstEtag.set(h.id, scanned["etag"]);
+      }
+      // 3. Before the clean result is applied: other bytes, the same still-valid policy.
+      const swapped = new Map<string, boolean>();
+      for (const h of held) {
+        const second = await postToStorage(h.policy, h.swap);
+        const stored = second.status < 300;
+        swapped.set(h.id, stored);
+        t.diagnostic(`${h.what}: second POST (${h.swap.length} bytes for ${h.first.length} declared) → storage ${second.status}${second.code ? ` ${second.code}` : ""}`);
+        if (stored) {
+          const now = await localObjectBytes("tmp", r.out.request_id, h.id);
+          assert.ok(now?.equals(h.swap), `${h.what}: storage answered ${second.status} but does not hold the second body`);
+        }
+      }
+      // 4. The clean verdict for the first version arrives (then the second version's, as S3 and GuardDuty would send it).
+      for (const h of held) await scanControl("release", h.id);
+      for (const h of held) await localLogLine(`${h.what}: the first version's verdict sent`, { msg: "fake scanner: result sent twice", key_tail: h.id, etag: String(firstEtag.get(h.id)) });
+
+      const problems: string[] = [];
+      for (const h of held) {
+        const v = await verdict(page, h.name);
+        if (!need(t, v)) return;
+        // Give a late copy its chance to land before looking at uploads/.
+        await new Promise((res) => setTimeout(res, 3_000));
+        const copied = await localObjectBytes("uploads", r.out.request_id, h.id);
+        const bytes = copied === undefined ? "nothing" : copied.equals(h.swap) ? "the swapped bytes" : copied.equals(h.first) ? "the checked bytes" : "other bytes";
+        t.diagnostic(`${h.what}: ${v.pill} (${v.text.replace(/\s+/g, " ").replace(h.name, "<name>")}); uploads/ holds ${bytes}`);
+        if (swapped.get(h.id)) {
+          // Storage took the second body: the file can only be refused, as not checked, and nothing reaches uploads/.
+          if (v.pill === "Ready") problems.push(`${h.what}: Ready with ${bytes} in uploads/`);
+          else if (!v.text.includes(COPY.refusedNotChecked)) problems.push(`${h.what}: refused, but not as not checked: ${v.text.replace(h.name, "<name>")}`);
+          if (copied !== undefined) problems.push(`${h.what}: ${bytes} copied into uploads/`);
+        } else if (v.pill === "Ready" && !copied?.equals(h.first)) {
+          // Storage refused the second body: Ready is right only with the bytes that were checked and scanned.
+          problems.push(`${h.what}: Ready with ${bytes} in uploads/ (the second POST was refused by storage)`);
+        }
+      }
+      // Send stays blocked while a file is refused, and nothing was sent or held.
+      if (held.some((h) => swapped.get(h.id))) {
+        await page.reload();
+        if (!(await sendButton(page).isDisabled())) problems.push("Send is available");
+      }
+      const now = await checkOne(a, r.out.request_id);
+      if (now.status !== "awaiting_approval") problems.push(`the request left awaiting_approval: ${now.status}`);
+      if (now.hold_status !== "none") problems.push(`money held: ${now.hold_status}`);
+      assert.deepEqual(problems, [], "a file became Ready with bytes other than the ones checked and scanned");
+      await dontSend(page);
+    } finally {
+      await closePage(page);
     }
   });
 });
