@@ -4,8 +4,8 @@
 // through db-migrate.sh.
 import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, relative } from "node:path";
 import pg from "pg";
 import * as protocol from "@a2h/protocol";
 import { SEED_DEV_BUDGET_MULTIPLIER, SEED_PERSONAS, SEED_PARTICIPANTS, SEED_PRINCIPAL, SEED_PRINCIPAL_POLICY } from "../seed/simulated.ts";
@@ -13,6 +13,7 @@ import { principalWithPolicy } from "../src/index.ts";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { SEED_SQL_PATH, seedSql } from "../seed/sql.ts";
 import { migrate, skipWithoutDocker, startPostgres, statementsOf, type PgContainer } from "./lib/postgres.ts";
+import { sourceFiles } from "./lib/walk.ts";
 
 describe("the simulated set", () => {
   test("twelve participants, handles unique", () => {
@@ -74,6 +75,28 @@ describe("the simulated set", () => {
     assert.equal(readFileSync(SEED_SQL_PATH, "utf8"), seedSql());
   });
 
+  // m2-attachments task 2.5 (design D7): the simulated set publishes settings
+  // that cover both refusals, so "Participant does not accept files" and
+  // "Files over the participant's total" can be shown on a preview.
+  test("attachment settings: sim-th-2a91 refuses files, sim-ol-6a23 accepts up to 5 MB, every other persona the default (up to 50 MB)", () => {
+    const setting = (h: string) => protocol.RulesOfEngagementSchema.parse(SEED_PARTICIPANTS.find((p) => p.handle === h)!.rules).attachments;
+    assert.deepEqual(setting("sim-th-2a91"), { accepted: false, max_total_bytes: 0 });
+    assert.deepEqual(setting("sim-ol-6a23"), { accepted: true, max_total_bytes: 5 * 1024 * 1024 });
+    for (const p of SEED_PARTICIPANTS) {
+      if (p.handle === "sim-th-2a91" || p.handle === "sim-ol-6a23") continue;
+      assert.deepEqual(setting(p.handle), protocol.DEFAULT_ATTACHMENT_SETTING, p.handle);
+    }
+    for (const h of ["sim-th-2a91", "sim-ol-6a23"]) {
+      assert.equal(SEED_PARTICIPANTS.find((p) => p.handle === h)!.persona, "prompt", `${h} answers, so a request without files to it completes`);
+    }
+  });
+
+  test("the seed SQL writes each persona's attachment setting", () => {
+    const sqlText = seedSql();
+    assert.match(sqlText, /attachments_accepted, attachments_max_total_bytes/);
+    assert.match(sqlText, /attachments_accepted = EXCLUDED\.attachments_accepted, attachments_max_total_bytes = EXCLUDED\.attachments_max_total_bytes/);
+  });
+
   test("the first statement refuses to run unless a2h.stage is set and is not prod", () => {
     const first = statementsOf(SEED_SQL_PATH)[0]!;
     assert.match(first, /current_setting\('a2h\.stage', true\)/);
@@ -117,13 +140,11 @@ describe("daily interruption caps", () => {
 
   test(`no other CI flow names ${CAP_PERSONA}: under tests/ and apps/web only the two interruption-budget suites do`, () => {
     const root = new URL("../../../", import.meta.url).pathname;
-    const skip = new Set(["node_modules", "dist", ".next", ".turbo", "test-results", "playwright-report", "coverage"]);
+    // Never enters node_modules or a dot-directory: another check may create and delete files there meanwhile (review B2).
+    const skip = new Set(["node_modules", "dist", "test-results", "playwright-report", "coverage"]);
     const naming: string[] = [];
     for (const dir of ["tests", "apps/web"]) {
-      for (const d of readdirSync(join(root, dir), { recursive: true, withFileTypes: true })) {
-        const path = join(d.parentPath, d.name);
-        if (!d.isFile() || !/\.(ts|tsx|mts|js|mjs|cjs)$/.test(d.name)) continue;
-        if (relative(root, path).split(sep).some((part) => skip.has(part))) continue;
+      for (const path of sourceFiles(join(root, dir), skip)) {
         const source = readFileSync(path, "utf8");
         if (!source.includes(CAP_PERSONA)) continue;
         naming.push(relative(root, path));

@@ -16,6 +16,10 @@ export interface DecisionBarProps {
   sendDescribedBy?: string;
   /** One muted line under the buttons (nothing moves until you choose, link validity). */
   note?: ReactNode;
+  /** Why Send is unavailable because of the files, stated next to it (m2-attachments F6, F7). */
+  reason?: string;
+  /** Id for `reason`, so Send can point at it with `sendDescribedBy`. */
+  reasonId?: string;
 }
 
 /**
@@ -32,9 +36,16 @@ export function DecisionBar({
   sendDisabled = false,
   sendDescribedBy,
   note,
+  reason,
+  reasonId,
 }: DecisionBarProps) {
   return (
     <div className={styles.bar}>
+      {reason !== undefined && (
+        <p className={styles.reason} {...(reasonId !== undefined ? { id: reasonId } : {})}>
+          {reason}
+        </p>
+      )}
       <div className={styles.buttons}>
         <Button
           type="submit"

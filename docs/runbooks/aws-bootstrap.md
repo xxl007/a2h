@@ -395,3 +395,25 @@ aws iam create-policy-version --profile a2h-member --policy-arn "$BOUNDARY" --po
 ```
 
 These calls need IAM write rights, which your user lost in §10: use your break-glass admin. The change applies at once to every existing `a2h-*` role; nothing is redeployed. If you ever change `gha-a2h-deploy-iam.json`, it is an inline role policy, not a managed one: re-apply it with `aws iam put-role-policy --profile a2h-member --role-name gha-a2h-<dev|preview> --policy-name a2h-sst-iam --policy-document file://infra/bootstrap/gha-a2h-deploy-iam.json` for both roles (no versions to prune).
+
+## 17. IAM update for m2-attachments (once, before the first dev deploy that contains it)
+
+The `m2-attachments` change (ADR 0005) adds to dev's and prod's stacks a GuardDuty Malware Protection plan on the uploads bucket, with its own IAM role (`a2h-<stage>-UploadsScanRole-<hash>`, trusted by `malware-protection-plan.guardduty.amazonaws.com`, created under the boundary like every `a2h-*` role). Every stage, previews included, adds two EventBridge rules (`a2h-<stage>-file-created`, `a2h-<stage>-file-scanned`) and an SQS queue (`a2h-<stage>-file-events`). Checked against `infra/bootstrap/` by `infra/test/bootstrap-policies.test.ts`:
+
+- **Deploy roles: one statement added to the inline policy**, `PassScannerRoleToMalwareProtectionOnly`: `iam:PassRole` on `role/a2h-*` only when `iam:PassedToService` is `malware-protection-plan.guardduty.amazonaws.com`. `CreateMalwareProtectionPlan` needs it (GuardDuty guide, "Permissions to create a Malware Protection plan resource"); without it the dev deploy fails on the plan with an `iam:PassRole` access denied. Everything else (`guardduty:CreateMalwareProtectionPlan`, the EventBridge rules and targets, the SQS queues and their policies, the bucket policy, CORS and notification, the CloudWatch alarms) is covered by `PowerUserAccess`.
+- **Workload boundary: one statement added**, `GuardDutyMalwareProtectionManagedRule`: `events:PutRule`, `DeleteRule`, `PutTargets`, `RemoveTargets`, `DescribeRule`, `ListTargetsByRule` on `arn:aws:events:eu-west-3:442123849268:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*`, the rule GuardDuty manages with the scanner's role. Without it the plan's status turns to an error and every file is refused as not checked. The scanner's S3 actions and the worker's SQS actions were already inside the boundary (`s3:*` on `a2h-*`, `sqs:*` on `a2h-*`).
+
+Previews create neither the plan nor its role, so a preview deploys without this update; dev's first deploy of the change needs it.
+
+```sh
+# Boundary (managed policy: prune to four versions first if five are listed, as in §16)
+BOUNDARY=arn:aws:iam::442123849268:policy/a2h-workload-boundary
+aws iam list-policy-versions --profile a2h-member --policy-arn "$BOUNDARY" --query 'Versions[].[VersionId,IsDefaultVersion,CreateDate]' --output table
+aws iam create-policy-version --profile a2h-member --policy-arn "$BOUNDARY" --policy-document file://infra/bootstrap/a2h-workload-boundary.json --set-as-default
+# Deploy roles (inline policy, both roles)
+for r in dev preview; do
+  aws iam put-role-policy --profile a2h-member --role-name gha-a2h-$r --policy-name a2h-sst-iam --policy-document file://infra/bootstrap/gha-a2h-deploy-iam.json
+done
+```
+
+Use your break-glass admin, as in §16.

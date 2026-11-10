@@ -76,7 +76,7 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     assert.deepEqual(tables.rows.map((r: { tablename: string }) => r.tablename), [
       "account", "answers", "blocked_manifests", "jwks", "oauth_access_token", "oauth_client", "oauth_client_assertion",
       "oauth_client_resource", "oauth_consent", "oauth_refresh_token", "oauth_resource", "participants", "principal_policies",
-      "principals", "profiles", "rate_limit_windows", "request_deliveries", "request_events", "requests", "rule_types", "rules",
+      "principals", "profiles", "rate_limit_windows", "request_deliveries", "request_events", "request_files", "requests", "rule_types", "rules",
       "schema_migrations", "session", "signing_keys", "simulated_personas", "user", "verification",
     ]);
   });

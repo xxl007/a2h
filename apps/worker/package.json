@@ -22,6 +22,8 @@
   "dependencies": {
     "@a2h/db": "workspace:*",
     "@a2h/protocol": "workspace:*",
+    "@aws-sdk/client-s3": "3.1160.0",
+    "@aws-sdk/client-sqs": "3.1160.0",
     "drizzle-orm": "0.45.4",
     "pg": "8.23.1",
     "pg-boss": "12.38.0"

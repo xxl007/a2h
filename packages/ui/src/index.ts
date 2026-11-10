@@ -25,6 +25,23 @@ export { LinkValidity } from "./components/LinkValidity.js";
 export type { LinkValidityProps } from "./components/LinkValidity.js";
 export { formatDateTime, linkEndsSoon, viewerTimeZone } from "./components/datetime.js";
 export { fillNodes } from "./components/fillNodes.js";
+export {
+  acceptAttribute,
+  FileAnnouncer,
+  fileAnnouncements,
+  fileHint,
+  FileList,
+  filesFact,
+  filesGate,
+  fileTypeLabel,
+  formatFileSize,
+  gateText,
+  refusalText,
+  typesSentence,
+} from "./components/FileList.js";
+export type { ApprovalFile, ApprovalFileRefusal, ApprovalFileRules, ApprovalFileState, FileListProps, FilesGate } from "./components/FileList.js";
+export { FileUpload } from "./components/FileUpload.js";
+export type { FileUploadProps } from "./components/FileUpload.js";
 export type { ClientRegistration, ClientSummary, DisplayDate, FormAction, ScopeName } from "./components/types.js";
 
 export { SignInScreen } from "./screens/SignInScreen.js";
@@ -40,6 +57,7 @@ export type { SignedOutScreenProps } from "./screens/SignedOutScreen.js";
 export { ApprovalScreen } from "./screens/ApprovalScreen.js";
 export type {
   ApprovalFormat,
+  ApprovalFilesRefusal,
   ApprovalFreeLane,
   ApprovalIntent,
   ApprovalMoney,

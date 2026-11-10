@@ -8,7 +8,7 @@ import { referenceEnvelope, referenceInput, referenceManifest, referenceRules, r
 const PKCS8 = Uint8Array.from(Buffer.from("302e020100300506032b6570042204209d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60", "hex"));
 const RAW_PUBLIC = Uint8Array.from(Buffer.from("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a", "hex"));
 
-const facts: protocol.ValidationFacts = {
+const facts: protocol.ValidationFactsInput = {
   now: "2026-10-21T23:30:00+02:00",
   principal: { principal_id: "dev-principal-pr-17", identity_mode: "verified_organisation", verified: true },
   participant: { participant_id: "p_sim_mv", handle: "sim-mv-7f3c", rules: { ...referenceRules, latency_promise_seconds: 3600 } },
@@ -45,6 +45,12 @@ const calls: Record<string, () => unknown> = {
   classifyForbiddenContent: () => protocol.classifyForbiddenContent(referenceManifest.question),
   clear: () => protocol.clear(2500, 3000, 0.5),
   fee: () => protocol.fee(3125, 0.2),
+  fileSummaryOf: () => protocol.fileSummaryOf([{ media_type: "application/pdf", size_bytes: 10 }]),
+  filesNotReadyError: () => protocol.filesNotReadyError(),
+  formatFileId: () => protocol.formatFileId(new Uint8Array(16).fill(7)),
+  fileObjectKey: () => protocol.fileObjectKey("tmp", "pr-12/", "A2H-7f3c", "fAQEBAQEBAQEBAQEBAQEBAQ"),
+  parseFileObjectKey: () => protocol.parseFileObjectKey("tmp/pr-12/files/A2H-7f3c/fAQEBAQEBAQEBAQEBAQEBAQ", "pr-12/"),
+  totalBytes: () => protocol.totalBytes([{ size_bytes: 10 }, { size_bytes: 5 }]),
   formatHandle: () => protocol.formatHandle("mv", new Uint8Array([0x7f, 0x3c])),
   formatRequestId: () => protocol.formatRequestId(new Uint8Array([0x7f, 0x3c])),
   gross: () => protocol.gross(2500, 0.2),

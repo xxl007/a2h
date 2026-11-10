@@ -35,12 +35,13 @@ FROM participants WHERE handle = ${q(p.handle)}
 ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EXCLUDED.rating,
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()`,
-    `INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, ${q(r.who_may_ask)}, ARRAY[${r.free_lanes.map(q).join(", ")}]::varchar[], ${q(qh?.start ?? null)}, ${q(qh?.end ?? null)}, ${q(qh?.time_zone ?? null)}, ${q(r.max_interruptions_per_day)}, ${q(r.latency_promise_seconds)}
+    `INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, ${q(r.who_may_ask)}, ARRAY[${r.free_lanes.map(q).join(", ")}]::varchar[], ${q(qh?.start ?? null)}, ${q(qh?.end ?? null)}, ${q(qh?.time_zone ?? null)}, ${q(r.max_interruptions_per_day)}, ${q(r.latency_promise_seconds)}, ${q(r.attachments.accepted)}, ${q(r.attachments.max_total_bytes)}
 FROM participants WHERE handle = ${q(p.handle)}
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()`,
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()`,
     `DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = ${q(p.handle)})
   AND intent NOT IN (${r.types.map((t) => q(t.intent)).join(", ")})`,
   ];

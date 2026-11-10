@@ -18,7 +18,14 @@
 //   connector D4, D5) are not append-only: a policy is edited in place by
 //   design and a window is a counter; neither is a money movement.
 import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MEDIA_TYPES,
+  ATTACHMENTS_MAX_TOTAL_BYTES,
   CLOCK_TIME_PATTERN,
+  DEFAULT_ATTACHMENT_SETTING,
+  FILE_ID_PATTERN,
+  FILE_REFUSED_REASONS,
+  FILE_STATES,
   CURRENCY_PATTERN,
   DELIVERY_OUTCOMES,
   FreeLaneKindSchema,
@@ -201,8 +208,16 @@ export const rules = pgTable(
     max_interruptions_per_day: integer("max_interruptions_per_day").notNull(),
     latency_promise_seconds: integer("latency_promise_seconds").notNull(),
     updated_at: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    /** m2-attachments D7: whether files are accepted; rules recorded before read as the default. */
+    attachments_accepted: boolean("attachments_accepted").notNull().default(DEFAULT_ATTACHMENT_SETTING.accepted),
+    /** The total size per request the participant accepts, 0..50 MB. */
+    attachments_max_total_bytes: integer("attachments_max_total_bytes").notNull().default(DEFAULT_ATTACHMENT_SETTING.max_total_bytes),
   },
   (t) => [
+    check(
+      "rules_attachments_max_total_bytes",
+      sql`${t.attachments_max_total_bytes} BETWEEN 0 AND ${sql.raw(String(ATTACHMENTS_MAX_TOTAL_BYTES))}`,
+    ),
     check("rules_who_may_ask_known", oneOf(t.who_may_ask, WhoMayAskSchema.options)),
     check(
       "rules_free_lanes_known",
@@ -363,6 +378,59 @@ export const requests = pgTable(
     ),
     // The minute job's scan (D6): awaiting requests by link expiry.
     index("requests_awaiting_approval_expiry_idx").on(t.approval_expires_at).where(sql`${t.status} = 'awaiting_approval'`),
+  ],
+);
+
+/**
+ * One row per file a principal attaches on the approval page (m2-attachments
+ * D1). `id` is the manifest's `ref`; `name` is shown to the request's
+ * principal only and never logged; `media_type` is set by the content check,
+ * never from the browser. Removal sets `deleted_at` (the object is deleted at
+ * once). The manifest's `attachments` are written from the ready rows at Send;
+ * from then on the rows are fixed: migration 0012's trigger refuses any
+ * insert, update or delete unless the request awaits approval, except marking
+ * the files of a not-sent request deleted.
+ */
+export const requestFiles = pgTable(
+  "request_files",
+  {
+    id: varchar("id", { length: 23 }).primaryKey(),
+    request_id: varchar("request_id", { length: 16 })
+      .notNull()
+      .references(() => requests.id),
+    principal_id: id("principal_id").notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    declared_type: code("declared_type", ATTACHMENT_MEDIA_TYPES).notNull(),
+    media_type: code("media_type", ATTACHMENT_MEDIA_TYPES),
+    size_bytes: integer("size_bytes").notNull(),
+    state: code("state", FILE_STATES).notNull(),
+    refused_reason: code("refused_reason", FILE_REFUSED_REASONS),
+    object_key: varchar("object_key", { length: 512 }).notNull(),
+    /**
+     * The ETag (unquoted) of the object the content check read (review B1): a
+     * clean verdict applies, and the copy to uploads/ is made, only for these
+     * bytes. Set with `checking`; null before. Never logged.
+     */
+    checked_etag: varchar("checked_etag", { length: 128 }),
+    /** The order attached: what the list, the manifest and check_requests follow. */
+    seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity().notNull(),
+    created_at: createdAt(),
+    ready_at: timestamp("ready_at", { withTimezone: true }),
+    deleted_at: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("request_files_id_format", matches(t.id, FILE_ID_PATTERN)),
+    check("request_files_principal_opaque", matches(t.principal_id, OPAQUE_ID_PATTERN)),
+    check("request_files_name_length", sql`char_length(${t.name}) BETWEEN 1 AND 255`),
+    check("request_files_declared_type_known", oneOf(t.declared_type, ATTACHMENT_MEDIA_TYPES)),
+    check("request_files_media_type_known", oneOf(t.media_type, ATTACHMENT_MEDIA_TYPES)),
+    check("request_files_size", sql`${t.size_bytes} BETWEEN 1 AND ${sql.raw(String(ATTACHMENT_MAX_BYTES))}`),
+    check("request_files_state_known", oneOf(t.state, FILE_STATES)),
+    check("request_files_refused_reason_known", oneOf(t.refused_reason, FILE_REFUSED_REASONS)),
+    check("request_files_refused_has_reason", sql`(${t.state} = 'refused') = (${t.refused_reason} IS NOT NULL)`),
+    check("request_files_checked_type", sql`${t.state} NOT IN ('checking', 'ready') OR ${t.media_type} IS NOT NULL`),
+    check("request_files_ready_complete", sql`(${t.state} = 'ready') = (${t.ready_at} IS NOT NULL)`),
+    index("request_files_request_live_idx").on(t.request_id).where(sql`${t.deleted_at} IS NULL`),
   ],
 );
 

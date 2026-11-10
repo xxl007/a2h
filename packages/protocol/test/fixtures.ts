@@ -9,7 +9,7 @@ import type {
   Manifest,
   Profile,
   RequestHumanInput,
-  RulesOfEngagement,
+  RulesOfEngagementInput,
   UnsignedAnswer,
 } from "../src/index.ts";
 
@@ -22,7 +22,8 @@ export function omit<T extends object, K extends keyof T>(obj: T, key: K): Omit<
 
 export const SIG = "A".repeat(85) + "Q=="; // 64 zero-ish bytes, base64 (88 chars)
 
-export const referenceRules: RulesOfEngagement = {
+/** Rules as recorded before m2-attachments: no attachment setting (read as the default). */
+export const referenceRules: RulesOfEngagementInput = {
   types: [
     { intent: "judgment", accepted: true, reserve_net_minor: 2500, currency: "EUR" },
     { intent: "estimate", accepted: false, reserve_net_minor: 4000, currency: "EUR" },
@@ -101,6 +102,7 @@ export const referenceChecked: CheckedRequest = {
     citation: "reviewed by M.V., 21 Oct 2026",
     verification_notice: "Answered by a participant who is not yet identity-verified.",
   },
+  files: [],
 };
 
 const validationFacts = {
@@ -180,6 +182,32 @@ export const fixtures: Record<string, Fixture> = {
     pass: { signature: "a2h:sig:…c91e", citation: "reviewed by M.V., 21 Oct 2026" },
     fail: { signature: "c91e", citation: "reviewed by M.V., 21 Oct 2026" },
     path: ["signature"],
+  },
+  AttachmentMediaTypeSchema: { pass: "application/pdf", fail: "text/html", path: [] },
+  RequestAttachmentSchema: {
+    pass: { ref: "fAAAAAAAAAAAAAAAAAAAAAA", media_type: "image/webp", size_bytes: 120000 },
+    fail: { ref: "fAAAAAAAAAAAAAAAAAAAAAA", media_type: "application/zip", size_bytes: 120000 },
+    path: ["media_type"],
+  },
+  AttachmentSettingSchema: {
+    pass: { accepted: true, max_total_bytes: 5 * 1024 * 1024 },
+    fail: { accepted: true, max_total_bytes: 50 * 1024 * 1024 + 1 },
+    path: ["max_total_bytes"],
+  },
+  FileSummarySchema: {
+    pass: { media_type: "text/csv", size_bytes: 2048 },
+    fail: { media_type: "text/csv", size_bytes: 0 },
+    path: ["size_bytes"],
+  },
+  FileStateSchema: { pass: "checking", fail: "scanning", path: [] },
+  FileRefusedReasonSchema: { pass: "malware", fail: "virus", path: [] },
+  FileIdSchema: { pass: "fAQEBAQEBAQEBAQEBAQEBAQ", fail: "-AQEBAQEBAQEBAQEBAQEBAQ", path: [] },
+  FileScanOutcomeSchema: { pass: "threat", fail: "infected", path: [] },
+  FileObjectEtagSchema: { pass: "9b2cf535f27731c974343645a3985328", fail: '"9b2cf535f27731c974343645a3985328"', path: [] },
+  FileScanResultSchema: {
+    pass: { file_id: "fAQEBAQEBAQEBAQEBAQEBAQ", outcome: "clean" },
+    fail: { file_id: "fAQEBAQEBAQEBAQEBAQEBAQ", outcome: "threat", threat: "EICAR-Test-File" },
+    path: [],
   },
   AttachmentSchema: {
     pass: { ref: "att_1", media_type: "application/pdf", size_bytes: 120000 },

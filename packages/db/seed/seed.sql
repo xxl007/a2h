@@ -39,12 +39,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY['own_publications']::varchar[], NULL, NULL, NULL, 1000, 21600
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY['own_publications']::varchar[], NULL, NULL, NULL, 1000, 21600, true, 52428800
 FROM participants WHERE handle = 'sim-mv-7f3c'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-mv-7f3c')
   AND intent NOT IN ('judgment', 'knowledge', 'estimate')
@@ -79,12 +80,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 43200
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 43200, false, 0
 FROM participants WHERE handle = 'sim-th-2a91'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-th-2a91')
   AND intent NOT IN ('knowledge', 'verification')
@@ -113,12 +115,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], '22:00', '07:00', 'Europe/London', 1000, 86400
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], '22:00', '07:00', 'Europe/London', 1000, 86400, true, 52428800
 FROM participants WHERE handle = 'sim-ep-5c07'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-ep-5c07')
   AND intent NOT IN ('judgment', 'opinion')
@@ -147,12 +150,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'organisations_only', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600, true, 52428800
 FROM participants WHERE handle = 'sim-rc-8d14'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-rc-8d14')
   AND intent NOT IN ('knowledge', 'estimate')
@@ -181,12 +185,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600, true, 52428800
 FROM participants WHERE handle = 'sim-ag-3b62'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-ag-3b62')
   AND intent NOT IN ('knowledge', 'verification')
@@ -215,12 +220,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY['facts_about_self']::varchar[], NULL, NULL, NULL, 1000, 14400
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY['facts_about_self']::varchar[], NULL, NULL, NULL, 1000, 14400, true, 52428800
 FROM participants WHERE handle = 'sim-jw-9e48'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-jw-9e48')
   AND intent NOT IN ('observation', 'opinion')
@@ -249,12 +255,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 300
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 300, true, 52428800
 FROM participants WHERE handle = 'sim-hb-1f7d'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-hb-1f7d')
   AND intent NOT IN ('verification', 'judgment')
@@ -283,12 +290,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600, true, 5242880
 FROM participants WHERE handle = 'sim-ol-6a23'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-ol-6a23')
   AND intent NOT IN ('judgment', 'verification', 'action')
@@ -323,12 +331,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 86400
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 86400, true, 52428800
 FROM participants WHERE handle = 'sim-cf-4c5e'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-cf-4c5e')
   AND intent NOT IN ('estimate', 'opinion')
@@ -357,12 +366,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600, true, 52428800
 FROM participants WHERE handle = 'sim-dm-7b80'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-dm-7b80')
   AND intent NOT IN ('judgment', 'knowledge', 'referral')
@@ -397,12 +407,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 1000, 21600, true, 52428800
 FROM participants WHERE handle = 'sim-ns-0d39'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-ns-0d39')
   AND intent NOT IN ('observation', 'knowledge')
@@ -431,12 +442,13 @@ ON CONFLICT (participant_id) DO UPDATE SET topics = EXCLUDED.topics, rating = EX
   answers_count = EXCLUDED.answers_count, disputes_lost = EXCLUDED.disputes_lost,
   typical_latency_seconds = EXCLUDED.typical_latency_seconds, updated_at = now()
 --> statement-breakpoint
-INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds)
-SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 2, 86400
+INSERT INTO rules (participant_id, who_may_ask, free_lanes, quiet_start, quiet_end, quiet_time_zone, max_interruptions_per_day, latency_promise_seconds, attachments_accepted, attachments_max_total_bytes)
+SELECT id, 'anyone_verified', ARRAY[]::varchar[], NULL, NULL, NULL, 2, 86400, true, 52428800
 FROM participants WHERE handle = 'sim-bk-2e6f'
 ON CONFLICT (participant_id) DO UPDATE SET who_may_ask = EXCLUDED.who_may_ask, free_lanes = EXCLUDED.free_lanes,
   quiet_start = EXCLUDED.quiet_start, quiet_end = EXCLUDED.quiet_end, quiet_time_zone = EXCLUDED.quiet_time_zone,
-  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds, updated_at = now()
+  max_interruptions_per_day = EXCLUDED.max_interruptions_per_day, latency_promise_seconds = EXCLUDED.latency_promise_seconds,
+  attachments_accepted = EXCLUDED.attachments_accepted, attachments_max_total_bytes = EXCLUDED.attachments_max_total_bytes, updated_at = now()
 --> statement-breakpoint
 DELETE FROM rule_types WHERE participant_id = (SELECT id FROM participants WHERE handle = 'sim-bk-2e6f')
   AND intent NOT IN ('estimate', 'knowledge')

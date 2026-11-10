@@ -169,6 +169,7 @@ describe("check_requests result before sending (m2-approval-page, spec protocol/
     currency: "EUR",
     approval_url: "https://pr-81.dev.a2h-protocol.org/approve/A2H-7f3c?t=" + "A".repeat(42) + "w",
     approval_expires_at: "2026-11-04T10:00:00+00:00",
+    files: [],
   } as const;
   test("Scenario: Awaiting approval: the approval link, its expiry and no held amount", () => {
     assert.ok(protocol.CheckedRequestSchema.safeParse(awaiting).success);
@@ -214,6 +215,7 @@ describe("check_requests result: identity on acceptance only, answer only when a
     held_minor: 3500,
     hold_status: "held",
     currency: "EUR",
+    files: [],
   } as const;
   test("Before acceptance: the handle and no display label or verification status", () => {
     assert.ok(protocol.CheckedRequestSchema.safeParse(sent).success);

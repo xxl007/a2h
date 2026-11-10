@@ -8,15 +8,17 @@ import { databaseEnv, type DbAccess } from "./database.ts";
 import { authEnvironment, plainEnvironment } from "./service-env.ts";
 import type { StageSecrets } from "./stage-secrets-resources.ts";
 import { secretKindsFor, secretsEnvironment, type Service } from "./stage-secrets.ts";
-import { storageArgs, type StorageGrant } from "./storage.ts";
+import { storageArgs, type FileEvents, type StorageGrant } from "./storage.ts";
 
 export interface ServiceDeps {
   stage: StageInfo;
   cluster: sst.aws.Cluster;
   /** Endpoint and credentials: master on dev/prod, `pr_<n>` on previews. */
   db: DbAccess;
-  /** `link` on dev/prod; prefix-scoped object permissions on previews. */
+  /** The uploads bucket's name; grants are per service, under the stage's prefix (files.ts). */
   storage: StorageGrant;
+  /** The stage's file-events queue (the worker reads it; ADR 0005 item 4). */
+  fileEvents: FileEvents;
   email: sst.aws.Email | undefined;
   /** `a2h/<stage>/signing` and `a2h/<stage>/approval`, created by the stage (stage-secrets-resources.ts). */
   secrets: StageSecrets;
@@ -34,9 +36,9 @@ export interface McpUrls {
   webBaseUrl: $util.Input<string>;
 }
 
-export function containerConfig(service: Service, { stage, db, storage, email, secrets }: ServiceDeps, urls?: McpUrls) {
+export function containerConfig(service: Service, { stage, db, storage, fileEvents, email, secrets }: ServiceDeps, urls?: McpUrls) {
   const database = databaseEnv(db, stage);
-  const store = storageArgs(storage);
+  const store = storageArgs(storage, stage, service, fileEvents);
   const kinds = secretKindsFor(service);
   const keySecrets = $util
     .all([secrets.signing.arn, secrets.signing.versionId, secrets.approval.arn, secrets.approval.versionId])
@@ -67,7 +69,8 @@ export function containerConfig(service: Service, { stage, db, storage, email, s
     },
     ssm: $util.all([database.ssm, keySecrets]).apply(([dbSsm, keys]) => ({ ...dbSsm, ...keys })),
     // `link` grants the task role least-privilege IAM on these resources.
-    link: [...store.link, ...(email ? [email] : [])],
+    // The bucket is not linked: object grants under the stage's prefix only (files.ts).
+    link: email ? [email] : [],
     permissions: store.permissions,
     transform: {
       // Object form: SST merges it over its defaults (`{ ...args, ...transform }`,

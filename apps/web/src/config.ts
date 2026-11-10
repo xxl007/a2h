@@ -7,7 +7,8 @@
 //   has a domain: the MCP plugin requires an https resource, so a stage
 //   without a domain has no authorization server),
 //   BETTER_AUTH_SECRET (cookie signing, hashing, key encryption).
-// - STORAGE_PREFIX and UPLOADS_BUCKET: the mail sink `tmp/<prefix>mail/` (D6).
+// - STORAGE_PREFIX and UPLOADS_BUCKET: the mail sink `tmp/<prefix>mail/` (D6) and
+//   attachments `tmp/<prefix>files/`, `uploads/<prefix>files/` (m2-attachments D2).
 // - EMAIL_FROM: the SES sender (required on prod).
 // - ALLOWLIST_PARAMETER (SSM SecureString, D7); PRINCIPAL_ALLOWLIST is the
 //   list of a local server (infra never sets it on a deployed stage).
@@ -41,6 +42,8 @@ export interface WebConfig {
   /** The issuer's origin (Better Auth `baseURL`). */
   baseURL: string;
   secret: string;
+  /** STORAGE_PREFIX (`dev/`, `pr-<n>/`, `prod/`): attachment keys `tmp/<prefix>files/…` (m2-attachments D2). */
+  storagePrefix: string;
   /** Prefix for the mail sink, `tmp/<STORAGE_PREFIX>` (the sink appends `mail/`). */
   mailSinkPrefix: string;
   uploadsBucket: string;
@@ -196,6 +199,7 @@ export function webConfigFromEnv(env: Env = process.env): WebConfig {
     issuer,
     baseURL,
     secret,
+    storagePrefix,
     mailSinkPrefix: `tmp/${storagePrefix}`,
     uploadsBucket,
     emailFrom,

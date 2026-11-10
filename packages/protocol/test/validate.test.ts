@@ -6,7 +6,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { BlockedManifestSchema, ProtocolErrorSchema, validateManifest } from "../src/index.ts";
-import type { Manifest, RulesOfEngagement, ValidationFacts, ValidationPolicy, ValidationResult } from "../src/index.ts";
+import type { Manifest, RulesOfEngagementInput, ValidationFactsInput, ValidationPolicy, ValidationResult } from "../src/index.ts";
 import { referenceManifest, referenceRules } from "./fixtures.ts";
 
 const NOW = "2026-10-21T08:42:00+02:00"; // Paris, outside quiet hours (22:00–07:00)
@@ -21,7 +21,7 @@ const policy: ValidationPolicy = {
   throttled_daily_limit: 2,
 };
 
-function facts(over: Partial<ValidationFacts> = {}, rules: Partial<RulesOfEngagement> = {}): ValidationFacts {
+function facts(over: Partial<ValidationFactsInput> = {}, rules: Partial<RulesOfEngagementInput> = {}): ValidationFactsInput {
   return {
     now: NOW,
     principal: { principal_id: "dev-principal-pr-17", identity_mode: "verified_organisation", verified: true },
@@ -189,7 +189,7 @@ describe("The approval link needs at least 15 minutes (m2-approval-page D2): oth
 });
 
 describe("Every stage and code, in pipeline order", () => {
-  const cases: [string, Manifest, ValidationFacts, string, string, string?][] = [
+  const cases: [string, Manifest, ValidationFactsInput, string, string, string?][] = [
     ["fractional bid", manifest({ bid_minor: 30.5 }), facts(), "schema_invalid", "schema"],
     ["expiry already past", manifest({ expires_at: "2026-10-21T08:00:00+02:00" }), facts(), "schema_invalid", "schema"],
     ["currency other than the policy's", manifest({ currency: "USD" }), facts(), "schema_invalid", "schema"],
@@ -255,5 +255,53 @@ describe("Caller errors are not principal errors", () => {
   test("malformed facts or policy throw a TypeError instead of passing", () => {
     assert.throws(() => validateManifest(manifest(), { ...facts(), interruptions_today: -1 }, policy), TypeError);
     assert.throws(() => validateManifest(manifest(), facts(), { ...policy, fee_rate: 1 }), TypeError);
+  });
+});
+
+// m2-attachments task 2.2, spec protocol/request-approval "Attached files
+// follow the participant's rules": the attachment setting is checked at the
+// participant-rules stage, like any other rule, and never stated.
+describe("Requirement: Attached files follow the participant's rules", () => {
+  const MB = 1024 * 1024;
+  const pdf = { ref: "fAAAAAAAAAAAAAAAAAAAAAA", media_type: "application/pdf" as const, size_bytes: 2 * MB };
+  const png = { ref: "fAQEBAQEBAQEBAQEBAQEBAQ", media_type: "image/png" as const, size_bytes: 3 * MB + 1 };
+
+  test("Scenario: Participant does not accept files: one file → outside_participant_rules at the rules stage, counted, the setting not stated", () => {
+    const m = manifest({ attachments: [pdf] });
+    const r = fails(validateManifest(m, facts({ approval: "recorded" }, { attachments: { accepted: false, max_total_bytes: 0 } }), policy));
+    assert.deepEqual([r.error.code, r.error.stage, r.error.retryable], ["outside_participant_rules", "rules", false]);
+    assert.equal(r.blocked?.code, "attachments_not_accepted");
+    assert.ok(BlockedManifestSchema.safeParse({ ...r.blocked, request_id: "A2H-7f3c" }).success);
+    assertNoLeak(r, m);
+    assert.doesNotMatch(JSON.stringify(r.error), /attach|file|accept/i, "the detail does not state the setting");
+  });
+
+  test("Scenario: Files over the participant's total: 5 MB + 1 byte against a 5 MB total → refused the same way", () => {
+    const m = manifest({ attachments: [pdf, png] });
+    const r = fails(validateManifest(m, facts({ approval: "recorded" }, { attachments: { accepted: true, max_total_bytes: 5 * MB } }), policy));
+    assert.deepEqual([r.error.code, r.error.stage], ["outside_participant_rules", "rules"]);
+    assert.equal(r.blocked?.code, "attachments_over_total");
+    assertNoLeak(r, m);
+    assert.doesNotMatch(JSON.stringify(r.error), /5242880|attach|file/i);
+    // Exactly the total passes.
+    const exact = manifest({ attachments: [pdf, { ...png, size_bytes: 3 * MB }] });
+    assert.equal(validateManifest(exact, facts({ approval: "recorded" }, { attachments: { accepted: true, max_total_bytes: 5 * MB } }), policy).ok, true);
+  });
+
+  test("Scenario: Request without files is unaffected: no attachments (absent or empty) pass whatever the setting", () => {
+    const refusing = { attachments: { accepted: false, max_total_bytes: 0 } };
+    assert.equal(validateManifest(manifest(), facts({ approval: "recorded" }, refusing), policy).ok, true);
+    assert.equal(validateManifest(manifest({ attachments: [] }), facts({ approval: "recorded" }, refusing), policy).ok, true);
+  });
+
+  test("rules without the setting accept files up to 50 MB (the read default)", () => {
+    const r = validateManifest(manifest({ attachments: [pdf, png] }), facts({ approval: "recorded" }), policy);
+    assert.equal(r.ok, true, JSON.stringify(r));
+  });
+
+  test("the attachment check runs at the rules stage after the earlier stages: a push-poll with files fails at content", () => {
+    const m = manifest({ attachments: [pdf], question: "Would you still trust this clinic if you learned its director lied about the results?" });
+    const r = fails(validateManifest(m, facts({ approval: "recorded" }, { attachments: { accepted: false, max_total_bytes: 0 } }), policy));
+    assert.equal(r.error.stage, "content");
   });
 });

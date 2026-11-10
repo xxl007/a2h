@@ -146,7 +146,6 @@ describe("protocol/request-approval (live)", () => {
       ["audience role_qualified_first_to_accept", base({ audience: "role_qualified_first_to_accept" }), /audience/],
       ["time shape threaded", base({ time_shape: "threaded" }), /time_shape/],
       ["time shape recurring", base({ time_shape: "recurring" }), /time_shape/],
-      ["attachments", base({ attachments: [{ ref: "att-0001", media_type: "application/pdf", size_bytes: 1024 }] }), /attachments/],
     ];
     for (const [label, args, field] of shapes) {
       const raw = await firstLeg(c, args);
@@ -156,6 +155,19 @@ describe("protocol/request-approval (live)", () => {
       assert.match(error.detail ?? "", field, `${label}: the detail does not name the field`);
       assert.match(error.detail ?? "", /\bM[1-9]\b/, `${label}: the detail does not name the milestone that introduces it`);
     }
+    await assertNothingCreatedFor(c, MV, since);
+  });
+
+  // m2-attachments delta: attachments left "Shape outside this change" for their own scenario.
+  test("Scenario: Attachments from the agent", async () => {
+    const since = serverNow();
+    const raw = await firstLeg(c, base({ attachments: [{ ref: "att-0001", media_type: "application/pdf", size_bytes: 1024 }] }));
+    assert.ok(!isInputRequired(raw), "a link was offered for a manifest carrying the agent's attachments");
+    const error = errorOf(raw);
+    assert.equal(error.code, "schema_invalid");
+    assert.match(error.detail ?? "", /attachments/, "the detail names the field");
+    assert.match(error.detail ?? "", /principal/, "the detail says who adds files");
+    assert.match(error.detail ?? "", /approval page/, "the detail says where files are added");
     await assertNothingCreatedFor(c, MV, since);
   });
 

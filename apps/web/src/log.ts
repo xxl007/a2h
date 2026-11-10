@@ -14,6 +14,8 @@ export interface LogFields {
   /** The correlation id of one server action call, as shown to the user on its error state (`ref_…`). */
   reference?: string;
   principal_id?: string;
+  /** An attachment's opaque id (`f…`, m2-attachments D1); never its name. */
+  file_id?: string;
   client_id?: string;
   /** A short machine code (`magic_link_requested`, `consent_accepted`, an error name). */
   code?: string;
@@ -103,6 +105,7 @@ const FIELD_NAMES: readonly (keyof LogFields)[] = [
   "request_id",
   "reference",
   "principal_id",
+  "file_id",
   "client_id",
   "code",
   "path",

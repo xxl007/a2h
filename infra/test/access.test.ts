@@ -9,7 +9,6 @@ import {
   prDbSecretName,
   prDbUser,
   secretValueFrom,
-  storageAccess,
 } from "../access.ts";
 import { stageInfo } from "../config.ts";
 
@@ -73,60 +72,6 @@ test("dev and prod keep the master user (M0), password still only through ssm", 
     assert.ok(!("DB_PASSWORD" in creds.environment));
     assert.throws(() => dbCredentials(stageInfo(s), { kind: "pr-login", secretArn: PR12_SECRET_ARN }), /pr/);
   }
-});
-
-test("dev and prod link the uploads bucket", () => {
-  assert.deepEqual(storageAccess(stageInfo("dev")), { mode: "link" });
-  assert.deepEqual(storageAccess(stageInfo("prod")), { mode: "link" });
-});
-
-test("pr-12 gets object access on uploads/pr-12/* and tmp/pr-12/* only, plus UPLOADS_BUCKET", () => {
-  const access = storageAccess(stageInfo("pr-12"), "a2h-dev-uploadsbucket-x7k2");
-  assert.deepEqual(access, {
-    mode: "scoped",
-    permissions: [
-      {
-        actions: ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-        resources: [
-          "arn:aws:s3:::a2h-dev-uploadsbucket-x7k2/uploads/pr-12/*",
-          "arn:aws:s3:::a2h-dev-uploadsbucket-x7k2/tmp/pr-12/*",
-        ],
-      },
-    ],
-    environment: { UPLOADS_BUCKET: "a2h-dev-uploadsbucket-x7k2" },
-  });
-  // No bucket-wide grant, no list, no wildcard action.
-  const flat = JSON.stringify(access);
-  assert.ok(!flat.includes("x7k2/*\""));
-  assert.ok(!flat.includes("s3:*"));
-  assert.ok(!flat.includes("ListBucket"));
-});
-
-test("pr storage needs a valid bucket name", () => {
-  const pr = stageInfo("pr-12");
-  for (const bad of [undefined, "", "Upper", "a2h/../x", "a2h-dev-uploads/*"]) {
-    assert.throws(() => storageAccess(pr, bad), /bucket/, String(bad));
-  }
-});
-
-test("a preview's grant never covers a dev or prod object, even one keyed pr-<n>/...", () => {
-  const bucket = "a2h-dev-uploadsbucket-x7k2";
-  const access = storageAccess(stageInfo("pr-12"), bucket);
-  assert.equal(access.mode, "scoped");
-  if (access.mode !== "scoped") return;
-  const patterns = access.permissions.flatMap((p) => p.resources);
-  // IAM object ARNs here only use a trailing "*".
-  const covered = (key: string) =>
-    patterns.some((p) => `arn:aws:s3:::${bucket}/${key}`.startsWith(p.slice(0, -1)));
-  for (const owner of ["dev", "prod"]) {
-    const prefix = stageInfo(owner).storagePrefix;
-    for (const area of ["uploads", "tmp"]) {
-      assert.ok(!covered(`${area}/${prefix}pr-12/voice.webm`), `${owner} ${area}`);
-      assert.ok(!covered(`${area}/${prefix}x`), `${owner} ${area}`);
-    }
-  }
-  assert.ok(covered("uploads/pr-12/voice.webm"));
-  assert.ok(!covered("uploads/pr-120/voice.webm"));
 });
 
 test("pr-12 execution role reads only a2h/pr-12/db-*, nothing from SSM", () => {

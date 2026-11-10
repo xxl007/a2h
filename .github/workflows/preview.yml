@@ -310,6 +310,9 @@ jobs:
       # fifth verify run on pr-85 was refused with over_budget (run 42246226973).
       A2H_TEST_EMAIL: qa-principal-a-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
       A2H_TEST_EMAIL_2: qa-principal-b-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
+      # m2-attachments 6.1: the file suites run in their own step ("File flows"), not in the general
+      # contract and adversarial steps.
+      A2H_FILE_SUITES: own-step
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -354,6 +357,27 @@ jobs:
           bucket=$(aws ssm get-parameter --name /a2h/shared/uploads-bucket --query Parameter.Value --output text)
           echo "A2H_MAIL_SINK_BUCKET=$bucket" >> "$GITHUB_ENV"
 
+      # m2-attachments 6.1: previews borrow dev's uploads bucket, and its POST
+      # CORS, S3 → EventBridge and malware scanner come with dev's deploy from
+      # main (infra/storage.ts); the preview deploys its own event rule and
+      # queue. A CORS preflight for POST from this preview's origin says whether
+      # that setup is there. Allowed: the file tests must run (a skip fails) in
+      # every later step, the long flows included. Refused: they may skip, and
+      # this step says so once. No answer from the bucket: the step fails.
+      - name: Files on this stage (the bucket's CORS for this origin)
+        id: files-probe
+        env:
+          WEB_URL: ${{ needs.deploy.outputs.web }}
+        run: |
+          origin=$(printf '%s' "$WEB_URL" | sed -E 's#^(https?://[^/]+).*#\1#')
+          if .github/scripts/storage-cors.sh "$A2H_MAIL_SINK_BUCKET" "$origin"; then
+            { echo "A2H_E2E_REQUIRE_FILE_STORAGE=1"; echo "A2H_E2E_REQUIRE_FILE_CHECKS=1"; } >> "$GITHUB_ENV"
+          else
+            rc=$?
+            if [ "$rc" -ne 1 ]; then exit "$rc"; fi
+            echo "::notice::File tests may skip on $STAGE: dev's uploads bucket does not allow POST from this origin yet (it will once dev deploys m2-attachments from main; from then on a skipped file test fails here)."
+          fi
+
       # Sign-in by magic link through the sink, consent, code, token (tests/lib/
       # obtain-token.ts): A2H_TOKEN and A2H_TOKEN_2 reach the suites through
       # GITHUB_ENV, masked. The web app re-reads the allow-list within five
@@ -370,7 +394,10 @@ jobs:
       # (design D2), so watching links and requests expire, and Send pressed after
       # a link expired (adversarial case 4), takes about 23 minutes. Started here in
       # the background with the tokens and sessions just obtained; collected by
-      # "Expiry flows" before the allow-list is cleared.
+      # "Expiry flows" before the allow-list is cleared. m2-attachments 6.1, 6.2
+      # adds the file flows that take minutes (a file link and an upload policy
+      # used after their 5 minutes, no scan result for 10 minutes, a request
+      # with a file whose link expires: about 17 minutes, alongside).
       - name: Start the expiry flows (background, about 23 minutes)
         id: long-start
         env:
@@ -379,7 +406,7 @@ jobs:
           A2H_LONG_FLOWS: "1"
         run: |
           cd tests
-          ( node --test --test-reporter=spec contract/approval-expiry.test.ts adversarial/approval-expiry.live.test.ts > "$RUNNER_TEMP/expiry-flows.log" 2>&1; echo $? > "$RUNNER_TEMP/expiry-flows.exit" ) > /dev/null 2>&1 &
+          ( node --test --test-concurrency=4 --test-reporter=spec contract/approval-expiry.test.ts adversarial/approval-expiry.live.test.ts contract/attachments-expiry.test.ts adversarial/attachments-expiry.live.test.ts > "$RUNNER_TEMP/expiry-flows.log" 2>&1; echo $? > "$RUNNER_TEMP/expiry-flows.exit" ) > /dev/null 2>&1 &
           echo "expiry flows started in the background"
 
       - name: Smoke (health, dev health, routing)
@@ -437,6 +464,17 @@ jobs:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: pnpm --filter @a2h/web e2e
 
+      # m2-attachments 6.1, 6.2: files on real requests (contract) and the
+      # adversarial file cases, with the requirements the probe step set (or
+      # skips with its reason where the stage cannot store or check files yet).
+      - name: File flows (contract and adversarial)
+        id: files
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+          A2H_WEB_URL: ${{ needs.deploy.outputs.web }}
+          A2H_FILE_STEP: "1"
+        run: pnpm --filter @a2h/tests files
+
       # Adversarial case A8 (DCR flood) last: it fills the stage's registration
       # limiter for a minute from this runner's address, so it runs after every
       # step that registers a client (the web e2e; run 41436823855).
@@ -484,13 +522,14 @@ jobs:
           WEB: ${{ steps.web.outcome }}
           E2E: ${{ steps.e2e.outcome }}
           WEB_E2E: ${{ steps.web-e2e.outcome }}
+          FILES: ${{ steps.files.outcome }}
           DCR_FLOOD: ${{ steps.dcr-flood.outcome }}
           LONG: ${{ steps.long.outcome }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ "$JOB_STATUS" = "success" ]; then
-            result="passed (sign-in, smoke, contract, adversarial, e2e, web e2e, DCR flood, expiry flows)"
+            result="passed (sign-in, smoke, contract, adversarial, e2e, web e2e, file flows, DCR flood, expiry flows)"
           elif [ "$JOB_STATUS" = "cancelled" ]; then result="cancelled"
           elif [ "$ALLOWLIST" = "failure" ]; then result="FAILED (allow-list: the stage's parameter could not be set)"
           elif [ "$TOKENS" = "failure" ]; then result="FAILED (sign-in: no token obtained through the mail sink)"
@@ -500,6 +539,7 @@ jobs:
           elif [ "$WEB" = "failure" ]; then result="FAILED (web not reachable)"
           elif [ "$E2E" = "failure" ]; then result="FAILED (e2e)"
           elif [ "$WEB_E2E" = "failure" ]; then result="FAILED (web e2e)"
+          elif [ "$FILES" = "failure" ]; then result="FAILED (file flows)"
           elif [ "$DCR_FLOOD" = "failure" ]; then result="FAILED (adversarial DCR flood, case A8)"
           elif [ "$LONG" = "failure" ]; then result="FAILED (expiry flows)"
           else result="FAILED (setup, before the suites ran)"

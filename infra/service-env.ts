@@ -106,6 +106,8 @@ export function databaseEnvironment<T>(
 export const DB_SECRET_ENV = ["DB_PASSWORD"] as const;
 /** Storage environment (storage.ts storageArgs): every stage. */
 export const STORAGE_ENV = ["UPLOADS_BUCKET"] as const;
+/** The worker's file-events queue (storage.ts createFileEvents; m2-attachments, ADR 0005 item 4). */
+export const WORKER_FILE_EVENTS_ENV = ["FILE_EVENTS_QUEUE_URL"] as const;
 
 /**
  * Every environment variable name a service receives from infra, sorted:
@@ -129,6 +131,7 @@ export function serviceEnvNames(service: Service, stage: StageInfo): string[] {
     ...Object.keys(databaseEnvironment({ host: "", port: "", name: "" }, "", stage)),
     ...DB_SECRET_ENV,
     ...STORAGE_ENV,
+    ...(service === "worker" ? WORKER_FILE_EVENTS_ENV : []),
     ...Object.keys(secretsEnvironment(stage, service, refs)),
   ];
   return [...new Set(names)].sort();

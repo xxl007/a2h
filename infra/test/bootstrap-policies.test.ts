@@ -7,7 +7,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { allowlistParameterName, stageInfo } from "../config.ts";
+import { allowlistParameterName, roleName, stageInfo } from "../config.ts";
+import { fileEventsQueueName, SCANNER_ROLE_LOGICAL_NAME, scannerRoleArn, scannerRolePolicy, WORKER_QUEUE_ACTIONS } from "../files.ts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const ACCOUNT = "442123849268";
@@ -130,8 +131,8 @@ test("deploy roles: PowerUserAccess covers what this change deploys; the inline 
     assert.ok(!["iam", "organizations", "account"].includes(a.split(":")[0] ?? ""), a);
     assert.ok(!deploy.some((s) => s.Effect === "Deny" && list(s.Action).some((p) => glob(p, a))), `inline policy denies ${a}`);
   }
-  // No new role kind: WAF (no logging), ACM, Route 53 and SES create no role, so PassRole stays ECS tasks and Lambda.
-  const pass = deploy.find((s) => s.Effect === "Allow" && list(s.Action).includes("iam:PassRole"));
+  // WAF (no logging), ACM, Route 53 and SES create no role: the workloads' PassRole stays ECS tasks and Lambda.
+  const pass = deploy.find((s) => s.Sid === "PassA2HRolesToWorkloadsOnly");
   assert.ok(pass);
   assert.deepEqual(list(pass.Condition?.["StringEquals"]?.["iam:PassedToService"] ?? []).sort(), ["ecs-tasks.amazonaws.com", "lambda.amazonaws.com"]);
   for (const s of deploy.filter((x) => x.Effect === "Allow")) {
@@ -143,4 +144,44 @@ test("deploy roles: PowerUserAccess covers what this change deploys; the inline 
       }
     }
   }
+});
+
+// ---- m2-attachments (ADR 0005; task 3.1) ----------------------------------------
+
+/** Every action on every concrete resource the scanner role's policy names (wildcards made concrete). */
+function scannerNeeds(): [string, string][] {
+  const bucket = "a2h-dev-uploadsbucket-vnkxkhnk";
+  const concrete = (r: string) => r.replace("DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*", "DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3-ab12").replace(/\/tmp\/\*$/, "/tmp/dev/files/A2H-7f3c/fAAAAAAAAAAAAAAAAAAAAAA");
+  return scannerRolePolicy(bucket, ACCOUNT).Statement.flatMap((s) => s.Action.flatMap((a) => s.Resource.map((r): [string, string] => [a, concrete(r)])));
+}
+
+test("boundary: the scanner's role (created by dev's and prod's stacks under the boundary) may do everything GuardDuty's template needs", () => {
+  for (const [action, resource] of scannerNeeds()) assert.ok(allows(boundary, action, resource), `${action} on ${resource}`);
+  // The managed rule only: not any EventBridge rule in the account.
+  assert.ok(!allows(boundary, "events:PutRule", `arn:aws:events:eu-west-3:${ACCOUNT}:rule/a2h-dev-file-created`));
+  assert.ok(!allows(boundary, "events:PutTargets", `arn:aws:events:eu-west-3:${ACCOUNT}:rule/anything`));
+  assert.ok(!allows(boundary, "events:PutRule", `arn:aws:events:us-east-1:${ACCOUNT}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3-ab12`), "eu-west-3 only");
+});
+
+test("boundary: the worker reads and deletes on its stage's file-events queue", () => {
+  for (const s of ["dev", "pr-12", "prod"]) {
+    const queue = `arn:aws:sqs:eu-west-3:${ACCOUNT}:${fileEventsQueueName(stageInfo(s))}`;
+    for (const a of WORKER_QUEUE_ACTIONS) assert.ok(allows(boundary, a, queue), `${a} on ${queue}`);
+  }
+});
+
+test("deploy roles: may pass the scanner role to the Malware Protection plan service only (CreateMalwareProtectionPlan needs iam:PassRole)", () => {
+  const scanner = deploy.find((s) => s.Sid === "PassScannerRoleToMalwareProtectionOnly");
+  assert.ok(scanner, "statement PassScannerRoleToMalwareProtectionOnly");
+  assert.deepEqual(list(scanner.Action), ["iam:PassRole"]);
+  assert.deepEqual(list(scanner.Condition?.["StringEquals"]?.["iam:PassedToService"] ?? []), ["malware-protection-plan.guardduty.amazonaws.com"]);
+  for (const s of ["dev", "prod"]) {
+    const arn = scannerRoleArn(stageInfo(s), ACCOUNT);
+    assert.ok(list(scanner.Resource).some((r) => glob(r, arn)), arn);
+  }
+  // role/a2h-* like every other deploy statement (tests/ci/bootstrap.test.mjs); never a deploy role.
+  assert.deepEqual(list(scanner.Resource), [`arn:aws:iam::${ACCOUNT}:role/a2h-*`]);
+  assert.ok(!list(scanner.Resource).some((r) => glob(r, `arn:aws:iam::${ACCOUNT}:role/gha-a2h-dev`)));
+  // The scanner role is created like every a2h-* role: with the boundary (CreateOrChangeA2HRolesOnlyWithBoundary).
+  assert.ok(glob("a2h-*", roleName("dev", SCANNER_ROLE_LOGICAL_NAME)));
 });

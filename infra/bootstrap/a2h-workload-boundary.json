@@ -27,6 +27,21 @@
       ]
     },
     {
+      "Sid": "GuardDutyMalwareProtectionManagedRule",
+      "Effect": "Allow",
+      "Action": [
+        "events:PutRule",
+        "events:DeleteRule",
+        "events:PutTargets",
+        "events:RemoveTargets",
+        "events:DescribeRule",
+        "events:ListTargetsByRule"
+      ],
+      "Resource": [
+        "arn:aws:events:eu-west-3:442123849268:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+      ]
+    },
+    {
       "Sid": "A2HSecrets",
       "Effect": "Allow",
       "Action": [

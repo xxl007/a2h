@@ -149,7 +149,34 @@ const full = {
   SIGNING_KEY_ID: "a2h-pr-12-0123456789abcdef",
   SIGNING_PRIVATE_KEY: PKCS8,
   SIGNING_PUBLIC_KEY: RAW_PUBLIC,
+  UPLOADS_BUCKET: "a2h-dev-uploadsbucket-vnkxkhnk",
+  STORAGE_PREFIX: "pr-12/",
+  FILE_EVENTS_QUEUE_URL: "https://sqs.eu-west-3.amazonaws.com/442123849268/a2h-pr-12-FileEventsQueue-abc",
 };
+
+// m2-attachments task 3.2: the file intake's settings (infra/storage.ts, infra/file-events.ts).
+test("worker configuration: the uploads bucket, the stage's storage prefix and its file-events queue", (t) => {
+  silenceAndWatchConsole(t);
+  assert.deepEqual(workerConfigFromEnv({ ...full }).files, {
+    bucket: "a2h-dev-uploadsbucket-vnkxkhnk",
+    storagePrefix: "pr-12/",
+    queueUrl: "https://sqs.eu-west-3.amazonaws.com/442123849268/a2h-pr-12-FileEventsQueue-abc",
+  });
+});
+
+test("the file settings are required and checked: a worker without them would leave every file unchecked", (t) => {
+  silenceAndWatchConsole(t);
+  for (const name of ["UPLOADS_BUCKET", "STORAGE_PREFIX", "FILE_EVENTS_QUEUE_URL"]) {
+    const env: Record<string, string> = { ...full };
+    delete env[name];
+    assert.throws(() => workerConfigFromEnv(env), new RegExp(name));
+  }
+  assert.throws(() => workerConfigFromEnv({ ...full, STORAGE_PREFIX: "pr-12" }), /STORAGE_PREFIX/);
+  assert.throws(() => workerConfigFromEnv({ ...full, STORAGE_PREFIX: "../" }), /STORAGE_PREFIX/);
+  assert.throws(() => workerConfigFromEnv({ ...full, STORAGE_PREFIX: "dev/" }), /STORAGE_PREFIX/, "a preview never uses dev's prefix");
+  assert.throws(() => workerConfigFromEnv({ ...full, UPLOADS_BUCKET: "Bad/Name" }), /UPLOADS_BUCKET/);
+  assert.throws(() => workerConfigFromEnv({ ...full, FILE_EVENTS_QUEUE_URL: "http://example.com/q" }), /FILE_EVENTS_QUEUE_URL/);
+});
 
 test("worker configuration: stage, fee rate and clearing share, signing key; no principal (m1-hosted-connector: rows)", (t) => {
   const seen = silenceAndWatchConsole(t);
@@ -180,10 +207,11 @@ test("PRINCIPAL_* is refused: principals and their policies are rows since m1-ho
 
 test("Nothing on production: STAGE=prod never enables the simulator, whatever SIMULATOR_ENABLED says", (t) => {
   silenceAndWatchConsole(t);
-  assert.equal(workerConfigFromEnv({ ...full, STAGE: "prod", SIMULATOR_ENABLED: "true" }).simulatorEnabled, false);
-  assert.equal(workerConfigFromEnv({ ...full, STAGE: "prod", SIMULATOR_ENABLED: "false" }).simulatorEnabled, false);
-  assert.equal(workerConfigFromEnv({ ...full, STAGE: "dev", SIMULATOR_ENABLED: "false" }).simulatorEnabled, false);
-  assert.equal(workerConfigFromEnv({ ...full, STAGE: "dev", SIMULATOR_ENABLED: "true" }).simulatorEnabled, true);
+  const on = (STAGE: string) => ({ ...full, STAGE, STORAGE_PREFIX: `${STAGE}/` });
+  assert.equal(workerConfigFromEnv({ ...on("prod"), SIMULATOR_ENABLED: "true" }).simulatorEnabled, false);
+  assert.equal(workerConfigFromEnv({ ...on("prod"), SIMULATOR_ENABLED: "false" }).simulatorEnabled, false);
+  assert.equal(workerConfigFromEnv({ ...on("dev"), SIMULATOR_ENABLED: "false" }).simulatorEnabled, false);
+  assert.equal(workerConfigFromEnv({ ...on("dev"), SIMULATOR_ENABLED: "true" }).simulatorEnabled, true);
 });
 
 test("invalid worker configuration fails by name and never echoes key material", (t) => {

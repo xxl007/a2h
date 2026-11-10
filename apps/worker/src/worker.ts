@@ -14,7 +14,23 @@ import { createPool } from "./db.ts";
 import { deliverRequest, dispatchDue } from "./deliver.ts";
 import { expireDue } from "./expire.ts";
 import type { Log } from "./log.ts";
-import { createQueues, EXPIRE_CRON, jobsOf, QUEUES, type DeliverJob, type SimulateJob } from "./queues.ts";
+import { FileScanResultSchema } from "@a2h/protocol";
+import type { JobContext } from "./context.ts";
+import type { FileEventSource } from "./files/events.ts";
+import { applyScanResult, checkFile, deleteUnsentFiles, refuseStaleFiles, ScanResultTooEarly, unsentRequestIds, type FilesContext } from "./files/jobs.ts";
+import type { FileStore } from "./files/store.ts";
+import {
+  createFileQueues,
+  createQueues,
+  EXPIRE_CRON,
+  FILES_SWEEP_CRON,
+  jobsOf,
+  QUEUES,
+  type DeliverJob,
+  type FileCheckJob,
+  type FilesDeleteJob,
+  type SimulateJob,
+} from "./queues.ts";
 import { loadSigner, registerStageKey } from "./signing-keys.ts";
 import { runSimulateStep, type SimulateContext } from "./simulate.ts";
 import { errorFields } from "./error-log.ts";
@@ -45,9 +61,25 @@ export function bossOptions(db: DbConfig): ConstructorOptions {
   };
 }
 
+/**
+ * The worker's file storage and file events (m2-attachments task 3.2): S3 and
+ * the stage's SQS queue on a deployed stage (apps/worker/infra), the
+ * in-memory pair (src/files/memory.ts) in tests and local runs. Without it
+ * the file queues are not created.
+ */
+export interface WorkerFiles {
+  store: FileStore;
+  events: FileEventSource;
+  /** The stage's STORAGE_PREFIX. */
+  storagePrefix: string;
+  /** Retry delay of a scan result that overtook the content check (default 10 s). */
+  scanRetryDelaySeconds?: number;
+}
+
 export interface WorkerOptions {
   config: WorkerConfig;
   log: Log;
+  files?: WorkerFiles;
   /** How often the dispatcher looks for due deliveries (default 5 s). */
   dispatchIntervalMs?: number;
   /** pg-boss polling interval of the worker's queues (default 2 s). */
@@ -57,10 +89,56 @@ export interface WorkerOptions {
 export interface RunningWorker {
   /** Graceful: lets the active job finish (up to 20 s), then closes the pools. */
   stop: () => Promise<void>;
+  /** Enqueue a files-sweep now instead of at the next minute (tests, local runs). */
+  runFilesSweep: () => Promise<void>;
 }
 
+/** Registers the file queues and starts taking file events (m2-attachments D3, D5). */
+async function startFiles(boss: PgBoss, ctx: JobContext, files: WorkerFiles, work: { pollingIntervalSeconds: number }): Promise<void> {
+  const { log } = ctx;
+  const fctx: FilesContext = { ...ctx, store: files.store, storagePrefix: files.storagePrefix };
+  await createFileQueues(boss, files.scanRetryDelaySeconds === undefined ? {} : { scanRetryDelaySeconds: files.scanRetryDelaySeconds });
+  await boss.work<FileCheckJob>(QUEUES.fileCheck, work, async (batch) => {
+    for (const job of batch) await checkFile(fctx, job.data.file_id);
+  });
+  await boss.work(QUEUES.fileScan, work, async (batch: Job<unknown>[]) => {
+    for (const job of batch) {
+      const parsed = FileScanResultSchema.safeParse(job.data);
+      if (!parsed.success) {
+        log({ level: "error", msg: "file scan job malformed", job_id: job.id });
+        continue;
+      }
+      try {
+        await applyScanResult(fctx, parsed.data);
+      } catch (error) {
+        if (error instanceof ScanResultTooEarly) log({ level: "info", msg: "scan result before the content check, retrying", file_id: parsed.data.file_id });
+        throw error;
+      }
+    }
+  });
+  await boss.work(QUEUES.filesSweep, work, async () => {
+    try {
+      await refuseStaleFiles(fctx);
+      for (const requestId of await unsentRequestIds(fctx)) {
+        await boss.send(QUEUES.filesDelete, { request_id: requestId } satisfies FilesDeleteJob, { singletonKey: requestId });
+      }
+    } catch (error) {
+      log({ level: "error", msg: "files sweep failed", ...errorFields(error) });
+      throw error;
+    }
+  });
+  await boss.schedule(QUEUES.filesSweep, FILES_SWEEP_CRON);
+  await boss.work<FilesDeleteJob>(QUEUES.filesDelete, work, async (batch) => {
+    for (const job of batch) await deleteUnsentFiles(fctx, job.data.request_id);
+  });
+  files.events.start(async (event) => {
+    if (event.kind === "created") await boss.send(QUEUES.fileCheck, { file_id: event.file_id } satisfies FileCheckJob);
+    else await boss.send(QUEUES.fileScan, { ...event.result });
+  });
+  log({ level: "info", msg: "file intake started" });
+}
 
-export async function startWorker({ config, log, dispatchIntervalMs = 5_000, pollingIntervalSeconds = 2 }: WorkerOptions): Promise<RunningWorker> {
+export async function startWorker({ config, log, files, dispatchIntervalMs = 5_000, pollingIntervalSeconds = 2 }: WorkerOptions): Promise<RunningWorker> {
   const { stage } = config;
   const boss = new PgBoss(bossOptions(config.db));
   boss.on("error", (error: Error) => log({ level: "error", msg: "pg-boss error", ...errorFields(error) }));
@@ -89,6 +167,9 @@ export async function startWorker({ config, log, dispatchIntervalMs = 5_000, pol
     }
   });
   await boss.schedule(QUEUES.expire, EXPIRE_CRON);
+
+  if (files) await startFiles(boss, ctx, files, work);
+  else log({ level: "info", msg: "file intake disabled", stage });
 
   let timer: NodeJS.Timeout | undefined;
   let inFlight: Promise<void> = Promise.resolve();
@@ -126,8 +207,15 @@ export async function startWorker({ config, log, dispatchIntervalMs = 5_000, pol
   log({ level: "info", msg: "heartbeat job sent", queue: HEARTBEAT_QUEUE, job_id: jobId ?? undefined, stage });
 
   return {
+    runFilesSweep: async () => {
+      if (!files) throw new Error("file intake is disabled");
+      await boss.send(QUEUES.filesSweep, {});
+    },
     stop: async () => {
       if (timer) clearInterval(timer);
+      // An SQS long poll can take 20 s: stop taking events without waiting for it (an
+      // unhandled message stays on the queue), so the 20 s pg-boss drain fits ECS's 30 s.
+      if (files) await Promise.race([files.events.stop(), new Promise((r) => setTimeout(r, 2_000).unref())]);
       await inFlight;
       await boss.stop({ graceful: true, timeout: 20_000 });
       await pool.end();
