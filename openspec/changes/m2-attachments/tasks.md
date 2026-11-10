@@ -34,12 +34,14 @@ Gate 1 passed 2026-11-08 (all five recommendations). Owners: PD = Protocol dev, 
 
 ## 6. Verification (QA)
 
-- [ ] 6.1 Contract and e2e for every scenario of the four deltas on the preview, named after them; `tests/README.md` map
-- [ ] 6.2 Adversarial: upload to another principal's request; reuse an expired upload policy; oversize body against the policy; content-type spoofing; EICAR; reading a file by guessing its key; adding a file after Send; racing remove and Send. Each red against a weakened check, then green on the preview
-- [ ] 6.3 Fixtures: small PDF, PNG, JPEG, WebP, text, CSV, Markdown, a disguised HTML file, EICAR; nothing over 1 MB committed (large files generated in the test)
+- [x] 6.1 Contract and e2e for every scenario of the four deltas on the preview, named after them; `tests/README.md` map
+- [x] 6.2 Adversarial: upload to another principal's request; reuse an expired upload policy; oversize body against the policy; content-type spoofing; EICAR; reading a file by guessing its key; adding a file after Send; racing remove and Send. Each red against a weakened check, then green on the preview
+  - Done in #108. Red then green locally for all eight. Green on the preview for the parts that run before a file is stored. The rest (worker halves of F3 and F4, F5 against GuardDuty, F6 to F8) is required by verify dev after the merge to `main`, because previews borrow dev's bucket.
+- [x] 6.3 Fixtures: small PDF, PNG, JPEG, WebP, text, CSV, Markdown, a disguised HTML file, EICAR; nothing over 1 MB committed (large files generated in the test)
 
 ## 7. Docs, review and gate (PM)
 
-- [ ] 7.1 Runbook: scanner operation and cost; PRD §6 request card paragraph mentions attachments as built
+- [x] 7.1 Runbook: scanner operation and cost; PRD §6 request card paragraph mentions attachments as built
+  - `docs/runbooks/malware-scanner.md` (Paris prices from the Price List API, 2026-11-10). The scanner alarm has no notification action yet: listed under "Before prod".
 - [ ] 7.2 Cold review of the change PR (missing tests, spec drift, the one rule: nothing reaches a participant that their rules do not allow, nothing unchecked is ever sent)
 - [ ] 7.3 Gate 2 post with the preview link and the owner's steps from proposal.md
