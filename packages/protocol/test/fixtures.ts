@@ -203,6 +203,7 @@ export const fixtures: Record<string, Fixture> = {
   FileRefusedReasonSchema: { pass: "malware", fail: "virus", path: [] },
   FileIdSchema: { pass: "fAQEBAQEBAQEBAQEBAQEBAQ", fail: "-AQEBAQEBAQEBAQEBAQEBAQ", path: [] },
   FileScanOutcomeSchema: { pass: "threat", fail: "infected", path: [] },
+  FileObjectEtagSchema: { pass: "9b2cf535f27731c974343645a3985328", fail: '"9b2cf535f27731c974343645a3985328"', path: [] },
   FileScanResultSchema: {
     pass: { file_id: "fAQEBAQEBAQEBAQEBAQEBAQ", outcome: "clean" },
     fail: { file_id: "fAQEBAQEBAQEBAQEBAQEBAQ", outcome: "threat", threat: "EICAR-Test-File" },

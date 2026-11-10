@@ -39,20 +39,22 @@ export function startFileCheckStandIn(): StandIn {
   let stopped = false;
 
   const tick = async () => {
-    const rows = (await pool.query<{ id: string; object_key: string; declared_type: string; state: string }>(
-      "SELECT id, object_key, declared_type, state FROM request_files WHERE deleted_at IS NULL AND state IN ('uploading', 'checking')",
+    const rows = (await pool.query<{ id: string; object_key: string; declared_type: string; state: string; checked_etag: string | null }>(
+      "SELECT id, object_key, declared_type, state, checked_etag FROM request_files WHERE deleted_at IS NULL AND state IN ('uploading', 'checking')",
     )).rows;
     for (const r of rows) {
+      let etag: string;
       try {
-        await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: r.object_key }));
+        etag = ((await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: r.object_key }))).ETag ?? "").replace(/^"(.*)"$/, "$1");
       } catch {
         continue; // not uploaded (yet)
       }
       // One pass to checking, the next to the outcome: the page shows "Checking" in between.
       if (r.state === "uploading") {
-        await markFileChecking(db, r.id, r.declared_type);
+        await markFileChecking(db, r.id, r.declared_type, etag);
         continue;
       }
+      if (!r.checked_etag) continue;
       const head = await (await s3.send(new GetObjectCommand({ Bucket: bucket, Key: r.object_key, Range: "bytes=0-8191" }))).Body!.transformToString("latin1");
       if (head.includes(EICAR)) {
         const refused = await refuseFile(db, r.id, "malware");
@@ -60,8 +62,10 @@ export function startFileCheckStandIn(): StandIn {
         continue;
       }
       const clean = r.object_key.replace(/^tmp\//, "uploads/");
-      await s3.send(new CopyObjectCommand({ Bucket: bucket, Key: clean, CopySource: `${bucket}/${r.object_key}`, ContentType: r.declared_type, MetadataDirective: "REPLACE" }));
-      if (await markFileReady(db, r.id, clean, new Date())) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: r.object_key }));
+      await s3.send(
+        new CopyObjectCommand({ Bucket: bucket, Key: clean, CopySource: `${bucket}/${r.object_key}`, CopySourceIfMatch: `"${r.checked_etag}"`, ContentType: r.declared_type, MetadataDirective: "REPLACE" }),
+      );
+      if (await markFileReady(db, r.id, clean, new Date(), r.checked_etag)) await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: r.object_key }));
     }
   };
 

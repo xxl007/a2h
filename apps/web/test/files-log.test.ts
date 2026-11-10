@@ -87,8 +87,8 @@ describe.skipIf(!adminUrl)("Logs of an upload: no file name in any log line", ()
     await addFile({ ...deps, db: failingDb() }, c, pdf(10));
 
     // Ready one file to open it.
-    await markFileChecking(d.db, ids[2]!, "application/pdf");
-    await markFileReady(d.db, ids[2]!, `uploads/pr-12/files/${a.id}/${ids[2]}`, new Date());
+    await markFileChecking(d.db, ids[2]!, "application/pdf", "9b2cf535f27731c974343645a3985328");
+    await markFileReady(d.db, ids[2]!, `uploads/pr-12/files/${a.id}/${ids[2]}`, new Date(), "9b2cf535f27731c974343645a3985328");
 
     // Open: issued, none, another account, storage failing, database failing.
     await openFile(deps, c, ids[2]);

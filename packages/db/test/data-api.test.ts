@@ -280,10 +280,10 @@ describe("packages/db queries through the Data API driver (Postgres 17)", { skip
     assert.ok(listed[0]!.created_at instanceof Date, "a timestamp read back as a Date");
 
     // Send waits while a file is checked (the worker path, here through the same driver).
-    assert.equal(await markFileChecking(db, a.id, "application/pdf"), true);
+    assert.equal(await markFileChecking(db, a.id, "application/pdf", "9b2cf535f27731c974343645a3985328"), true);
     const waiting = await decideApproval(db, decision("A2H-da2c", t, "send"));
     assert.ok(waiting.kind === "invalid" && waiting.error.code === "files_not_ready", JSON.stringify(waiting));
-    assert.equal(await markFileReady(db, a.id, `uploads/pr-0/files/A2H-da2c/${a.id}`, LATER), true);
+    assert.equal(await markFileReady(db, a.id, `uploads/pr-0/files/A2H-da2c/${a.id}`, LATER, "9b2cf535f27731c974343645a3985328"), true);
     assert.deepEqual(await fileForReading(db, { ...at, file_id: a.id }), { object_key: `uploads/pr-0/files/A2H-da2c/${a.id}`, media_type: "application/pdf" });
     assert.equal(await fileForReading(db, { ...at, principal_id: OTHER, file_id: a.id }), null);
     assert.deepEqual(await removeRequestFile(db, { ...at, file_id: b.id }), { kind: "removed", object_key: b.object_key });

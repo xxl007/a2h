@@ -38,6 +38,9 @@ const PRINCIPAL = "user-files-principal";
 const OTHER = "user-files-other";
 const FEE_RATE = 0.2;
 const POLICY = { currency: "EUR", monthly_budget_minor: 500_000, per_request_cap_minor: 6_000, ask_first_above_minor: null, daily_request_limit: 500, throttled_daily_limit: 5 };
+/** The ETag of the object the content check read (review B1). */
+const ETAG = "9b2cf535f27731c974343645a3985328";
+const OTHER_ETAG = "0cc175b9c0f1b6a831c399e269772661";
 const QUESTION = "Would a patient with type 2 diabetes find the attached leaflet's section on insulin alarming?";
 
 /** The default persona (rules without a stated setting: files up to 50 MB). */
@@ -145,8 +148,8 @@ async function add(f: Fresh, a: Awaiting, over: Parameters<typeof newFile>[1] = 
 /** A file through the worker's checks to `ready` (D3), moved to the uploads area. */
 async function addReady(f: Fresh, a: Awaiting, over: Parameters<typeof newFile>[1] = {}, mediaType = "application/pdf") {
   const file = await add(f, a, over);
-  assert.equal(await markFileChecking(f.db, file.id, mediaType), true);
-  assert.equal(await markFileReady(f.db, file.id, file.object_key.replace(/^tmp\//, "uploads/"), LATER), true);
+  assert.equal(await markFileChecking(f.db, file.id, mediaType, ETAG), true);
+  assert.equal(await markFileReady(f.db, file.id, file.object_key.replace(/^tmp\//, "uploads/"), LATER, ETAG), true);
   return file;
 }
 
@@ -241,7 +244,7 @@ describe("request files (m2-attachments 2.3, 2.4, Postgres 17)", { skip }, () =>
         { id: listed!.id, name: listed!.name, state: listed!.state, size: listed!.size_bytes, media: listed!.media_type, declared: listed!.declared_type, reason: listed!.refused_reason },
         { id: file.id, name: file.name, state: "uploading", size: 2 * MB, media: null, declared: "application/pdf", reason: null },
       );
-      assert.equal(await markFileChecking(f.db, file.id, "application/pdf"), true);
+      assert.equal(await markFileChecking(f.db, file.id, "application/pdf", ETAG), true);
       assert.equal((await listRequestFiles(f.db, a.id))[0]!.media_type, "application/pdf");
     });
 
@@ -346,18 +349,65 @@ describe("request files (m2-attachments 2.3, 2.4, Postgres 17)", { skip }, () =>
       const f = await fresh();
       const a = await awaiting(f);
       const x = await add(f, a);
-      assert.equal(await markFileReady(f.db, x.id, "uploads/k", LATER), false, "not ready before checking");
-      assert.equal(await markFileChecking(f.db, x.id, "application/pdf"), true);
-      assert.equal(await markFileChecking(f.db, x.id, "application/pdf"), false, "once");
-      assert.equal(await markFileReady(f.db, x.id, "uploads/k", LATER), true);
-      assert.equal(await markFileReady(f.db, x.id, "uploads/k2", LATER), false, "a duplicate scan result changes nothing");
+      assert.equal(await markFileReady(f.db, x.id, "uploads/k", LATER, ETAG), false, "not ready before checking");
+      assert.equal(await markFileChecking(f.db, x.id, "application/pdf", ETAG), true);
+      assert.equal(await markFileChecking(f.db, x.id, "application/pdf", ETAG), false, "once");
+      assert.equal(await markFileReady(f.db, x.id, "uploads/k", LATER, ETAG), true);
+      assert.equal(await markFileReady(f.db, x.id, "uploads/k2", LATER, ETAG), false, "a duplicate scan result changes nothing");
       assert.equal(await refuseFile(f.db, x.id, "malware"), null, "a ready file is not refused by a late event");
       const y = await add(f, a);
       assert.deepEqual(await refuseFile(f.db, y.id, "not_checked"), { object_key: y.object_key });
-      assert.equal(await markFileChecking(f.db, y.id, "application/pdf"), false);
+      assert.equal(await markFileChecking(f.db, y.id, "application/pdf", ETAG), false);
       const [ry] = (await listRequestFiles(f.db, a.id)).filter((r) => r.id === y.id);
       assert.deepEqual([ry!.state, ry!.refused_reason], ["refused", "not_checked"]);
-      await assert.rejects(markFileChecking(f.db, x.id, "text/html"), RangeError, "only an allowed type is recorded");
+      await assert.rejects(markFileChecking(f.db, x.id, "text/html", ETAG), RangeError, "only an allowed type is recorded");
+    });
+
+    test("B1: checking records the ETag of the bytes checked; ready applies only for that ETag", async () => {
+      const f = await fresh();
+      const a = await awaiting(f);
+      const x = await add(f, a);
+      assert.equal(await markFileChecking(f.db, x.id, "application/pdf", ETAG), true);
+      const [row] = await f.sql<{ checked_etag: string | null }>("SELECT checked_etag FROM request_files WHERE id = $1", [x.id]);
+      assert.equal(row!.checked_etag, ETAG);
+      assert.equal(await markFileReady(f.db, x.id, "uploads/k", LATER, OTHER_ETAG), false, "a clean verdict on other bytes does not make it ready");
+      assert.equal((await listRequestFiles(f.db, a.id))[0]!.state, "checking");
+      assert.equal(await markFileReady(f.db, x.id, "uploads/k", LATER, ETAG), true);
+      await assert.rejects(markFileChecking(f.db, (await add(f, a)).id, "application/pdf", '"quoted"'), RangeError, "an ETag in the protocol's form only");
+    });
+
+    test("S2: a file removed while a mark waits for the request's lock is not marked (checking, ready or refused)", async () => {
+      const f = await fresh();
+      for (const mark of ["checking", "ready", "refused"] as const) {
+        const a = await awaiting(f);
+        const x = await add(f, a);
+        if (mark === "ready") await markFileChecking(f.db, x.id, "application/pdf", ETAG);
+        // The page's removal holds the request's lock; the worker's mark reads the live row, then waits.
+        const page = await f.pool.connect();
+        try {
+          await page.query("BEGIN");
+          await page.query("SELECT id FROM requests WHERE id = $1 FOR UPDATE", [a.id]);
+          const pending =
+            mark === "checking"
+              ? markFileChecking(f.db, x.id, "application/pdf", ETAG)
+              : mark === "ready"
+                ? markFileReady(f.db, x.id, "uploads/k", LATER, ETAG)
+                : refuseFile(f.db, x.id, "not_checked");
+          for (let i = 0; i < 200; i++) {
+            const [w] = await f.sql<{ n: string }>("SELECT count(*)::text AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()");
+            if (w!.n !== "0") break;
+            await new Promise((r) => setTimeout(r, 10));
+          }
+          await page.query("UPDATE request_files SET deleted_at = now() WHERE id = $1", [x.id]);
+          await page.query("COMMIT");
+          const changed = await pending;
+          assert.ok(changed === false || changed === null, `${mark}: a removed file is not marked`);
+        } finally {
+          page.release();
+        }
+        const [r] = await f.sql<{ state: string; deleted: boolean }>("SELECT state, deleted_at IS NOT NULL AS deleted FROM request_files WHERE id = $1", [x.id]);
+        assert.deepEqual(r, { state: mark === "ready" ? "checking" : "uploading", deleted: true }, mark);
+      }
     });
 
     test("Scenario: Don't send (data part): the unsent request's files are marked deleted and their keys returned once; a sent request's files are not touched", async () => {
@@ -366,7 +416,7 @@ describe("request files (m2-attachments 2.3, 2.4, Postgres 17)", { skip }, () =>
       const one = await addReady(f, a);
       const two = await add(f, a);
       assert.deepEqual(await decideApproval(f.db, dontSend(a)), { kind: "not_sent", reason: "declined" });
-      assert.equal(await markFileChecking(f.db, two.id, "application/pdf"), false, "no mark once the request is not sent");
+      assert.equal(await markFileChecking(f.db, two.id, "application/pdf", ETAG), false, "no mark once the request is not sent");
       assert.deepEqual((await deleteUnsentRequestFiles(f.db, a.id, LATER)).sort(), [one.object_key.replace(/^tmp\//, "uploads/"), two.object_key].sort());
       assert.deepEqual(await deleteUnsentRequestFiles(f.db, a.id, LATER), [], "once");
       assert.deepEqual(await listRequestFiles(f.db, a.id), []);
@@ -402,14 +452,14 @@ describe("request files (m2-attachments 2.3, 2.4, Postgres 17)", { skip }, () =>
       const a = await awaiting(f);
       const x = await add(f, a);
       for (const step of ["uploading", "checking"]) {
-        if (step === "checking") await markFileChecking(f.db, x.id, "application/pdf");
+        if (step === "checking") await markFileChecking(f.db, x.id, "application/pdf", ETAG);
         const r = await decideApproval(f.db, send(a));
         assert.equal(r.kind, "invalid", step);
         if (r.kind === "invalid") assert.deepEqual([r.error.code, r.error.stage, r.error.retryable], ["files_not_ready", "lifecycle", true], step);
         assert.deepEqual(await requestRow(f, a.id), { status: "awaiting_approval", attachments: null }, step);
         assert.deepEqual(await blockedCodes(f, a.id), [], `${step}: not a rules block`);
       }
-      await markFileReady(f.db, x.id, "uploads/k", LATER);
+      await markFileReady(f.db, x.id, "uploads/k", LATER, ETAG);
       assert.equal((await decideApproval(f.db, send(a))).kind, "sent");
     });
 

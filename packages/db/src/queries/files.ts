@@ -17,6 +17,7 @@ import {
   type AttachmentMediaType,
   type FileRefusedReason,
   FileIdSchema,
+  FileObjectEtagSchema,
   type FileState,
 } from "@a2h/protocol";
 import { and, asc, eq, inArray, isNull, lte } from "drizzle-orm";
@@ -234,7 +235,9 @@ export async function fileForReading(db: A2hDb, a: FileAccess & { file_id: strin
 /**
  * Run `change` on a live file of a request awaiting approval, under the
  * request's lock (so it is serialised with Send and Don't send); false (or
- * null) when the file is gone or its request is decided.
+ * null) when the file is gone or its request is decided. The file is read
+ * before the lock is taken, so a removal can commit in between: every
+ * `change` re-checks `deleted_at IS NULL` in its own UPDATE (review S2).
  */
 async function onAwaitingFile<T>(db: A2hDb, fileId: string, change: (tx: A2hDb) => Promise<T>, none: T): Promise<T> {
   return db.transaction(async (tx) => {
@@ -246,29 +249,48 @@ async function onAwaitingFile<T>(db: A2hDb, fileId: string, change: (tx: A2hDb) 
   });
 }
 
-/** The content check passed (D3): `uploading` → `checking`, with the type read from the bytes. True if it changed. */
-export async function markFileChecking(db: A2hDb, fileId: string, mediaType: string): Promise<boolean> {
+/**
+ * The content check passed (D3): `uploading` → `checking`, with the type read
+ * from the bytes and the ETag of the object those bytes came from (review
+ * B1). True if it changed.
+ */
+export async function markFileChecking(db: A2hDb, fileId: string, mediaType: string, etag: string): Promise<boolean> {
   const type = AttachmentMediaTypeSchema.safeParse(mediaType);
   if (!type.success) throw new RangeError("not an allowed media type");
+  if (!FileObjectEtagSchema.safeParse(etag).success) throw new RangeError("malformed ETag");
   return onAwaitingFile(
     db,
     fileId,
     async (tx) =>
-      (await tx.update(requestFiles).set({ state: "checking", media_type: type.data }).where(and(eq(requestFiles.id, fileId), eq(requestFiles.state, "uploading"))).returning({ id: requestFiles.id })).length === 1,
+      (
+        await tx
+          .update(requestFiles)
+          .set({ state: "checking", media_type: type.data, checked_etag: etag })
+          .where(and(eq(requestFiles.id, fileId), eq(requestFiles.state, "uploading"), isNull(requestFiles.deleted_at)))
+          .returning({ id: requestFiles.id })
+      ).length === 1,
     false,
   );
 }
 
 /**
  * The scan found nothing (D3): `checking` → `ready`, at the object's new key
- * in the uploads area. True if it changed; a duplicate result changes nothing.
+ * in the uploads area, only if `etag` (the object scanned and copied) is the
+ * one the content check recorded (review B1). True if it changed; a
+ * duplicate result, a removed file or other bytes change nothing.
  */
-export async function markFileReady(db: A2hDb, fileId: string, objectKey: string, now: Date): Promise<boolean> {
+export async function markFileReady(db: A2hDb, fileId: string, objectKey: string, now: Date, etag: string): Promise<boolean> {
   return onAwaitingFile(
     db,
     fileId,
     async (tx) =>
-      (await tx.update(requestFiles).set({ state: "ready", object_key: objectKey, ready_at: now }).where(and(eq(requestFiles.id, fileId), eq(requestFiles.state, "checking"))).returning({ id: requestFiles.id })).length === 1,
+      (
+        await tx
+          .update(requestFiles)
+          .set({ state: "ready", object_key: objectKey, ready_at: now })
+          .where(and(eq(requestFiles.id, fileId), eq(requestFiles.state, "checking"), eq(requestFiles.checked_etag, etag), isNull(requestFiles.deleted_at)))
+          .returning({ id: requestFiles.id })
+      ).length === 1,
     false,
   );
 }
@@ -287,7 +309,7 @@ export async function refuseFile(db: A2hDb, fileId: string, reason: FileRefusedR
       const [r] = await tx
         .update(requestFiles)
         .set({ state: "refused", refused_reason: reason })
-        .where(and(eq(requestFiles.id, fileId), inArray(requestFiles.state, ["uploading", "checking"])))
+        .where(and(eq(requestFiles.id, fileId), inArray(requestFiles.state, ["uploading", "checking"]), isNull(requestFiles.deleted_at)))
         .returning({ object_key: requestFiles.object_key });
       return r ?? null;
     },
@@ -323,6 +345,8 @@ export interface WorkerFileView {
   media_type: AttachmentMediaType | null;
   size_bytes: number;
   state: FileState;
+  /** The ETag of the bytes the content check read (review B1); null before. Never logged. */
+  checked_etag: string | null;
   removed: boolean;
   request_status: string;
 }
@@ -337,6 +361,7 @@ export async function fileForWorker(db: A2hDb, fileId: string): Promise<WorkerFi
       media_type: requestFiles.media_type,
       size_bytes: requestFiles.size_bytes,
       state: requestFiles.state,
+      checked_etag: requestFiles.checked_etag,
       deleted_at: requestFiles.deleted_at,
       request_status: requests.status,
     })
@@ -351,6 +376,7 @@ export async function fileForWorker(db: A2hDb, fileId: string): Promise<WorkerFi
     media_type: r.media_type as AttachmentMediaType | null,
     size_bytes: r.size_bytes,
     state: r.state as FileState,
+    checked_etag: r.checked_etag,
     removed: r.deleted_at !== null,
     request_status: r.request_status,
   };

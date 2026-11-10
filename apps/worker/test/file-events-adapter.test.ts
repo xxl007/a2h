@@ -27,7 +27,9 @@ function created(key = KEY, bucket = BUCKET) {
   });
 }
 
-function scanned(status: string, extra: Record<string, unknown> = {}, key = KEY, bucket = BUCKET) {
+const ETAG = "9b2cf535f27731c974343645a3985328";
+
+function scanned(status: string, extra: Record<string, unknown> = {}, key = KEY, bucket = BUCKET, eTag: unknown = ETAG) {
   return JSON.stringify({
     version: "0",
     "detail-type": "GuardDuty Malware Protection Object Scan Result",
@@ -36,7 +38,7 @@ function scanned(status: string, extra: Record<string, unknown> = {}, key = KEY,
       schemaVersion: "1.0",
       scanStatus: status === "NO_THREATS_FOUND" || status === "THREATS_FOUND" ? "COMPLETED" : status === "FAILED" ? "FAILED" : "SKIPPED",
       resourceType: "S3_OBJECT",
-      s3ObjectDetails: { bucketName: bucket, objectKey: key, eTag: "e", versionId: "v", s3Throttled: false },
+      s3ObjectDetails: { bucketName: bucket, objectKey: key, eTag, versionId: "v", s3Throttled: false },
       scanResultDetails: { scanResultStatus: status, threats: null, statusReasons: null, ...extra },
     },
   });
@@ -57,7 +59,20 @@ describe("fileEventOf: provider events → FileEvent", () => {
       ["SOMETHING_NEW", "error"],
     ];
     for (const [status, outcome] of cases) {
-      assert.deepEqual(fileEventOf(scanned(status), opts).event, { kind: "scanned", result: { file_id: FILE, outcome } }, status);
+      assert.deepEqual(fileEventOf(scanned(status), opts).event, { kind: "scanned", result: { file_id: FILE, outcome, etag: ETAG } }, status);
+    }
+  });
+
+  test("B1: the scanned object's eTag is kept (quotes stripped) so the verdict binds to exact bytes; it is never logged", () => {
+    const quoted = fileEventOf(scanned("NO_THREATS_FOUND", {}, KEY, BUCKET, `"${ETAG}"`), opts);
+    assert.deepEqual(quoted.event, { kind: "scanned", result: { file_id: FILE, outcome: "clean", etag: ETAG } });
+    assert.ok(!JSON.stringify(quoted.log).includes(ETAG), "the ETag is a hash of the content: not logged");
+    // Missing or malformed: the result carries no ETag, which the worker refuses for a clean verdict.
+    const absent = JSON.parse(scanned("NO_THREATS_FOUND")) as { detail: { s3ObjectDetails: Record<string, unknown> } };
+    delete absent.detail.s3ObjectDetails["eTag"];
+    const bodies = [JSON.stringify(absent), ...[null, "", "not an etag!", 42].map((bad) => scanned("NO_THREATS_FOUND", {}, KEY, BUCKET, bad))];
+    for (const body of bodies) {
+      assert.deepEqual(fileEventOf(body, opts).event, { kind: "scanned", result: { file_id: FILE, outcome: "clean" } }, body);
     }
   });
 
@@ -160,10 +175,10 @@ describe("S3FileStore", () => {
     };
   }
 
-  test("head reads a byte range and the full size from Content-Range", async () => {
-    const s3 = fakeS3(() => ({ ContentRange: "bytes 0-3/12345", Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([37, 80, 68, 70])) } }));
+  test("head reads a byte range, the full size from Content-Range, and the object's ETag (quotes stripped)", async () => {
+    const s3 = fakeS3(() => ({ ContentRange: "bytes 0-3/12345", ETag: `"${ETAG}"`, Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([37, 80, 68, 70])) } }));
     const store = new S3FileStore(s3.client, BUCKET);
-    assert.deepEqual(await store.head(KEY, 8192), { bytes: new Uint8Array([37, 80, 68, 70]), size: 12345 });
+    assert.deepEqual(await store.head(KEY, 8192), { bytes: new Uint8Array([37, 80, 68, 70]), size: 12345, etag: ETAG });
     assert.deepEqual(s3.sent[0], { name: "GetObjectCommand", input: { Bucket: BUCKET, Key: KEY, Range: "bytes=0-8191" } });
   });
 
@@ -174,20 +189,41 @@ describe("S3FileStore", () => {
     assert.equal(await new S3FileStore(s3.client, BUCKET).head(KEY, 8192), null);
   });
 
-  test("copy keeps the tags (the scanner's clean tag) and sets the recorded type", async () => {
+  test("head without a usable ETag fails rather than checking unbindable bytes", async () => {
+    const s3 = fakeS3(() => ({ ContentRange: "bytes 0-3/12345", Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([37, 80, 68, 70])) } }));
+    await assert.rejects(new S3FileStore(s3.client, BUCKET).head(KEY, 8192), /ETag/);
+  });
+
+  test("copy is pinned to the checked ETag (CopySourceIfMatch), keeps the tags (the scanner's clean tag) and sets the recorded type", async () => {
     const s3 = fakeS3(() => ({}));
-    await new S3FileStore(s3.client, BUCKET).copy(KEY, `uploads/pr-12/files/A2H-7f3c/${FILE}`, "application/pdf");
+    assert.equal(await new S3FileStore(s3.client, BUCKET).copy(KEY, `uploads/pr-12/files/A2H-7f3c/${FILE}`, "application/pdf", ETAG), "copied");
     assert.deepEqual(s3.sent[0], {
       name: "CopyObjectCommand",
       input: {
         Bucket: BUCKET,
         Key: `uploads/pr-12/files/A2H-7f3c/${FILE}`,
         CopySource: `${BUCKET}/${KEY}`,
+        CopySourceIfMatch: `"${ETAG}"`,
         TaggingDirective: "COPY",
         MetadataDirective: "REPLACE",
         ContentType: "application/pdf",
       },
     });
+  });
+
+  test("B1: a copy whose source no longer has the checked ETag (412) or is gone is 'changed', not an error; other failures throw", async () => {
+    const precondition = fakeS3(() => {
+      throw Object.assign(new Error("At least one of the pre-conditions you specified did not hold"), { name: "PreconditionFailed", $metadata: { httpStatusCode: 412 } });
+    });
+    assert.equal(await new S3FileStore(precondition.client, BUCKET).copy(KEY, "uploads/x", "application/pdf", ETAG), "changed");
+    const gone = fakeS3(() => {
+      throw Object.assign(new Error("gone"), { name: "NoSuchKey" });
+    });
+    assert.equal(await new S3FileStore(gone.client, BUCKET).copy(KEY, "uploads/x", "application/pdf", ETAG), "changed");
+    const down = fakeS3(() => {
+      throw Object.assign(new Error("slow down"), { name: "SlowDown", $metadata: { httpStatusCode: 503 } });
+    });
+    await assert.rejects(new S3FileStore(down.client, BUCKET).copy(KEY, "uploads/x", "application/pdf", ETAG), /slow down/);
   });
 
   test("delete", async () => {

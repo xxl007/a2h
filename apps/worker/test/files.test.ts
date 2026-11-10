@@ -11,7 +11,7 @@ import { fileObjectKey, type AttachmentMediaType } from "@a2h/protocol";
 import { createPool } from "../src/db.ts";
 import { expireDue } from "../src/expire.ts";
 import { applyScanResult, checkFile, deleteUnsentFiles, FILE_CHECK_LIMIT_SECONDS, refuseStaleFiles, ScanResultTooEarly, unsentRequestIds, type FilesContext } from "../src/files/jobs.ts";
-import { MemoryFileStore } from "../src/files/memory.ts";
+import { etagOf, MemoryFileStore } from "../src/files/memory.ts";
 import type { WorkerLogLine } from "../src/log.ts";
 import { createAwaiting, statusOf } from "./lib/requests.ts";
 import { PRINCIPAL_ID, rows, skipWithoutDocker, startStageDb, STAGE, testConfig, type StageDb } from "./lib/stage-db.ts";
@@ -51,11 +51,12 @@ describe("file jobs (D3, D5)", { skip }, () => {
       [id, requestId, PRINCIPAL_ID, SECRET_NAME, o.declared, o.size ?? o.content.length, tmp, o.created_ago ?? 0],
     );
     if (o.uploaded !== false) store.put(tmp, o.content, o.declared);
-    return { id, tmp, uploads: fileObjectKey("uploads", PREFIX, requestId, id) };
+    return { id, tmp, uploads: fileObjectKey("uploads", PREFIX, requestId, id), etag: etagOf(o.content) };
   }
 
   const fileRow = async (id: string) =>
     (await rows<{ state: string; refused_reason: string | null; media_type: string | null; object_key: string; deleted_at: Date | null }>(stage.admin, `SELECT state, refused_reason, media_type, object_key, deleted_at FROM request_files WHERE id = $1`, [id]))[0]!;
+  const checkedEtag = async (id: string) => (await rows<{ checked_etag: string | null }>(stage.admin, `SELECT checked_etag FROM request_files WHERE id = $1`, [id]))[0]!.checked_etag;
 
   before(async () => {
     stage = await startStageDb();
@@ -76,6 +77,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     assert.equal(await checkFile(ctx(), f.id), "checking");
     assert.deepEqual(await fileRow(f.id), { state: "checking", refused_reason: null, media_type: "application/pdf", object_key: f.tmp, deleted_at: null });
     assert.ok(store.has(f.tmp), "the object stays in tmp/ for the scanner");
+    assert.equal(await checkedEtag(f.id), f.etag, "the ETag of the bytes checked is recorded (B1)");
     assert.equal(await checkFile(ctx(), f.id), "ignored", "a repeated Object Created event changes nothing");
   });
 
@@ -113,15 +115,15 @@ describe("file jobs (D3, D5)", { skip }, () => {
     const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
     const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
     await checkFile(ctx(), f.id);
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean" }), "ready");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "ready");
     const row = await fileRow(f.id);
     assert.equal(row.state, "ready");
     assert.equal(row.object_key, f.uploads);
     assert.ok(!store.has(f.tmp), "tmp/ object deleted");
     assert.deepEqual(store.get(f.uploads)?.content_type, "application/pdf");
     // At-least-once delivery: the same result again, then a contradicting one, change nothing.
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean" }), "ignored");
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "threat" }), "ignored");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "ignored");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "threat", etag: f.etag }), "ignored");
     assert.equal((await fileRow(f.id)).state, "ready");
     assert.ok(store.has(f.uploads));
   });
@@ -130,12 +132,12 @@ describe("file jobs (D3, D5)", { skip }, () => {
     const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
     const f = await addFile(r.id, { declared: "text/plain", content: EICAR });
     assert.equal(await checkFile(ctx(), f.id), "checking", "the EICAR string is printable text: only the scan can refuse it");
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "threat" }), "refused");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "threat", etag: f.etag }), "refused");
     const row = await fileRow(f.id);
     assert.equal(row.state, "refused");
     assert.equal(row.refused_reason, "malware");
     assert.ok(!store.has(f.tmp) && !store.has(f.uploads), "deleted from both areas");
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "threat" }), "ignored", "a duplicate result changes nothing");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "threat", etag: f.etag }), "ignored", "a duplicate result changes nothing");
     assert.ok(!JSON.stringify(logs).toLowerCase().includes("eicar"));
   });
 
@@ -143,7 +145,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
     const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
     await checkFile(ctx(), f.id);
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "error" }), "refused");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "error", etag: f.etag }), "refused");
     assert.equal((await fileRow(f.id)).refused_reason, "not_checked");
     assert.ok(!store.has(f.tmp));
   });
@@ -151,10 +153,10 @@ describe("file jobs (D3, D5)", { skip }, () => {
   test("a result that overtakes the content check is retried, never applied before it nor lost", async () => {
     const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
     const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
-    await assert.rejects(applyScanResult(ctx(), { file_id: f.id, outcome: "clean" }), ScanResultTooEarly);
+    await assert.rejects(applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), ScanResultTooEarly);
     assert.equal((await fileRow(f.id)).state, "uploading");
     await checkFile(ctx(), f.id);
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean" }), "ready");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "ready");
   });
 
   test("a result for an unknown file, or for a file the principal removed, is ignored", async () => {
@@ -165,7 +167,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     await checkFile(ctx(), f.id);
     await stage.admin.query(`UPDATE request_files SET deleted_at = now() WHERE id = $1`, [f.id]);
     await store.delete(f.tmp); // the page deletes the object at once (D5)
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean" }), "ignored");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "ignored");
     assert.ok(!store.has(f.uploads), "no copy is made of a removed file");
   });
 
@@ -177,7 +179,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     const never = await addFile(r.id, { declared: "application/pdf", content: PDF, uploaded: false });
     const ready = await addFile(r.id, { declared: "application/pdf", content: PDF });
     await checkFile(ctx(), ready.id);
-    await applyScanResult(ctx(), { file_id: ready.id, outcome: "clean" });
+    await applyScanResult(ctx(), { file_id: ready.id, outcome: "clean", etag: ready.etag });
     // Nine minutes: nothing changes.
     await refuseStaleFiles(ctx(at(9 * 60)));
     assert.equal((await fileRow(checking.id)).state, "checking");
@@ -192,7 +194,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     assert.equal((await fileRow(ready.id)).state, "ready");
     assert.ok(store.has(ready.uploads));
     // A late result now changes nothing.
-    assert.equal(await applyScanResult(ctx(), { file_id: checking.id, outcome: "clean" }), "ignored");
+    assert.equal(await applyScanResult(ctx(), { file_id: checking.id, outcome: "clean", etag: checking.etag }), "ignored");
     assert.ok(!store.has(checking.uploads));
   });
 
@@ -200,7 +202,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
     const a = await addFile(r.id, { declared: "application/pdf", content: PDF });
     await checkFile(ctx(), a.id);
-    await applyScanResult(ctx(), { file_id: a.id, outcome: "clean" });
+    await applyScanResult(ctx(), { file_id: a.id, outcome: "clean", etag: a.etag });
     const b = await addFile(r.id, { declared: "application/pdf", content: PDF });
     await checkFile(ctx(), b.id);
     // Don't send (the page's decideApproval), as the database records it.
@@ -214,7 +216,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     assert.ok(!(await unsentRequestIds(ctx())).includes(r.id), "nothing left to delete");
     assert.equal(await deleteUnsentFiles(ctx(), r.id), 0, "idempotent");
     // A clean result arriving after Don't send makes no copy.
-    assert.equal(await applyScanResult(ctx(), { file_id: b.id, outcome: "clean" }), "ignored");
+    assert.equal(await applyScanResult(ctx(), { file_id: b.id, outcome: "clean", etag: b.etag }), "ignored");
     assert.ok(!store.has(b.uploads));
   });
 
@@ -226,7 +228,7 @@ describe("file jobs (D3, D5)", { skip }, () => {
     store.onCopy = async () => {
       await stage.admin.query(`UPDATE requests SET status = 'not_sent', not_sent_reason = 'declined' WHERE id = $1`, [r.id]);
     };
-    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean" }), "ignored");
+    assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "ignored");
     assert.ok(!store.has(f.uploads), "the copy is removed");
     assert.ok(!store.has(f.tmp));
   });
@@ -254,6 +256,100 @@ describe("file jobs (D3, D5)", { skip }, () => {
     assert.ok(!store.has(f.tmp));
   });
 
+  describe("B1: a file is ready only if the bytes checked are the bytes scanned clean, and those bytes are what is copied", () => {
+    /** A Windows executable's first bytes, the same length as PDF so only the bytes differ. */
+    const MZ = new Uint8Array(PDF.length);
+    MZ.set([0x4d, 0x5a, 0x90, 0x00]);
+
+    test("review repro: PDF checked, tmp/ replaced by MZ bytes, then a clean verdict on the new object: refused as not checked, nothing copied", async () => {
+      const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
+      const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
+      assert.equal(await checkFile(ctx(), f.id), "checking");
+      store.put(f.tmp, MZ, "application/pdf"); // a second POST with the same policy
+      assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: etagOf(MZ) }), "refused");
+      const row = await fileRow(f.id);
+      assert.deepEqual([row.state, row.refused_reason], ["refused", "not_checked"]);
+      assert.ok(!store.has(f.uploads), "no copy");
+      assert.ok(!store.has(f.tmp), "deleted");
+      assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "ignored", "a late clean verdict on the first bytes changes nothing");
+      assert.ok(!store.has(f.uploads));
+    });
+
+    test("a clean verdict on the checked bytes, but the object replaced since: the pinned copy fails and the file is refused as not checked", async () => {
+      const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
+      const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
+      await checkFile(ctx(), f.id);
+      store.put(f.tmp, MZ, "application/pdf");
+      assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "refused");
+      const row = await fileRow(f.id);
+      assert.deepEqual([row.state, row.refused_reason], ["refused", "not_checked"]);
+      assert.ok(!store.has(f.uploads), "the MZ bytes never reach uploads/");
+      assert.ok(!store.has(f.tmp));
+    });
+
+    test("the object replaced after its check: the second Object Created event refuses the file as not checked", async () => {
+      const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
+      const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
+      await checkFile(ctx(), f.id);
+      store.put(f.tmp, MZ, "application/pdf");
+      assert.equal(await checkFile(ctx(), f.id), "refused");
+      const row = await fileRow(f.id);
+      assert.deepEqual([row.state, row.refused_reason], ["refused", "not_checked"]);
+      assert.ok(!store.has(f.tmp));
+    });
+
+    test("a clean verdict that names no object (no ETag) does not make a file ready", async () => {
+      const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
+      const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
+      await checkFile(ctx(), f.id);
+      assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean" }), "refused");
+      assert.equal((await fileRow(f.id)).refused_reason, "not_checked");
+      assert.ok(!store.has(f.uploads));
+    });
+
+    test("a threat verdict on other bytes than those checked still refuses the file (fail closed)", async () => {
+      const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
+      const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
+      await checkFile(ctx(), f.id);
+      assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "threat", etag: etagOf(MZ) }), "refused");
+      assert.equal((await fileRow(f.id)).refused_reason, "malware");
+    });
+
+    test("an object posted again after the file is ready is deleted from tmp/; the ready copy stays the bytes scanned clean", async () => {
+      const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
+      const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
+      await checkFile(ctx(), f.id);
+      assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag }), "ready");
+      store.put(f.tmp, MZ, "application/pdf");
+      assert.equal(await checkFile(ctx(), f.id), "ignored");
+      assert.ok(!store.has(f.tmp), "the stray object is deleted");
+      assert.equal((await fileRow(f.id)).state, "ready");
+      assert.deepEqual(store.get(f.uploads)?.content, PDF);
+      assert.equal(await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: etagOf(MZ) }), "ignored");
+      assert.deepEqual(store.get(f.uploads)?.content, PDF);
+    });
+  });
+
+  test("S1: the 10-minute sweep racing a clean result never leaves a ready file without its object", async () => {
+    const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
+    const f = await addFile(r.id, { declared: "application/pdf", content: PDF });
+    await checkFile(ctx(), f.id);
+    // The clean result is applied while the sweep is deleting the file's objects.
+    let raced = false;
+    store.beforeDelete = async () => {
+      if (raced) return;
+      raced = true;
+      await applyScanResult(ctx(), { file_id: f.id, outcome: "clean", etag: f.etag });
+    };
+    await refuseStaleFiles(ctx(at(10 * 60 + 1)));
+    store.beforeDelete = undefined;
+    assert.ok(raced);
+    const row = await fileRow(f.id);
+    if (row.state === "ready") assert.ok(store.has(f.uploads), "a ready file has its object");
+    else assert.ok(!store.has(f.uploads) && !store.has(f.tmp), "a refused file has none");
+    assert.deepEqual([row.state, row.refused_reason], ["refused", "not_checked"], "the refusal is recorded first, so the late clean result is ignored");
+  });
+
   test("Scenario: Logs of an upload (worker): no log line carries the file's name or content, only ids, states and codes", async () => {
     const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c", approval_expires_in: 60 });
     const a = await addFile(r.id, { declared: "application/pdf", content: PDF });
@@ -262,8 +358,8 @@ describe("file jobs (D3, D5)", { skip }, () => {
     const d = await addFile(r.id, { declared: "application/pdf", content: PDF });
     logs = [];
     for (const f of [a, b, c, d]) await checkFile(ctx(), f.id);
-    await applyScanResult(ctx(), { file_id: a.id, outcome: "clean" });
-    await applyScanResult(ctx(), { file_id: c.id, outcome: "threat" });
+    await applyScanResult(ctx(), { file_id: a.id, outcome: "clean", etag: a.etag });
+    await applyScanResult(ctx(), { file_id: c.id, outcome: "threat", etag: c.etag });
     await refuseStaleFiles(ctx(at(601)));
     await expireDue({ ...ctx(at(3601)) });
     for (const id of await unsentRequestIds(ctx())) await deleteUnsentFiles(ctx(), id);

@@ -122,10 +122,26 @@ export const FILE_SCAN_OUTCOMES = ["clean", "threat", "error"] as const;
 export const FileScanOutcomeSchema = z.enum(FILE_SCAN_OUTCOMES);
 export type FileScanOutcome = z.infer<typeof FileScanOutcomeSchema>;
 
-/** The provider-neutral scan result the worker codes against (ADR 0005 item 5). */
+/**
+ * The entity tag of a stored object, without S3's surrounding quotes: hex,
+ * with `-<parts>` for a multipart upload. It names exact bytes, so a check
+ * and a scan verdict can be bound to the same object (m2-attachments review
+ * B1): a file is ready only if the bytes the content check read are the
+ * bytes scanned clean. Never logged.
+ */
+export const FileObjectEtagSchema = z.string().regex(/^[A-Za-z0-9-]{1,128}$/);
+export type FileObjectEtag = z.infer<typeof FileObjectEtagSchema>;
+
+/**
+ * The provider-neutral scan result the worker codes against (ADR 0005 item
+ * 5). `etag` is the ETag of the object the scanner read; a clean result
+ * without one, or with another than the one the content check read, does not
+ * make a file ready.
+ */
 export const FileScanResultSchema = z.strictObject({
   file_id: FileIdSchema,
   outcome: FileScanOutcomeSchema,
+  etag: FileObjectEtagSchema.optional(),
 });
 export type FileScanResult = z.infer<typeof FileScanResultSchema>;
 

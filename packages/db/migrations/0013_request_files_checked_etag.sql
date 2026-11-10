@@ -1,0 +1,1 @@
+ALTER TABLE "request_files" ADD COLUMN "checked_etag" varchar(128);

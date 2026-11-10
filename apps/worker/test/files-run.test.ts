@@ -7,7 +7,7 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileObjectKey } from "@a2h/protocol";
-import { MemoryFileEvents, MemoryFileStore } from "../src/files/memory.ts";
+import { etagOf, MemoryFileEvents, MemoryFileStore } from "../src/files/memory.ts";
 import type { WorkerLogLine } from "../src/log.ts";
 import { startWorker, type RunningWorker } from "../src/worker.ts";
 import { createAwaiting } from "./lib/requests.ts";
@@ -67,7 +67,7 @@ describe("the running worker's file path", { skip }, () => {
     const f = await upload(r.id);
     await events.emit({ kind: "created", file_id: f.id });
     await until("checking", async () => (await stateOf(f.id))?.state === "checking");
-    await events.emit({ kind: "scanned", result: { file_id: f.id, outcome: "clean" } });
+    await events.emit({ kind: "scanned", result: { file_id: f.id, outcome: "clean", etag: etagOf(PDF) } });
     await until("ready", async () => (await stateOf(f.id))?.state === "ready");
     assert.ok(store.has(f.uploads) && !store.has(f.tmp));
   });
@@ -75,7 +75,7 @@ describe("the running worker's file path", { skip }, () => {
   test("a scan result that arrives before the object-created event is retried and applied after the check", async () => {
     const r = await createAwaiting(stage.admin, { handle: "sim-mv-7f3c" });
     const f = await upload(r.id);
-    await events.emit({ kind: "scanned", result: { file_id: f.id, outcome: "clean" } });
+    await events.emit({ kind: "scanned", result: { file_id: f.id, outcome: "clean", etag: etagOf(PDF) } });
     await sleep(300);
     await events.emit({ kind: "created", file_id: f.id });
     await until("ready after the retry", async () => (await stateOf(f.id))?.state === "ready");

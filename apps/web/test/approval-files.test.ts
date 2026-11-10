@@ -85,9 +85,9 @@ describe.skipIf(!adminUrl)("file actions against the database", () => {
   }
 
   async function ready(id: string, type = "application/pdf"): Promise<void> {
-    expect(await markFileChecking(d.db, id, type)).toBe(true);
+    expect(await markFileChecking(d.db, id, type, "9b2cf535f27731c974343645a3985328")).toBe(true);
     const [row] = await d.sql<{ object_key: string }>("SELECT object_key FROM request_files WHERE id = $1", [id]);
-    expect(await markFileReady(d.db, id, row!.object_key.replace(/^tmp\//, "uploads/"), new Date())).toBe(true);
+    expect(await markFileReady(d.db, id, row!.object_key.replace(/^tmp\//, "uploads/"), new Date(), "9b2cf535f27731c974343645a3985328")).toBe(true);
   }
 
   async function rows(x: Awaiting) {
@@ -109,13 +109,13 @@ describe.skipIf(!adminUrl)("file actions against the database", () => {
   });
 
   describe("Requirement: Only allowed files of bounded size", () => {
-    test("an allowed file: an uploading row, and a presigned POST for its key, its declared type, 1..25 MB, 5 minutes", async () => {
+    test("an allowed file: an uploading row, and a presigned POST for its key, its declared type, exactly its declared size (review B1), 5 minutes", async () => {
       const r = await addFile(deps, caller(a), pdf());
       expect(r.kind).toBe("added");
       if (r.kind !== "added") return;
       expect(r.file).toEqual({ id: r.file.id, name: "leaflet.pdf", mediaType: "application/pdf", sizeBytes: 2 * MB, state: "uploading" });
       expect(r.file.id).toMatch(/^f[A-Za-z0-9_-]{22}$/);
-      expect(calls).toEqual([{ op: "upload", key: `tmp/pr-12/files/${a.id}/${r.file.id}`, contentType: "application/pdf", maxBytes: 25 * MB, expiresSeconds: 300 }]);
+      expect(calls).toEqual([{ op: "upload", key: `tmp/pr-12/files/${a.id}/${r.file.id}`, contentType: "application/pdf", sizeBytes: 2 * MB, expiresSeconds: 300 }]);
       expect(r.upload.fields["key"]).toBe(`tmp/pr-12/files/${a.id}/${r.file.id}`);
       expect(await rows(a)).toMatchObject([{ id: r.file.id, state: "uploading", deleted_at: null }]);
     });
@@ -287,7 +287,7 @@ describe.skipIf(!adminUrl)("file actions against the database", () => {
 
     test("Send waits for checking: Send with a file still checking is refused as files_not_ready, the question kept", async () => {
       const id = await added(a);
-      await markFileChecking(d.db, id, "application/pdf");
+      await markFileChecking(d.db, id, "application/pdf", "9b2cf535f27731c974343645a3985328");
       const form = new FormData();
       form.set("decision", "send");
       form.set("question", "Edited question kept?");
@@ -329,8 +329,8 @@ describe.skipIf(!adminUrl)("the page's model carries the files", () => {
     const a = await awaiting(d, me);
     const r = await addFile(deps, { requestId: a.id, token: a.token, principalId: me }, { name: "chart.png", type: "image/png", size: 300 });
     if (r.kind !== "added") throw new Error("not added");
-    await markFileChecking(d.db, r.file.id, "image/png");
-    await markFileReady(d.db, r.file.id, `uploads/${PREFIX}files/${a.id}/${r.file.id}`, new Date());
+    await markFileChecking(d.db, r.file.id, "image/png", "9b2cf535f27731c974343645a3985328");
+    await markFileReady(d.db, r.file.id, `uploads/${PREFIX}files/${a.id}/${r.file.id}`, new Date(), "9b2cf535f27731c974343645a3985328");
     const form = new FormData();
     form.set("decision", "send");
     form.set("question", "Would a patient with type 2 diabetes find the leaflet's section on insulin alarming?");
