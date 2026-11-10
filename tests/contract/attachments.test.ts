@@ -31,8 +31,8 @@
 //
 // Handles: sim-ol-6a23 (accepts files up to 5 MB in all; verification net
 // 2500 → gross 3125), sim-th-2a91 (refuses files; verification net 3500 →
-// gross 4375). Two requests are sent per run (about €75 held, cleared at the
-// reserve by the prompt personas); the others end with Don't send.
+// gross 4375). Three requests are sent per run (about €106 held, cleared at
+// the reserve by the prompt personas); the others end with Don't send.
 // Run: A2H_MCP_URL=… A2H_TOKEN=… A2H_SESSION_STATE=… A2H_SESSION_STATE_2=… node --test contract/attachments.test.ts
 import { after, before, describe, test, type TestContext } from "node:test";
 import assert from "node:assert/strict";
@@ -96,7 +96,7 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
   before(async () => {
     c = await principalClient();
     browser = await launch();
-    guard = await budgetGuard(c, OL_BID + TH_BID, 8);
+    guard = await budgetGuard(c, 2 * OL_BID + TH_BID, 8);
   });
   after(async () => {
     await c?.close();
@@ -211,10 +211,24 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
       const objects = await localObjects(a.out.request_id);
       if (objects) assert.ok(!objects.some((k) => k.endsWith(String(removed.args[1]))), "the removed file's object is deleted at once");
 
-      // Not part of the request: removing it again is a no-op; after Don't send nothing can be removed.
-      await dontSend(page);
+      // The other one too, then Send: the request goes with zero files (a removed file is not part of it).
+      if (!need(t, await afterUpload(page, "leaflet.pdf"))) return;
+      await files.remove(page, "leaflet.pdf").click();
+      await until("the row to go", 15_000, async () => ((await files.row(page, "leaflet.pdf").count()) === 0 ? true : undefined), 300);
+      if (guard) {
+        await dontSend(page);
+        return t.skip(`the Send half: ${guard}`);
+      }
+      const sent = await decide(page, "send");
+      assert.equal(sent.heading, PAGE.sent, sent.alerts.join(" | "));
+      const s = await checkOne(c, a.out.request_id);
+      assert.notEqual(s.status, "awaiting_approval");
+      assert.deepEqual(s.files, [], "the sent request has zero files");
+
+      // Sent files are fixed: a removed file's remove, replayed after Send, is refused and changes nothing.
       const late = await replayAction(page, removed.action, [a.out.request_id, String(removed.args[1])]);
-      assert.equal(late?.["kind"], "unavailable", `remove after the decision: ${JSON.stringify(redact(late))}`);
+      assert.equal(late?.["kind"], "unavailable", `remove after Send: ${JSON.stringify(redact(late))}`);
+      assert.deepEqual((await checkOne(c, a.out.request_id)).files, []);
     } finally {
       await closePage(page);
     }

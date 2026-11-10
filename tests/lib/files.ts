@@ -24,7 +24,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Page, Request } from "@playwright/test";
-import { eicar } from "../local/fake-scanner.ts";
+import { eicar, SCAN_CONTROL_PREFIX } from "../local/fake-scanner.ts";
 
 export { eicar };
 
@@ -402,10 +402,8 @@ export const LOCAL_S3 = process.env["A2H_LOCAL_S3_ENDPOINT"]?.trim() || undefine
  */
 export async function localObjects(requestId: string): Promise<string[] | undefined> {
   if (!LOCAL_S3) return undefined;
-  const { S3Client, ListObjectsV2Command } = await import("@aws-sdk/client-s3");
-  const s3 = new S3Client({ endpoint: LOCAL_S3, forcePathStyle: true, region: "eu-west-3", credentials: { accessKeyId: "test", secretAccessKey: "test" } });
-  const bucket = process.env["A2H_LOCAL_UPLOADS_BUCKET"] ?? "a2h-uploads-local";
-  const prefix = process.env["A2H_LOCAL_STORAGE_PREFIX"] ?? "pr-12/";
+  const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+  const { s3, bucket, prefix } = await localS3(LOCAL_S3);
   const keys: string[] = [];
   for (const area of ["tmp", "uploads"]) {
     const out = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: `${area}/${prefix}files/${requestId}/` }));
@@ -413,6 +411,73 @@ export async function localObjects(requestId: string): Promise<string[] | undefi
   }
   s3.destroy();
   return keys;
+}
+
+async function localS3(endpoint: string) {
+  const { S3Client } = await import("@aws-sdk/client-s3");
+  const s3 = new S3Client({ endpoint, forcePathStyle: true, region: "eu-west-3", credentials: { accessKeyId: "test", secretAccessKey: "test" } });
+  return { s3, bucket: process.env["A2H_LOCAL_UPLOADS_BUCKET"] ?? "a2h-uploads-local", prefix: process.env["A2H_LOCAL_STORAGE_PREFIX"] ?? "pr-12/" };
+}
+
+/** The bytes of a file's object in one area, on the local stage only (undefined when there is none). */
+export async function localObjectBytes(area: "tmp" | "uploads", requestId: string, fileId: string): Promise<Buffer | undefined> {
+  if (!LOCAL_S3) return undefined;
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const { s3, bucket, prefix } = await localS3(LOCAL_S3);
+  try {
+    const out = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${area}/${prefix}files/${requestId}/${fileId}` }));
+    return Buffer.from(await out.Body!.transformToByteArray());
+  } catch {
+    return undefined;
+  } finally {
+    s3.destroy();
+  }
+}
+
+/**
+ * The fake scanner's hold control (local/fake-scanner.ts), on the local
+ * stage only: "hold" before the file's first POST keeps every verdict on it
+ * back; "release" lets them go, in the order their versions were scanned.
+ */
+export async function scanControl(kind: "hold" | "release", fileId: string): Promise<void> {
+  assert.ok(LOCAL_S3, "the scan hold is a local-stage control");
+  const { PutObjectCommand } = await import("@aws-sdk/client-s3");
+  const { s3, bucket } = await localS3(LOCAL_S3);
+  try {
+    await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `${SCAN_CONTROL_PREFIX}${kind}/${fileId}`, Body: new Uint8Array(0), ContentLength: 0 }));
+  } finally {
+    s3.destroy();
+  }
+}
+
+/** The local stage's log files (A2H_LOCAL_LOG_FILES, comma-separated): what the worker and the fake scanner did. */
+export const LOCAL_LOG_FILES = (process.env["A2H_LOCAL_LOG_FILES"] ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+
+/** Waits for a stage log line (the JSON after its `worker ` or `mcp ` tag) carrying every field of `fields`; returns it. */
+export async function localLogLine(what: string, fields: Record<string, string>, boundMs = 60_000): Promise<Record<string, unknown>> {
+  assert.ok(LOCAL_LOG_FILES.length > 0, "needs A2H_LOCAL_LOG_FILES");
+  return poll(what, boundMs, () => {
+    for (const file of LOCAL_LOG_FILES) {
+      let text: string;
+      try {
+        text = readFileSync(file, "utf8");
+      } catch {
+        continue;
+      }
+      for (const raw of text.split("\n")) {
+        const at = raw.indexOf("{");
+        if (at < 0) continue;
+        let line: Record<string, unknown>;
+        try {
+          line = JSON.parse(raw.slice(at)) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        if (Object.entries(fields).every(([k, v]) => line[k] === v)) return Promise.resolve(line);
+      }
+    }
+    return Promise.resolve(undefined);
+  });
 }
 
 /** GET a link as a browser tab would: the status, the body, and S3's error code and message, if any. */
