@@ -43,6 +43,7 @@ Gate 1 passed 2026-11-08 (all five recommendations). Owners: PD = Protocol dev, 
 
 - [x] 7.1 Runbook: scanner operation and cost; PRD §6 request card paragraph mentions attachments as built
   - `docs/runbooks/malware-scanner.md` (Paris prices from the Price List API, 2026-11-10). The scanner alarm has no notification action yet: listed under "Before prod".
-- [ ] 7.2a Fixes from the cold review of #109: B1 swapped file after its check (ETag pinned from check to copy, exact-size policy), S1 sweep/clean race, S2 removed file marked Ready, B2 seed-test walker flake (Protocol dev); adversarial F9 re-upload between check and scan, red then green, and N1 Send after remove (QA)
-- [ ] 7.2 Cold review of the change PR (missing tests, spec drift, the one rule: nothing reaches a participant that their rules do not allow, nothing unchecked is ever sent)
+- [x] 7.2a Fixes from the cold review of #109: B1 swapped file after its check (ETag pinned from check to copy, exact-size policy), S1 sweep/clean race, S2 removed file marked Ready, B2 seed-test walker flake (Protocol dev); adversarial F9 re-upload between check and scan, red then green, and N1 Send after remove (QA)
+- [x] 7.2 Cold review of the change PR (missing tests, spec drift, the one rule: nothing reaches a participant that their rules do not allow, nothing unchecked is ever sent)
+  - First pass blocked on B1, S1, S2 and B2, all fixed in #110 and #111. Second pass approved; each fix's test fails without it (checked by mutation). Residual: MD5 collision, #112, before prod (ADR 0005 amendment 1).
 - [ ] 7.3 Gate 2 post with the preview link and the owner's steps from proposal.md
