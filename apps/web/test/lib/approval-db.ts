@@ -74,7 +74,20 @@ export function manifest(principalId: string, over: Partial<Manifest> = {}): Man
   };
 }
 
+// Request ids for `awaiting()`: A2H-b001, A2H-b002, … A2H-efff, a plain counter,
+// so no two are equal within a module instance. Every test database is a fresh
+// schema filled by one test file, so a counter needs no random offset (which is
+// what made two ids collide: n1 + r1 == n2 + r2). A2H-ffff stays free for the
+// "no such request" cases.
+const REQUEST_ID_BASE = 0xb000;
+export const REQUEST_ID_CAPACITY = 0x3fff;
 let n = 0;
+export function nextRequestId(): string {
+  if (n >= REQUEST_ID_CAPACITY) throw new Error("approval test helper ran out of request ids");
+  n += 1;
+  return `A2H-${(REQUEST_ID_BASE + n).toString(16)}`;
+}
+
 export interface Awaiting {
   id: string;
   token: string;
@@ -85,8 +98,7 @@ export async function awaiting(
   principalId: string,
   over: { manifest?: Partial<Manifest>; approvalExpiresAt?: Date; now?: Date } = {},
 ): Promise<Awaiting> {
-  n += 1;
-  const id = `A2H-${(0xb000 + n + Math.floor(Math.random() * 0x4000)).toString(16)}`;
+  const id = nextRequestId();
   const token = formatApprovalToken(crypto.getRandomValues(new Uint8Array(32)));
   const m = manifest(principalId, over.manifest);
   const p = await findPublishedParticipant(d.db, m.to);
