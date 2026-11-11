@@ -54,6 +54,17 @@ A2H is now installed by an organisation for its own people (ADR 0006). Today the
 2. The renewal window for agents is 7 days since the principal's last sign-in at the provider.
 3. Removing access ends sessions and agent connections at once and keeps the record. Marking someone as having left comes with answer reuse (M4).
 
+## Clarifications after the technical findings (2026-11-11, PM calls; `notes/technical-findings.md`)
+
+None changes an owner decision; each is reflected in the spec deltas.
+
+- Microsoft Entra ID has no "email verified" claim, so which claim carries the assertion is a setting of the install.
+- After the 7-day window, an agent that kept its connection resumes once its principal has signed in again; one that discarded it reconnects without a consent screen.
+- At 12 hours the person is sent back to the provider; if the provider still has a session for them they come back signed in without typing anything. This is ordinary single sign-on and still ends access for someone the provider no longer accepts.
+- On a production install a person is never matched to an existing account by email address alone, and an address already used by another account is refused.
+- An administrator's access can be removed by another administrator, including one named in the configuration; the last administrator with access cannot be removed.
+- On development stages the allow-list applies only to magic-link sign-ins and the 7-day window only to provider sign-ins.
+
 ## How the product owner validates (Gate 2)
 
 1. On the dev stage, open the sign-in page and choose your organisation's sign-in. You land signed in without typing a password into A2H.

@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: Sign-in through the organisation's identity provider
-An install SHALL let a person sign in through the one OpenID Connect identity provider named in its configuration. A person the provider authenticates for this application, with an email address the provider asserts as verified, SHALL be signed in; A2H SHALL NOT keep a password or a list of permitted people for this method.
+An install SHALL let a person sign in through the one OpenID Connect identity provider named in its configuration. A person the provider authenticates for this application, with an email address the provider asserts as verified, SHALL be signed in; A2H SHALL NOT keep a password or a list of permitted people for this method. Which claim of the provider carries that assertion is part of the install's configuration.
 
 #### Scenario: First sign-in creates the account
 - **WHEN** a person who has never signed in completes sign-in at the configured provider
@@ -20,6 +20,18 @@ An install SHALL let a person sign in through the one OpenID Connect identity pr
 #### Scenario: Answer not meant for this install
 - **WHEN** the callback carries an answer from another issuer, for another client, with a wrong state or nonce, or one already used
 - **THEN** sign-in is refused and no session is created
+
+#### Scenario: Email address already used by another account
+- **WHEN** the provider reports for a returning person an email address that another account already has
+- **THEN** sign-in is refused with the page telling the person to contact their administrator, and neither account is changed
+
+#### Scenario: Never matched by email address alone
+- **WHEN** a person signs in at the provider with a subject identifier A2H has not seen and an email address an existing account has
+- **THEN** on a production install they are not given that account; sign-in is refused with the page telling them to contact their administrator
+
+#### Scenario: Provider cannot be reached
+- **WHEN** the identity provider cannot be reached when a person starts sign-in
+- **THEN** the sign-in page says that the organisation's sign-in is unavailable and to try again, and no session is created
 
 #### Scenario: Person cancels or the provider refuses
 - **WHEN** the provider returns an error or the person cancels
@@ -41,7 +53,7 @@ A web session SHALL end at most 12 hours after the sign-in at the provider that 
 
 #### Scenario: Session reaches twelve hours
 - **WHEN** a signed-in person uses the web app more than 12 hours after signing in at the provider
-- **THEN** they are sent to sign in at the provider again
+- **THEN** they see the sign-in page with a notice that their session ended; signing in takes them to the provider, from which they return signed in without typing anything if the provider still holds a session for them, and are not signed in if the provider no longer accepts them
 
 #### Scenario: Agent renews within the window
 - **WHEN** a client refreshes its token and its principal signed in at the provider within the last 7 days
@@ -53,7 +65,7 @@ A web session SHALL end at most 12 hours after the sign-in at the provider that 
 
 #### Scenario: Principal signs in again
 - **WHEN** that principal signs in at the provider again
-- **THEN** the client can obtain tokens again without a new consent
+- **THEN** a refresh token the client still holds works again, and a client that starts a new authorization completes it without a consent screen
 
 ### Requirement: Magic-link sign-in exists on development stages only
 Magic-link sign-in SHALL be available only on development and preview stages, where the link is written to the stage's private mail sink and never sent to a real mailbox. A production install SHALL NOT offer magic-link sign-in, create magic links or read an allow-list.
@@ -69,6 +81,10 @@ Magic-link sign-in SHALL be available only on development and preview stages, wh
 #### Scenario: Both methods on a development stage
 - **WHEN** a development stage is configured with an identity provider
 - **THEN** its sign-in page offers both the identity provider and the magic link
+
+#### Scenario: Each method keeps its own rules
+- **WHEN** a development stage offers both methods
+- **THEN** the allow-list governs only people who signed in by magic link, the 7-day renewal window governs only people who signed in through the identity provider, and a principal's verification method is that of the sign-in that led to its first consent
 
 ## MODIFIED Requirements
 
