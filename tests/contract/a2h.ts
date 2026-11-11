@@ -1,7 +1,7 @@
 // Helpers for the A2H contract and adversarial suites against a live stage
 // (A2H_MCP_URL): request_human and its URL elicitation driven by hand with the
 // official v2 client, check_requests listings, bounded polling, and the
-// budget guard that keeps a shared preview usable for the owner's Gate 2.
+// budget guard that skips a flow before the server would refuse it.
 // Shapes come from @a2h/protocol; participants and personas from the seed.
 import assert from "node:assert/strict";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -12,6 +12,7 @@ import { SEED_PARTICIPANTS, SEED_PERSONAS, type SeedParticipant } from "../../pa
 import { developmentPolicy, stageInfo } from "../../infra/config.ts";
 import { expectedStage, mcpUrl } from "../src/live-env.ts";
 import { PROTOCOL_VERSION, recordingFetch, type Exchange } from "./mcp-client.ts";
+import { guardVerdict, SENT_STATUSES, usageOf, type Usage } from "../lib/budget.ts";
 
 export type Args = Record<string, unknown>;
 
@@ -271,46 +272,44 @@ export async function untilStatusNot(c: A2hClient, id: string, from: string[], b
 // ---- budget guard ---------------------------------------------------------------
 
 /**
- * What the stage's (single, development) principal has committed this UTC
- * month as far as check_requests shows it (held bids of open requests plus
- * cleared amounts), and how many requests it created today (UTC). Read from
- * the 100 newest requests of the month, so a lower bound when there are more.
+ * What the principal behind `c` has committed this UTC month and how many
+ * requests it sent today, counted exactly as the server counts them before it
+ * refuses with over_budget or rate_limited (lib/budget.ts, issue #114): one
+ * listing per status that counts, each since the month start, so requests
+ * awaiting approval or not sent (which hold nothing) never crowd the ones that
+ * do out of a listing.
  */
-export async function usage(c: A2hClient): Promise<{ committed_minor: number; today: number; seen: number }> {
+export async function usage(c: A2hClient): Promise<Usage> {
   const now = serverNow();
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const month = await listSince(c, monthStart);
-  let committed = 0;
-  for (const r of month) {
-    if (r.status === "answered") committed += r.cleared_minor ?? 0;
-    else if (r.status === "sent" || r.status === "accepted") committed += r.held_minor ?? 0;
-  }
-  // The daily limit counts sent requests only (m2-approval-page D4).
-  const today = month.filter((r) => r.transitions.sent_at !== undefined && Date.parse(r.transitions.sent_at) >= dayStart.getTime()).length;
-  return { committed_minor: committed, today, seen: month.length };
+  const byStatus: Record<string, CheckedRequest[]> = {};
+  for (const status of SENT_STATUSES) byStatus[status] = await listSince(c, monthStart, status);
+  return usageOf(byStatus, monthStart, dayStart);
 }
 
 /**
- * The development principal's policy on the stage under test, from the same
- * source the deployment uses (infra/config.ts developmentPolicy, design D7):
- * dev has ten times the monthly budget, prod and previews the base.
+ * The QA principal's policy on the stage under test, from the same source the
+ * deployment uses (infra/config.ts developmentPolicy, design D7): dev has ten
+ * times the monthly budget, prod and previews the base. Each principal has its
+ * own policy row, created from this at its first consent: a fresh per-run
+ * principal (previews) starts with all of it.
  */
 export function stagePolicy(): { monthly_budget_minor: number; daily_request_limit: number } {
   return developmentPolicy(stageInfo(expectedStage()));
 }
-/** Kept free for the owner's own Gate 2 run on a preview. */
-export const OWNER_HEADROOM = { budget_minor: 15_000, requests: 15 } as const;
 
-/** A skip reason when spending `cost_minor` and `requests` would eat into the owner's headroom; false otherwise. */
+/**
+ * A skip reason when committing up to `cost_minor` more over `requests` more
+ * sent requests would take the principal past what the server accepts; false
+ * otherwise. A snapshot: flows that spend at the same time (the background
+ * expiry flows, the other file of a step) are not in it, so a run must fit the
+ * budget on its own (tests/README.md "Budget"). The usage is printed, amounts
+ * only, so a run's log shows what each guarded flow found.
+ */
 export async function budgetGuard(c: A2hClient, cost_minor: number, requests: number): Promise<string | false> {
   const u = await usage(c);
-  const policy = stagePolicy();
-  const budgetLeft = policy.monthly_budget_minor - u.committed_minor - cost_minor;
-  const requestsLeft = policy.daily_request_limit - u.today - requests;
-  if (budgetLeft < OWNER_HEADROOM.budget_minor || requestsLeft < OWNER_HEADROOM.requests) {
-    return `budget guard: committed ${u.committed_minor} of ${policy.monthly_budget_minor} this month, ${u.today} requests today; ` +
-      `running would leave less than ${OWNER_HEADROOM.budget_minor} / ${OWNER_HEADROOM.requests} for the owner`;
-  }
-  return false;
+  const verdict = guardVerdict(u, stagePolicy(), cost_minor, requests);
+  console.log(`budget guard: committed ${u.committed_minor}, sent today ${u.requests_today}${u.complete ? "" : " (lower bounds)"}; flow up to ${cost_minor} over ${requests} requests → ${verdict ? "skip" : "run"}`);
+  return verdict;
 }
