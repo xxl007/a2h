@@ -246,6 +246,32 @@ describe("refusal reasons: plain, short, never naming a detection", () => {
   });
 });
 
+describe("not_checked names passwords only for a PDF (QA finding after m2-attachments Gate 2)", () => {
+  const pdfSentence = "This file couldn't be checked, so it can't be sent. Password-protected PDFs can't be sent. Remove it, or add a copy without a password.";
+  const otherSentence = "This file couldn't be checked, so it can't be sent. Remove it and add it again.";
+  const unchecked = (name: string, mediaType: string): ApprovalFile => ({ id: `r-${name}`, name, mediaType, sizeBytes: 2048, state: "refused", refusal: "not_checked" });
+
+  it("a PDF shows the password sentence", () => {
+    const t = text(render([unchecked("diary.pdf", "application/pdf")]));
+    expect(t).toContain(pdfSentence);
+  });
+  for (const [name, type] of [["notes.txt", "text/plain"], ["photo.jpg", "image/jpeg"], ["chart.png", "image/png"], ["readings.csv", "text/csv"], ["notes.md", "text/markdown"]] as const) {
+    it(`${type} does not mention passwords`, () => {
+      const t = text(render([unchecked(name, type)]));
+      expect(t).toContain(otherSentence);
+      expect(t).not.toMatch(/password/i);
+    });
+  }
+  it("the live region says the same per type", () => {
+    const before = { id: "r-x", name: "notes.txt", mediaType: "text/plain", sizeBytes: 2048, state: "checking" } as const;
+    const said = fileAnnouncements([before], [unchecked("notes.txt", "text/plain")].map((x) => ({ ...x, id: "r-x" })), fileRules);
+    expect(said.join(" ")).toContain(otherSentence);
+    expect(said.join(" ")).not.toMatch(/password/i);
+    const pdfSaid = fileAnnouncements([{ ...before, mediaType: "application/pdf" }], [{ ...unchecked("d.pdf", "application/pdf"), id: "r-x", name: "notes.txt" }], fileRules);
+    expect(pdfSaid.join(" ")).toContain(pdfSentence);
+  });
+});
+
 describe("the upload control's limits and unavailable states", () => {
   it("with 5 files listed, adding is unavailable and the page says why", () => {
     const five = [leafletPdf, chartPng, notesMd, readingsCsv, { ...leafletPdf, id: "x", name: "annex.pdf" }];

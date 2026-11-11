@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useSimulatedFiles } from "../storybook/simulateFiles.js";
-import { chartPng, fileRules, leafletPdf, notesMd, photoUploading, readingsCsv, refusedFiles } from "../fixtures.js";
+import { chartPng, fileRules, leafletPdf, notCheckedText, notesMd, photoUploading, readingsCsv, refusedFiles } from "../fixtures.js";
 import { copy } from "../screens/copy.js";
 import { DecisionBar } from "./DecisionBar.js";
 import { FileAnnouncer, FileList, filesGate, gateText, type ApprovalFile } from "./FileList.js";
@@ -37,6 +37,8 @@ export const ItemRefusedTotal: Story = { render: () => <List files={[refusedFile
 export const ItemRefusedCount: Story = { render: () => <List files={[refusedFiles.count]} /> };
 export const ItemRefusedSecurityCheck: Story = { render: () => <List files={[refusedFiles.malware]} /> };
 export const ItemRefusedNotChecked: Story = { render: () => <List files={[refusedFiles.not_checked]} /> };
+/** `not_checked` on a non-PDF: no password sentence; "Remove it and add it again." */
+export const ItemRefusedNotCheckedText: Story = { render: () => <List files={[notCheckedText]} /> };
 export const ItemRefusedUploadFailed: Story = { render: () => <List files={[refusedFiles.upload_failed]} /> };
 export const ListMixed: Story = { render: () => <List files={[leafletPdf, chartPng, readingsCsv, photoUploading, refusedFiles.malware]} /> };
 export const ListAsSent: Story = { render: () => <List mode="read" files={[leafletPdf, chartPng, notesMd]} /> };

@@ -192,8 +192,10 @@ export const copy = {
         total: "With this file the request would be over {maxTotal}, the most for all files together.",
         count: "A request can have {maxFiles} files at most. Remove one, then add this file again.",
         malware: "The security check refused this file, so it has been deleted.",
-        /** ADR 0005: timed out, or the scanner could not open it (password-protected, unreadable). */
-        not_checked: "This file couldn't be checked, so it can't be sent. Password-protected PDFs can't be sent. Remove it, or add a copy without a password.",
+        /** ADR 0005: timed out, or the scanner could not open it (unreadable). For a PDF, `notCheckedPdf` is shown instead. */
+        not_checked: "This file couldn't be checked, so it can't be sent. Remove it and add it again.",
+        /** `not_checked` for an application/pdf file: names the commonest cause the principal can fix (ADR 0005). */
+        notCheckedPdf: "This file couldn't be checked, so it can't be sent. Password-protected PDFs can't be sent. Remove it, or add a copy without a password.",
         upload_failed: "The upload did not finish. Remove it and add it again.",
       },
       gateUploading: "Files are uploading. Send will be available when every file is ready.",

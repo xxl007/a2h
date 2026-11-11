@@ -91,8 +91,13 @@ function ruleValues(rules?: ApprovalFileRules): Record<string, string> {
   };
 }
 
-export function refusalText(reason: ApprovalFileRefusal, rules?: ApprovalFileRules): string {
-  return fill(f.refusal[reason], ruleValues(rules));
+/**
+ * The refusal sentence. `not_checked` names password-protected PDFs only when the file is a PDF
+ * (`mediaType` "application/pdf"); any other type gets the remove-and-add-again sentence.
+ */
+export function refusalText(reason: ApprovalFileRefusal, rules?: ApprovalFileRules, mediaType?: string): string {
+  const sentence = reason === "not_checked" && mediaType === "application/pdf" ? f.refusal.notCheckedPdf : f.refusal[reason];
+  return fill(sentence, ruleValues(rules));
 }
 
 export function fileHint(rules: ApprovalFileRules): string {
@@ -127,7 +132,7 @@ function stateMessage(file: ApprovalFile, rules?: ApprovalFileRules): string {
   if (file.state === "uploading") return fill(a.uploading, { name: file.name });
   if (file.state === "checking") return fill(a.checking, { name: file.name });
   if (file.state === "ready") return fill(a.ready, { name: file.name });
-  return fill(a.refused, { name: file.name, reason: file.refusal ? refusalText(file.refusal, rules) : "" }).trim();
+  return fill(a.refused, { name: file.name, reason: file.refusal ? refusalText(file.refusal, rules, file.mediaType) : "" }).trim();
 }
 
 /**
@@ -234,7 +239,7 @@ export function FileList({ files, rules, mode, "aria-labelledby": labelledBy, on
               {...(file.progress !== undefined ? { value: Math.round(file.progress * 100) } : {})}
             />
           )}
-          {mode === "edit" && file.state === "refused" && file.refusal && <p className={styles.reason}>{refusalText(file.refusal, rules)}</p>}
+          {mode === "edit" && file.state === "refused" && file.refusal && <p className={styles.reason}>{refusalText(file.refusal, rules, file.mediaType)}</p>}
           <div className={styles.actions}>
             {file.state === "ready" && (
               <button type="button" className={styles.action} aria-label={fill(f.openLabel, { name: file.name })} onClick={() => onOpen?.(file.id)}>
