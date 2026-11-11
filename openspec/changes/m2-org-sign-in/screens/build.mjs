@@ -125,7 +125,7 @@ const orgForm = (name, { pending = false } = {}) =>
     type: "submit",
     pending,
   })}</form>`;
-const orgFootnote = muted("Who can sign in is decided by your organisation, not by A2H. If it doesn't let you in, contact your administrator.");
+const orgFootnote = muted("Who can sign in is decided by your organisation, not by A2H. If it doesn't let you in, contact an administrator.");
 const orgLead = (name, purpose) => {
   const go = `You'll go to ${orgWords(name)} to confirm who you are, then come straight back`;
   if (purpose === "connect") return `Sign in to finish connecting your agent. ${go} here.`;
@@ -156,22 +156,38 @@ const sessionEnded = notice("neutral", "Your session has ended", [
   "A2H asks you to sign in again at least every 12 hours. After signing in you come back to the page you were on. If you were in the middle of something there, check that it went through.",
 ]);
 
-const refusedEmail = shell({
-  body: [
-    h1("A2H could not sign you in"),
-    lead(`Your organisation's sign-in did not give A2H a confirmed email address for you, so you are not signed in and no account was opened.`),
-    `<p class="Screen-body">This is set up on your organisation's side and can't be changed here. Contact your administrator and tell them A2H needs a confirmed email address from the organisation's sign-in.</p>`,
-    `<div class="Screen-actions">${btnLink("Try again", "s1-sign-in.html", { variant: "ghost" })}</div>`,
-  ].join(""),
-});
-const accessRemoved = shell({
-  body: [
-    h1("You don't have access to A2H"),
-    lead("Your organisation's sign-in worked, but an administrator of A2H has removed your access, so you are not signed in."),
-    `<p class="Screen-body">Apps you connected can't act for you while your access is removed. Nothing of yours was deleted. To get access back, contact an A2H administrator in your organisation.</p>`,
-    `<div class="Screen-actions">${btnLink("Try again", "s1-sign-in.html", { variant: "ghost" })}</div>`,
-  ].join(""),
-});
+const contactLine = (contact, rest = "") =>
+  contact ? `Contact an administrator: <span class="Screen-strong">${contact}</span>.${rest}` : `Contact an administrator.${rest}`;
+const refused = (contact) =>
+  shell({
+    body: [
+      h1("A2H could not sign you in"),
+      lead("Your organisation's sign-in worked, but A2H can't accept the details it gave for you, so you are not signed in. Nothing was changed."),
+      `<p class="Screen-body">This can't be fixed on this page. ${contactLine(contact, " Give them the reference below: it tells them what to correct.")}</p>`,
+      `<p class="Screen-muted"><span class="Notice-reference">Reference ref_7b1e94d2c05a4f36</span></p>`,
+      `<div class="Screen-actions">${btnLink("Try again", "s1-sign-in.html", { variant: "ghost" })}</div>`,
+    ].join(""),
+  });
+const accessRemoved = (contact) =>
+  shell({
+    body: [
+      h1("You don't have access to A2H"),
+      lead("Your organisation's sign-in worked, but an administrator of A2H has removed your access, so you are not signed in."),
+      `<p class="Screen-body">Apps you connected can't act for you while your access is removed. Nothing of yours was deleted. To get access back: ${contactLine(contact).replace("Contact", "contact")}</p>`,
+      `<div class="Screen-actions">${btnLink("Try again", "s1-sign-in.html", { variant: "ghost" })}</div>`,
+    ].join(""),
+  });
+const unavailable = notice("danger", "Your organisation's sign-in is unavailable", ["A2H could not reach it just now. You are not signed in. Try again in a moment."], { role: "alert" });
+const signedOut = (org) =>
+  shell({
+    body: [
+      h1("You're signed out"),
+      lead("Apps you connected stay connected: signing out of this page does not disconnect them. To disconnect one, sign in and open Connected apps."),
+      org ? `<p class="Screen-body">You are still signed in at your organisation's sign-in. On a shared computer, sign out there too.</p>` : "",
+      `<div class="Screen-actions">${btnLink("Sign in again", "s1-sign-in.html", { full: true })}</div>`,
+    ].join(""),
+  });
+const CONTACT = "it-helpdesk@example.com";
 
 // ---------- people ----------
 const you = { ...ME, you: true, access: true, admin: true, configured: true };
@@ -190,14 +206,18 @@ const who = (p) => `${p.name} (${p.email})`;
 const CONFIRM = {
   remove: (p) => ({
     q: `Remove ${p.name}'s access?`,
-    body: "They are signed out at once and can't sign in until an administrator restores their access. Apps they connected can no longer act for them; access an app already has ends within an hour. Nothing of theirs is deleted. This goes in the record of actions.",
+    body: `They are signed out at once and can't sign in until an administrator restores their access. Apps they connected can no longer act for them; access an app already has ends within an hour. ${
+      p.admin ? "They also stop being an administrator while their access is removed, and are one again if it is restored. " : ""
+    }Nothing of theirs is deleted. This goes in the record of actions.`,
     yes: "Remove access",
     pending: "Removing…",
     no: "Keep access",
   }),
   restore: (p) => ({
     q: `Restore ${p.name}'s access?`,
-    body: "They can sign in again, and apps they connected before work again without asking them anew. This goes in the record of actions.",
+    body: `They can sign in again, and apps they connected before work again without asking them anew. ${
+      p.wasAdmin ? "They will be an administrator again. " : ""
+    }This goes in the record of actions.`,
     yes: "Restore access",
     pending: "Restoring…",
     no: "Keep removed",
@@ -233,15 +253,19 @@ function personRow(p, { onlyAdmin = false, state, note = "", focusNote } = {}) {
   const actions = [];
   const reasons = [];
   if (p.you) reasons.push("You can't remove your own access.");
-  else if (p.admin) reasons.push("To remove their access, withdraw the administrator role first.");
   else if (p.access) actions.push(btn("Remove access", { aria: `Remove access for ${who(p)}` }));
   else actions.push(btn("Restore access", { aria: `Restore access for ${who(p)}` }));
-  if (p.admin && p.configured)
-    reasons.push(`${p.you ? "You are named" : "Named"} as an administrator in this install's configuration. The role can only be withdrawn there.`);
-  else if (p.admin && onlyAdmin)
-    reasons.push(`${p.you ? "You are the" : "The"} only administrator. Make someone else an administrator before this role can be withdrawn.`);
+  if (!p.access) {
+    if (p.wasAdmin) reasons.push("Not an administrator while their access is removed. They will be one again if it is restored.");
+  } else if (p.admin && p.configured)
+    reasons.push(
+      p.you
+        ? "You are named as an administrator in this install's configuration, so your role can't be withdrawn here."
+        : "Named as an administrator in this install's configuration, so the role can't be withdrawn here.",
+    );
+  else if (p.admin && onlyAdmin) reasons.push("You are the only administrator. Make someone else an administrator before this role can be withdrawn.");
   else if (p.admin) actions.push(btn("Withdraw administrator role", { aria: `Withdraw administrator role from ${who(p)}` }));
-  else if (p.access) actions.push(btn("Make administrator", { aria: `Make administrator: ${who(p)}` }));
+  else actions.push(btn("Make administrator", { aria: `Make administrator: ${who(p)}` }));
   const id = `p-${p.email.split("@")[0].replace(/\W/g, "-")}`;
   const confirming = state && CONFIRM[state.split(":")[0]];
   let confirm = "";
@@ -324,7 +348,7 @@ const ENTRIES = [
 ];
 const recordLead =
   lead("Every time an administrator removed or restored someone's access, or made or withdrew an administrator. Newest first.") +
-  muted("Entries can't be changed or deleted, by you or by anyone. Names and addresses are shown as they were when the action was taken.");
+  muted("Entries can't be changed or deleted, by you or by anyone. Each person is shown with their current name and email address.");
 const recordPage = (parts) =>
   shell({ account: true, admin: true, current: "admin", wide: true, body: [h1("People and access"), adminNav("record"), recordLead, ...parts].join("") });
 const entry = ([what, when, by, about]) =>
@@ -356,8 +380,12 @@ const screens = [
   ["s2-sign-in-dev-both", "S2 Sign in, development stage: organisation's sign-in and the magic link", signInBoth()],
   ["s3a-not-completed", "S3a Not signed in: cancelled, or the organisation's sign-in returned an error (neutral)", signIn({ top: notCompleted })],
   ["s3a2-not-completed-dev", "S3a The same on a development stage with both methods", signInBoth({ top: notCompleted })],
-  ["s3b-refused-email", "S3b Refused: no confirmed email address from the organisation's sign-in", refusedEmail],
-  ["s3c-access-removed", "S3c Refused: access removed by an administrator", accessRemoved],
+  ["s1f-sign-in-unavailable", "S1 The organisation's sign-in cannot be reached", signIn({ top: unavailable })],
+  ["s3b-refused", "S3b Refused: the details from the organisation's sign-in can't be accepted (no administrator contact configured)", refused()],
+  ["s3b2-refused-contact", "S3b The same, administrator contact configured", refused(CONTACT)],
+  ["s3c-access-removed", "S3c Refused: access removed by an administrator (no administrator contact configured)", accessRemoved()],
+  ["s3c2-access-removed-contact", "S3c The same, administrator contact configured", accessRemoved(CONTACT)],
+  ["s5-signed-out", "S5 Signed out, after signing in through the organisation", signedOut(true)],
   ["s4-session-ended", "S4 Session ended (12 hours, or ended by an administrator): sign in again", signIn({ top: sessionEnded })],
 
   ["p1-people", "P1 People and access: six people, every kind of row", peoplePage([peopleLead, count6, list(rows6())])],
@@ -416,6 +444,7 @@ const screens = [
   ],
   ["p6-confirm-remove", "P6 Remove access: confirmation", peoplePage([peopleLead, count6, list(rows6({ [sanne.email]: { state: "remove" } }))])],
   ["p6b-removing", "P6b Remove access: confirmed, in progress", peoplePage([peopleLead, count6, list(rows6({ [sanne.email]: { state: "remove:pending" } }))])],
+  ["p6c-confirm-remove-admin", "P6c Remove an administrator's access: confirmation", peoplePage([peopleLead, count6, list(rows6({ [marieke.email]: { state: "remove" } }))])],
   [
     "p7-removed",
     "P7 Access removed: said in the row",
@@ -434,6 +463,33 @@ const screens = [
       ),
     ]),
   ],
+  [
+    "p7b-removed-admin",
+    "P7b An administrator's access removed: said in the row",
+    peoplePage([
+      peopleLead,
+      countLine("6 people · 1 administrator · 2 with access removed"),
+      list(
+        rows6({
+          [marieke.email]: {
+            person: { ...marieke, access: false, admin: false, wasAdmin: true },
+            note: notice("success", "Marieke Visser's access is removed", [`They are signed out, can't sign in until access is restored, and are not an administrator meanwhile. Access an app already has ends within an hour. ${recordLink}`], {
+              role: "status",
+            }),
+          },
+        }),
+      ),
+    ]),
+  ],
+  [
+    "p8b-confirm-restore-admin",
+    "P8b Restore the access of someone who was an administrator: confirmation",
+    peoplePage([
+      peopleLead,
+      countLine("6 people · 1 administrator · 2 with access removed"),
+      list(rows6({ [marieke.email]: { person: { ...marieke, access: false, admin: false, wasAdmin: true }, state: "restore" } })),
+    ]),
+  ],
   ["p8-confirm-restore", "P8 Restore access: confirmation", peoplePage([peopleLead, count6, list(rows6({ [priya.email]: { state: "restore" } }))])],
   ["p9-confirm-grant", "P9 Make administrator: confirmation", peoplePage([peopleLead, count6, list(rows6({ [tom.email]: { state: "grant" } }))])],
   ["p10-confirm-withdraw", "P10 Withdraw administrator role: confirmation", peoplePage([peopleLead, count6, list(rows6({ [marieke.email]: { state: "withdraw" } }))])],
@@ -444,12 +500,16 @@ const screens = [
   ],
   [
     "p11-reasons",
-    "P11 Refusals said before the action: own access, the only administrator, named in configuration",
+    "P11 Refusals said before the action: own access, the only administrator",
+    peoplePage([peopleLead, countLine("3 people · 1 administrator · 0 with access removed"), list([personRow(meNotConfigured, { onlyAdmin: true }), personRow(sanne), personRow(tom)])]),
+  ],
+  [
+    "p11c-configured",
+    "P11c Refusals said before the action: administrators named in the configuration (you and another)",
     peoplePage([
       peopleLead,
-      countLine("3 people · 1 administrator · 0 with access removed"),
-      list([personRow(meNotConfigured, { onlyAdmin: true }), personRow(sanne), personRow(tom)]),
-      muted("Spec note, not part of the page: the row for an administrator named in the configuration is the first row of P1."),
+      countLine("3 people · 2 administrators · 0 with access removed"),
+      list([personRow(you), personRow({ name: "Hanna Lind", email: "hanna.lind@example.com", access: true, admin: true, configured: true }), personRow(sanne)]),
     ]),
   ],
   [
@@ -520,7 +580,7 @@ const screens = [
       body: [
         h1("This page is for administrators"),
         lead("You're signed in, but only administrators of A2H in your organisation can open this page. Nothing was changed."),
-        `<p class="Screen-body">If someone's access needs changing, ask an A2H administrator in your organisation.</p>`,
+        `<p class="Screen-body">If someone's access needs changing, contact an administrator.</p>`,
         `<div class="Screen-actions">${btnLink("Go to Connected apps", "#connected-apps", { full: true })}</div>`,
       ].join(""),
     }),

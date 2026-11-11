@@ -1,6 +1,6 @@
 # Screens: m2-org-sign-in
 
-Written by Design after Gate 1 (2026-11-11). Sign-in through the organisation's sign-in, what a person sees when it is refused or when their session ends, and the administrators' page. The screens continue the M1 ones (`/sign-in`, `/account/clients`, `/signed-out`): same `AuthShell`, same notices, same inline confirmation as "Disconnect" on Connected apps. Everything not named here is unchanged.
+Written by Design after Gate 1 (2026-11-11); updated the same day after the PM's answers and the technical findings (design.md D1–D9, the reworded spec deltas). Sign-in through the organisation's sign-in, what a person sees when it is refused or when their session ends, and the administrators' page. The screens continue the M1 ones (`/sign-in`, `/account/clients`, `/signed-out`): same `AuthShell`, same notices, same inline confirmation as "Disconnect" on Connected apps. Everything not named here is unchanged.
 
 **Static HTML spec per state:** [`screens/index.html`](screens/index.html), one self-contained file per state. Unlike the archived changes, these are **not exported from Storybook**: this task changes nothing in `packages/ui`, so no story exists yet. They are written by hand with [`screens/build.mjs`](screens/build.mjs) from the real `packages/ui` styles (`tokens.css`, `base.css`, the CSS modules, class names prefixed with their module). Components that do not exist yet are sketched in a block marked "Proposed", with semantic tokens only, and listed under "Components". Once the components and stories exist, the Storybook export replaces these files. Not interactive; light or dark follows the system; people and addresses are invented.
 
@@ -11,22 +11,24 @@ Written by Design after Gate 1 (2026-11-11). Sign-in through the organisation's 
 | S1 Arriving from an agent's connection | [s1c-sign-in-connecting](screens/s1c-sign-in-connecting.html) |
 | S1 After pressing: opening the organisation's sign-in | [s1d-sign-in-opening](screens/s1d-sign-in-opening.html) |
 | S1 Sign-in could not be started (our side) | [s1e-sign-in-error](screens/s1e-sign-in-error.html) |
+| S1 The organisation's sign-in cannot be reached | [s1f-sign-in-unavailable](screens/s1f-sign-in-unavailable.html) |
 | S2 Sign in, development stage, both methods | [s2-sign-in-dev-both](screens/s2-sign-in-dev-both.html) |
 | S3a Not signed in: cancelled or an error at the organisation's sign-in (neutral) | [s3a-not-completed](screens/s3a-not-completed.html), [on a development stage](screens/s3a2-not-completed-dev.html) |
-| S3b Refused: no confirmed email address | [s3b-refused-email](screens/s3b-refused-email.html) |
-| S3c Refused: access removed by an administrator | [s3c-access-removed](screens/s3c-access-removed.html) |
+| S3b Refused: the details from the organisation's sign-in can't be accepted | [s3b-refused](screens/s3b-refused.html), [with an administrator contact](screens/s3b2-refused-contact.html) |
+| S3c Refused: access removed by an administrator | [s3c-access-removed](screens/s3c-access-removed.html), [with an administrator contact](screens/s3c2-access-removed-contact.html) |
 | S4 Session ended | [s4-session-ended](screens/s4-session-ended.html) |
+| S5 Signed out, after signing in through the organisation | [s5-signed-out](screens/s5-signed-out.html) |
 | P1 People and access, every kind of row | [p1-people](screens/p1-people.html) |
 | P2 Empty: only yourself | [p2-only-you](screens/p2-only-you.html) |
 | P3 Loading | [p3-loading](screens/p3-loading.html) |
 | P4 Error: list not loaded | [p4-error](screens/p4-error.html) |
 | P5 Long list (214 people): search, "Show", 50 at a time | [p5-long-list](screens/p5-long-list.html), [searched](screens/p5b-search.html), [no match](screens/p5c-no-match.html) |
-| P6 Remove access: confirmation, then in progress | [p6-confirm-remove](screens/p6-confirm-remove.html), [p6b-removing](screens/p6b-removing.html) |
-| P7 Access removed: said in the row | [p7-removed](screens/p7-removed.html) |
-| P8 Restore access: confirmation | [p8-confirm-restore](screens/p8-confirm-restore.html) |
+| P6 Remove access: confirmation, in progress, for an administrator | [p6-confirm-remove](screens/p6-confirm-remove.html), [p6b-removing](screens/p6b-removing.html), [p6c-confirm-remove-admin](screens/p6c-confirm-remove-admin.html) |
+| P7 Access removed: said in the row; an administrator's | [p7-removed](screens/p7-removed.html), [p7b-removed-admin](screens/p7b-removed-admin.html) |
+| P8 Restore access: confirmation; of someone who was an administrator | [p8-confirm-restore](screens/p8-confirm-restore.html), [p8b-confirm-restore-admin](screens/p8b-confirm-restore-admin.html) |
 | P9 Make administrator: confirmation | [p9-confirm-grant](screens/p9-confirm-grant.html) |
 | P10 Withdraw administrator role: confirmation; your own | [p10-confirm-withdraw](screens/p10-confirm-withdraw.html), [p10b-confirm-withdraw-self](screens/p10b-confirm-withdraw-self.html) |
-| P11 Refusals said before the action (own access, only administrator; named in configuration is P1's first row) | [p11-reasons](screens/p11-reasons.html) |
+| P11 Refusals said before the action: own access, only administrator; named in the configuration | [p11-reasons](screens/p11-reasons.html), [p11c-configured](screens/p11c-configured.html) |
 | P11b Refused by the server (the page was out of date) | [p11b-refused-last-admin](screens/p11b-refused-last-admin.html) |
 | P12 An action did not go through (our side) | [p12-action-error](screens/p12-action-error.html) |
 | P13 Offline | [p13-offline](screens/p13-offline.html) |
@@ -41,14 +43,16 @@ Narrow screen: every file is the narrow-screen spec at 390 px and reflows down t
 
 **Colour roles (skill §3).** A person's name and address are plain `--text` on `--surface`: no tint, no accent (the app names on Connected apps take the accent because an app is a machine; a person never does). Whether someone has access or is an administrator is said in words in a pill, never by colour alone. One accent, on controls and links only.
 
-**The organisation's name.** A2H does not know it unless the install configures a display name (question 1). Two forms, used everywhere the sign-in is named:
+**The organisation's name.** A2H knows it only when the install sets the optional `ORGANISATION_NAME` (design.md D8); it is never taken from the organisation's sign-in. Two forms, used everywhere the sign-in is named:
 
 | Not configured (default) | Configured, e.g. "Automi" |
 |---|---|
 | your organisation's sign-in | the Automi sign-in |
 | Sign in with your organisation | Sign in with Automi |
 
-"Your organisation", "your administrator" and "an A2H administrator in your organisation" stay as they are in both cases. Never used in copy: IdP, identity provider, OIDC, SSO, provider, claim, token, session cookie, allow-list, role-based, revoke.
+"Your organisation" and "an administrator" stay as they are in both cases.
+
+**The administrator contact.** The optional `ADMINISTRATOR_CONTACT` is free text (an address, a channel name). It is shown as plain strong text, never as a link, on S3b, S3c and N1: "Contact an administrator: **{contact}**." Without it the sentence is "Contact an administrator." It can wrap anywhere, so a long value cannot break the layout. Never used in copy: IdP, identity provider, OIDC, SSO, provider, claim, token, session cookie, allow-list, role-based, revoke.
 
 **Components**
 
@@ -72,7 +76,7 @@ Narrow screen: every file is the narrow-screen spec at 390 px and reflows down t
 methods: readonly ("organisation" | "magic-link")[];  // production: ["organisation"] only
 organisationName?: string;                            // from configuration; never from the provider's answer
 organisationAction?: FormAction;                      // POST; starts the redirect, carries `next`
-notice?: "not-completed" | "session-ended" | "start-failed" | "offline";
+notice?: "not-completed" | "session-ended" | "start-failed" | "unavailable" | "offline";
 
 // PeopleScreen
 people: readonly Person[];                            // everyone who has signed in, sorted by name
@@ -84,15 +88,17 @@ interface Person {
   isAdministrator: boolean;
   isYou: boolean;
   namedInConfiguration: boolean;                      // administrators only
+  administratorOnRestore: boolean;                    // access removed, and named in configuration or still flagged
 }
+administratorContact?: string;                        // ADMINISTRATOR_CONTACT, also on the refusal pages and N1
 onRemoveAccess / onRestoreAccess / onMakeAdministrator / onWithdrawAdministrator:
   (id: string) => Promise<{ ok: true; people: readonly Person[] }
-                        | { ok: false; refusal: "own_access" | "last_administrator" | "named_in_configuration" | "is_administrator"; people: readonly Person[] }>;
+                        | { ok: false; refusal: "own_access" | "last_administrator" | "named_in_configuration"; people: readonly Person[] }>;
 // rejects when the action did not go through (P12)
 
 // RecordScreen
 entries: readonly { id; action: "access_removed" | "access_restored" | "administrator_made" | "administrator_withdrawn";
-                    by: { name; email }; about: { name; email }; at: string /* ISO */ }[];
+                    by: { name; email }; about: { name; email }; at: string /* ISO */ }[];   // current name and address, joined from the account
 ```
 
 `Person` deliberately has no "last active", "last signed in", request, answer or rules field: the page cannot show what it is never given. The search text never goes into a URL, a log line or a request (see P5).
@@ -108,17 +114,18 @@ Route `/sign-in`, as today. Document title "Sign in · A2H". One column, 480 px.
 | Lead, from an agent's connection | Sign in to finish connecting your agent. You'll go to your organisation's sign-in to confirm who you are, then come straight back here. |
 | Lead, from an approval link | Sign in to review the question your agent wants to send. You'll go to your organisation's sign-in to confirm who you are, then come straight back to the question. |
 | Primary button (full width) | **Sign in with your organisation** |
-| Footnote (`--text-muted`) | Who can sign in is decided by your organisation, not by A2H. If it doesn't let you in, contact your administrator. |
+| Footnote (`--text-muted`) | Who can sign in is decided by your organisation, not by A2H. If it doesn't let you in, contact an administrator. |
 
 No email field, no second action, no magic-link wording anywhere. The M1 footnote "A2H is open to invited addresses only for now." is gone from this screen. The button is a `<form method="post">` submit, so it works without JavaScript; `next` travels as a hidden field as today.
 
 States:
 - **Opening (S1d).** After pressing: label "Opening sign-in…", button busy (`aria-busy`, not pressable twice). Nothing else changes; the browser leaves for the organisation's sign-in.
 - **Could not be started (S1e).** `danger` notice above the lead, `role="alert"`: "Sign-in could not be started" / "Something went wrong on our side. You are not signed in. Try again." with a reference. Same button below.
+- **The organisation's sign-in cannot be reached (S1f).** `danger` notice, `role="alert"`: "Your organisation's sign-in is unavailable" / "A2H could not reach it just now. You are not signed in. Try again in a moment." Same button below; pressing it tries again. No reference: nothing went wrong on our side. On a development stage with both methods the notice sits above both sections and the magic-link form still works.
 - **Offline.** `neutral` notice, `role="status"`: "You're offline" / "Signing in needs a connection. Try again when you're back online."
 - **Already signed in.** Goes on to `next` or Connected apps, as today.
 - **Loading / empty.** None: the page is static and server-rendered.
-- **No sign-in configured on a production install.** Not designed here (it is an install fault, m2-install-package); see question 9.
+- **No sign-in configured on a production install.** Not a screen: such an install refuses to start (design.md D8).
 
 Accessibility: focus order is the button only (then the browser's own). The button is 44 px tall and full width. The title is the page's `h1`; nothing is announced on load beyond the document title. Leaving for another site is said in the lead before the button, so the navigation is not a surprise (WCAG 3.2.2).
 
@@ -155,16 +162,18 @@ Shown for every one of: the person cancelled; the organisation's sign-in returne
 
 The notice is present on load, so it is not a live region; it is read in order after the `h1`, and the document title says "Not signed in" first. Neutral, not danger: cancelling is not an error.
 
-### S3b. No confirmed email address
+### S3b. The details from the organisation's sign-in can't be accepted
 
-Its own page (not the sign-in page, because trying again will not help). No account, no session.
+One page for the three refusals the spec sends to "contact their administrator": no email address or not a confirmed one; an email address another account already has; a person the organisation's sign-in presents as new with an address an existing account has. One wording for all three, so the page cannot tell anyone whether an account with their address exists. What an administrator needs in order to fix it is behind the reference (the cause is logged under it, without the address). No account, no session; neither account is changed.
 
 | Element | Copy |
 |---|---|
 | Document title | Not signed in · A2H |
 | `h1` | A2H could not sign you in |
-| Lead | Your organisation's sign-in did not give A2H a confirmed email address for you, so you are not signed in and no account was opened. |
-| Body | This is set up on your organisation's side and can't be changed here. Contact your administrator and tell them A2H needs a confirmed email address from the organisation's sign-in. |
+| Lead | Your organisation's sign-in worked, but A2H can't accept the details it gave for you, so you are not signed in. Nothing was changed. |
+| Body, no contact configured | This can't be fixed on this page. Contact an administrator. Give them the reference below: it tells them what to correct. |
+| Body, contact configured | This can't be fixed on this page. Contact an administrator: **{contact}**. Give them the reference below: it tells them what to correct. |
+| Reference (mono role, `--text-muted`) | Reference ref_… |
 | Action (ghost link-button) | Try again |
 
 ### S3c. Access removed by an administrator
@@ -176,12 +185,13 @@ Shown only after the organisation's sign-in has confirmed who the person is, so 
 | Document title | No access · A2H |
 | `h1` | You don't have access to A2H |
 | Lead | Your organisation's sign-in worked, but an administrator of A2H has removed your access, so you are not signed in. |
-| Body | Apps you connected can't act for you while your access is removed. Nothing of yours was deleted. To get access back, contact an A2H administrator in your organisation. |
+| Body, no contact configured | Apps you connected can't act for you while your access is removed. Nothing of yours was deleted. To get access back: contact an administrator. |
+| Body, contact configured | … To get access back: contact an administrator: **{contact}**. |
 | Action (ghost link-button) | Try again |
 
-"Your administrator" (S3b) is whoever runs the organisation's sign-in; "an A2H administrator" (S3c) is a person on the administrators' page. The two are kept apart on purpose; neither is named, because A2H must not show other people here (question 3).
+No administrator is named on either page: A2H must not show other people to someone who is not signed in. The configured contact is the install's own text.
 
-Accessibility (S3a–c): one `h1`, one action, 44 px. Focus order: the one action. Status in words in the title; no colour carries meaning. No motion.
+Accessibility (S3a–c): one `h1`, one action, 44 px. Focus order: the one action. The contact and the reference are selectable text, so they can be copied. Status in words in the title; no colour carries meaning. No motion.
 
 ## S4. Session ended
 
@@ -194,13 +204,24 @@ When a signed-in person's session is no longer valid (12 hours after sign-in, or
 | Notice body | A2H asks you to sign in again at least every 12 hours. After signing in you come back to the page you were on. If you were in the middle of something there, check that it went through. |
 | Rest | S1 (or S2 on a development stage) |
 
-One wording for both causes: the page cannot and must not tell a person whose access was removed anything before they have signed in at the organisation's sign-in again (then S3c). If the organisation's own session is still alive, pressing the button brings them straight back without typing anything.
+One wording for both causes: the page cannot and must not tell a person whose access was removed anything before they have signed in at the organisation's sign-in again (then S3c). If the organisation's own session is still alive, pressing the button brings them straight back without typing anything; if the organisation no longer accepts them, they get S3a.
 
-Why a page and not a silent trip to the organisation's sign-in: an action in flight (Send on an approval page, Remove access) cannot be replayed after the trip, so the person has to be told to check it; and nobody is sent to another site without having pressed something. The spec says "sent to sign in at the provider again"; this reads it as "must sign in there again" (question 2).
+Why a page and not a silent trip to the organisation's sign-in: an action in flight (Send on an approval page, Remove access) cannot be replayed after the trip, so the person has to be told to check it; and nobody is sent to another site without having pressed something. The spec scenario now says the same.
 
 A person who never had a session, or signed out themselves, sees plain S1 with no notice.
 
 Accessibility: as S3a (notice present on load, read after the `h1`; title announces the state).
+
+## S5. Signed out
+
+`/signed-out` as in M1, with one sentence added for a person who had signed in through the organisation (not after a magic-link session on a development stage):
+
+| Element | Copy |
+|---|---|
+| `h1`, lead, action | unchanged: "You're signed out" / "Apps you connected stay connected: …" / **Sign in again** |
+| Added body | You are still signed in at your organisation's sign-in. On a shared computer, sign out there too. (Configured name: "at the Automi sign-in".) |
+
+The page is shown signed out, so whether to add the sentence travels in the short-lived flash the sign-out action already sets, never in the URL.
 
 ## P. Administrators' page: People and access
 
@@ -224,19 +245,20 @@ Each person is a row (`<li>` in a `<ul aria-label="People">`), sorted by name, A
 | Pill, role | **Administrator** (`neutral`), only for administrators |
 | Buttons (ghost) | **Remove access** or **Restore access**; **Make administrator** or **Withdraw administrator role** |
 
-Which actions a row offers, and what it says in place of one it does not offer (`--text-muted`, under the pills; this is how the three refusals of the spec are said before anyone presses anything):
+Which actions a row offers, and what it says in place of one it does not offer (`--text-muted`, under the pills; this is how the refusals of the spec are said before anyone presses anything):
 
 | Row | Access action | Role action |
 |---|---|---|
 | Has access, not an administrator | Remove access | Make administrator |
 | Access removed | Restore access | none (only a person with access can be made an administrator) |
-| Another administrator | "To remove their access, withdraw the administrator role first." (question 4) | Withdraw administrator role |
-| Administrator named in configuration | as above | "Named as an administrator in this install's configuration. The role can only be withdrawn there." |
+| Access removed, was an administrator | Restore access | "Not an administrator while their access is removed. They will be one again if it is restored." (question 1) |
+| Another administrator | Remove access | Withdraw administrator role |
+| Another administrator, named in configuration | Remove access | "Named as an administrator in this install's configuration, so the role can't be withdrawn here." |
 | You | "You can't remove your own access." | Withdraw administrator role, or one of the two lines below |
-| You, named in configuration | same | "You are named as an administrator in this install's configuration. The role can only be withdrawn there." |
-| The only administrator (you, by definition) | same | "You are the only administrator. Make someone else an administrator before this role can be withdrawn." |
+| You, named in configuration | same | "You are named as an administrator in this install's configuration, so your role can't be withdrawn here." |
+| You, the only administrator with access | same | "You are the only administrator. Make someone else an administrator before this role can be withdrawn." |
 
-No disabled buttons: an action that cannot be taken is not a control, it is a sentence saying why.
+A person whose access is removed shows no "Administrator" pill and is not counted as one. Removing another administrator's access is always offered: the last administrator with access is, by definition, the one looking at the page, and their own access cannot be removed. No disabled buttons: an action that cannot be taken is not a control, it is a sentence saying why.
 
 ### P6–P10. Confirmations
 
@@ -245,7 +267,9 @@ Pressing an action opens the confirmation inside the row, in place of the row's 
 | Action | Question | Body | Confirm (in progress) | Way out |
 |---|---|---|---|---|
 | Remove access | Remove {name}'s access? | They are signed out at once and can't sign in until an administrator restores their access. Apps they connected can no longer act for them; access an app already has ends within an hour. Nothing of theirs is deleted. This goes in the record of actions. | Remove access (Removing…) | Keep access |
+| Remove an administrator's access (P6c) | same | the same, with this sentence before "Nothing of theirs is deleted": They also stop being an administrator while their access is removed, and are one again if it is restored. | same | same |
 | Restore access | Restore {name}'s access? | They can sign in again, and apps they connected before work again without asking them anew. This goes in the record of actions. | Restore access (Restoring…) | Keep removed |
+| Restore, was an administrator (P8b) | same | the same, with this sentence before "This goes in the record": They will be an administrator again. | same | same |
 | Make administrator | Make {name} an administrator? | They will be able to open this page, remove and restore people's access, and make or withdraw administrators, you included. They will not see anyone's requests, answers or rules. This goes in the record of actions. | Make administrator (Saving…) | Not now |
 | Withdraw role | Withdraw {name}'s administrator role? | They keep their access to A2H but can no longer open this page. This goes in the record of actions. | Withdraw role (Saving…) | Keep as administrator |
 | Withdraw own role | Withdraw your own administrator role? | You keep your access to A2H but leave this page at once. You can't come back unless another administrator makes you one again. This goes in the record of actions. | Withdraw my role (Saving…) | Stay an administrator |
@@ -257,6 +281,7 @@ After it went through, the row shows its new pills and buttons and a `success` n
 | Done | Notice title | Notice body |
 |---|---|---|
 | Access removed | {name}'s access is removed | They are signed out and can't sign in until access is restored. Access an app already has ends within an hour. This is in the record of actions. (link) |
+| An administrator's access removed (P7b) | {name}'s access is removed | They are signed out, can't sign in until access is restored, and are not an administrator meanwhile. Access an app already has ends within an hour. This is in the record of actions. |
 | Access restored | {name}'s access is restored | They can sign in again, and apps they connected before work again. This is in the record of actions. |
 | Administrator made | {name} is now an administrator | They can open this page from their next visit. This is in the record of actions. |
 | Role withdrawn | {name} is no longer an administrator | They keep their access to A2H. This is in the record of actions. |
@@ -268,10 +293,10 @@ The row sentences above prevent most refusals, but the page can be out of date (
 
 | Refusal | Notice title | Notice body |
 |---|---|---|
-| Last administrator | {name} is still an administrator / You are still an administrator | {Their / Your} role was not withdrawn: A2H would be left with no administrator. Make someone else an administrator first. The list is now up to date. |
-| Named in configuration | {name} is still an administrator | Their role was not withdrawn: they are named as an administrator in this install's configuration, and it can only be withdrawn there. The list is now up to date. |
+| Last administrator, withdrawing | {name} is still an administrator / You are still an administrator | {Their / Your} role was not withdrawn: A2H would be left with no administrator. Make someone else an administrator first. The list is now up to date. |
+| Last administrator, removing access | {name} still has access | Their access was not removed: A2H would be left with no administrator. The list is now up to date. |
+| Named in configuration | {name} is still an administrator | Their role was not withdrawn: they are named as an administrator in this install's configuration, so it can't be withdrawn here. The list is now up to date. |
 | Own access | You still have access | You can't remove your own access. Nothing was changed. |
-| Is an administrator (question 4) | {name} still has access | Their access was not removed: they are an administrator. Withdraw the administrator role first. The list is now up to date. |
 | Already done by someone else | no refusal | the row simply shows the current state, with the `neutral` notice "Already done" / "Another administrator did this a moment ago. The list is now up to date." |
 
 If you are no longer an administrator when you act, you get N1. If your session has ended, S4.
@@ -299,7 +324,7 @@ Shown once there are more than 10 people; below that the list is short enough to
 | Searched | Showing {m} of {m} people matching “{text}” |
 | No match (notice, `neutral`) | No one matches “{text}” / Check the spelling, or search by email address. Only people who have signed in to A2H at least once are listed. Ghost button: Clear search |
 
-How it works: the server sends the whole list; the page shows the first 50 and filters in the browser as the person types (name or address, case and accents ignored, any part of either). "Show" and the search combine. The three counts in "Show" replace the count line of P1. The search text stays in the browser: never in the URL, never sent, never logged (it is a person's name or address). With JavaScript off, the tools are not rendered and the whole list is shown, so nothing is unreachable. This holds for the sizes the free edition is meant for; a list of thousands (directory synchronisation, paid edition) needs server-side search and is not designed here (question 6).
+How it works: the server sends the whole list; the page shows the first 50 and filters in the browser as the person types (name or address, case and accents ignored, any part of either). "Show" and the search combine. The three counts in "Show" replace the count line of P1. The search text stays in the browser: never in the URL, never sent, never logged (it is a person's name or address). With JavaScript off, the tools are not rendered and the whole list is shown, so nothing is unreachable. This is designed for up to 1,000 people (design.md D7): at that size the page holds at most 50 rows until more are asked for, and filtering stays instant. A larger install needs server-side search, which is outside this change and not designed here.
 
 ### P14. Record of administrator actions
 
@@ -308,7 +333,7 @@ Its own page so the people list stays short. Read-only: no control on any entry,
 | Element | Copy |
 |---|---|
 | Lead | Every time an administrator removed or restored someone's access, or made or withdrew an administrator. Newest first. |
-| Note (`--text-muted`) | Entries can't be changed or deleted, by you or by anyone. Names and addresses are shown as they were when the action was taken. |
+| Note (`--text-muted`) | Entries can't be changed or deleted, by you or by anyone. Each person is shown with their current name and email address. |
 | Entry, line 1 | {administrator} removed {person}'s access. / … restored {person}'s access. / … made {person} an administrator. / … withdrew {person}'s administrator role. / … withdrew their own administrator role. |
 | Entry, line 2 | the time, as elsewhere: "14:02 on 11 Nov 2026 (UTC+01:00)", in the viewer's zone (`LocalTime`) |
 | Entry, line 3 (`--text-muted`) | By {administrator's address} · about {person's address} |
@@ -354,7 +379,7 @@ A signed-in person who is not an administrator and opens `/admin/people`, `/admi
 | Document title | For administrators · A2H |
 | `h1` | This page is for administrators |
 | Lead | You're signed in, but only administrators of A2H in your organisation can open this page. Nothing was changed. |
-| Body | If someone's access needs changing, ask an A2H administrator in your organisation. |
+| Body | If someone's access needs changing, contact an administrator. (Contact configured: "contact an administrator: **{contact}**.") |
 | Action (primary link-button) | Go to Connected apps |
 
 The same page is what an administrator sees if their role was withdrawn while they had the page open. A visitor who is not signed in is sent to S1 with `next` kept; after signing in they reach the page if they are an administrator and N1 if not. Focus order: header links → Sign out → the action.
@@ -369,20 +394,18 @@ The prototypes have no organisation sign-in and no administrators' page (they pr
 
 ## Checks run on the static specs (2026-11-11)
 
-Playwright (Chromium 1.64) over the 32 files at 320, 390 and 1280 px, light and dark, reduced motion on: axe-core 4.14 (WCAG 2.0, 2.1, 2.2 A and AA plus best practice), a 44 px target check on every button, link-button, nav link and option, and a horizontal-overflow check. 192 runs, no finding. Screenshots were read at 390 and 1280 px in both themes.
+Playwright (Chromium 1.64) over the 40 files at 320, 390 and 1280 px, light and dark, reduced motion on: axe-core 4.14 (WCAG 2.0, 2.1, 2.2 A and AA plus best practice), a 44 px target check on every button, link-button, nav link and option, and a horizontal-overflow check. 240 runs, no finding (re-run after the update). Screenshots were read at 390 and 1280 px in both themes.
 
 **Not run:** a keyboard pass. The specs are static HTML with no behaviour, so focus order, focus moves, Escape and live-region announcements above are the specification, not something tested. They are to be tested on Storybook when the components exist and again on the preview. Contrast was checked only by axe against the provisional system-colour tokens.
 
+## Decisions taken with the PM (2026-11-11)
+
+Optional `ORGANISATION_NAME` and `ADMINISTRATOR_CONTACT`, used in copy only. Session ended is the sign-in page with a notice and one press. The access-removed page says an administrator removed the access. An administrator can remove another administrator's access, including one named in the configuration; only one's own access and the last administrator with access are refused; a person named in the configuration cannot have the role withdrawn. The list is loaded whole for up to 1,000 people. The record shows current names and addresses. `/signed-out` gains one sentence for people who signed in through the organisation. A production install without sign-in settings does not start, so it has no screen. The header link "People and access" is shown to administrators only.
+
+**Proposals the owner sees at Gate 2:** the page name "People and access"; "Remove access" / "Restore access"; "Withdraw administrator role". Alternatives if preferred: "Administration"; "Block" / "Unblock"; "Remove administrator".
+
 ## Open questions for the PM
 
-1. **Organisation's name.** Is there an optional display name in the install's configuration? The copy works without ("your organisation's sign-in") and with ("the Automi sign-in"). Recommended: yes, optional, plain text, never taken from the organisation's sign-in.
-2. **Session ended (S4).** The spec says the person is "sent to sign in at the provider again". Designed as the sign-in page with a notice and one press, not an automatic trip, because an action in flight cannot be replayed and the same page must serve a person whose access was removed. Confirm, or the spec scenario needs the notice dropped.
-3. **Access removed (S3c).** The page tells the person an administrator removed their access. It is shown only after the organisation's sign-in confirmed who they are, so it tells the account's holder only. If the spec wants less, S3c becomes "A2H could not sign you in. Contact an A2H administrator in your organisation." Also: can an install configure a contact (address or link) for "your administrator" and "an A2H administrator"? Without it both pages are a dead end for someone who does not know who that is.
-4. **Removing an administrator's access.** The spec does not say whether it is allowed. Designed as not offered: withdraw the role first. Otherwise removing access would get round "an administrator named in the configuration remains one" and "the last administrator". This needs a spec line either way; refusal code `is_administrator` is my placeholder.
-5. **Restoring an administrator.** Following 4, a person whose access is removed is never an administrator. If 4 is decided the other way, the confirmation for Remove access must say what happens to the role.
-6. **Size.** Search and paging are done in the browser over the full list, so the search text is never sent or logged. Fine for hundreds; what is the largest install the free edition must handle? Above roughly two thousand people this needs server-side search and a decision on logging.
-7. **Record wording.** "Names and addresses are shown as they were when the action was taken" needs the record to store them at the time (which also keeps entries unchanged if a person's address changes at the organisation). Confirm with Protocol/Web dev; otherwise the note is dropped and entries show current names.
-8. **Signed-out page.** Signing out of A2H does not sign the person out of their organisation, so "Sign in again" brings them straight back in. Proposed extra sentence on `/signed-out`: "You are still signed in at your organisation's sign-in. On a shared computer, sign out there too." Not in the spec; copy only.
-9. **No sign-in configured on a production install.** What does `/sign-in` show? Proposed for m2-install-package: "Sign-in is not set up yet" / "This install of A2H has no organisation sign-in configured. If you are installing it, see the install guide." Not specified here.
-10. **Where administrators find the page.** Designed as a header link "People and access" shown to administrators only, on every signed-in page. This is a new `AuthShell` prop and touches the Connected apps and approval pages' header.
-11. **Copy for the owner.** "People and access" as the page's name; "Remove access" / "Restore access"; "Withdraw administrator role". Alternatives if preferred: "Administration"; "Block" / "Unblock"; "Remove administrator".
+1. **Restoring someone who was an administrator.** design.md D7 keeps the administrator flag when access is removed ("an administrator when they have access and are either named or flagged"), so restoring access makes the person an administrator again. The row, the Remove confirmation and the Restore confirmation say so (P6c, P7b, P8b). If removal should clear the flag for people not named in the configuration, those three sentences change and `administratorOnRestore` is true only for people named in the configuration. The spec delta does not say which.
+2. **One refusal page for three causes (S3b).** Missing or unconfirmed address, address already used by another account, and a new person with an existing account's address share one wording and a reference; the cause is only in the log under that reference. Confirm that the reference is logged with the cause and without the address, or administrators have nothing to go on.
+3. **The administrator contact is shown as plain text**, not as a link, because it may be a channel name. Say if an email address should become a `mailto:` link.
