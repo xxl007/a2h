@@ -42,7 +42,7 @@ A2H is open source with a paid edition (§11) and is distributed through cloud m
 5. Every request has an accountable principal. Every answer is signed, timestamped, carries confidence and was given personally. No model assists the participant.
 6. Asynchronous by design. No client needs to be woken; a notification plus `check_requests` closes the loop.
 7. People are a last resort for agents: search first (including earlier answers), then ask.
-8. The guardrail fails closed. An action that needs a human answer does not happen without one. If no answer comes before the request's deadline, the request expires and the action stays refused **(PM proposal)**.
+8. The guardrail fails closed. An action that needs a human answer does not happen without one. If no answer comes before the request's deadline, the request expires and the action stays refused **(owner)**.
 9. Protection is never a paid feature. Anything that enforces principles 1–3 is in the free edition (§11) **(owner agreed the rule)**.
 
 ## 4. Scope
@@ -105,7 +105,7 @@ Every request and answer across all of a principal's agents, with status and tim
 ## 7. Participant experience
 
 ### 7.1 Joining
-A person exists in A2H once they sign in through the identity provider, or once the directory is synchronised. No invitation, no external import. Whether a person can refuse to be reachable at all is open (§16, question 1).
+A person exists in A2H once they sign in through the identity provider, or once the directory is synchronised. No invitation, no external import. **An administrator can switch a person off: they are then neither discoverable nor reachable. A person does not remove themselves; they shape how they are reached through their rules and the pause switch (owner, as the PM understood the answer; §16, question 1).** An administrator cannot switch a person's pause off or change their rules.
 
 ### 7.2 Profile
 Team, role and topics. In the free edition these come from the identity provider's groups and from what the person enters. In the paid edition, connectors add code ownership, on-call rotas and directory data, each shown as evidence the person can correct.
@@ -120,7 +120,7 @@ A notification carries only the summary: who asks and for whom, request type, de
 Every legitimate request (principle 3) is in the person's queue. Notifications follow their rules; the queue can be opened at any time. The queue shows what waits, for whom, and since when. While a person is paused, requests addressed to them by name wait, and requests to a role go to its other members.
 
 ### 7.6 Answering
-Unchanged from v0.2: verdict and confidence as tap targets, free part as text or voice note with a correctable transcript, "can't tell" first-class, the attestation "I answered this myself" required and signed. The participant may mark an answer "for this asker only" **(PM proposal)**.
+Unchanged from v0.2: verdict and confidence as tap targets, free part as text or voice note with a correctable transcript, "can't tell" first-class, the attestation "I answered this myself" required and signed. An answer goes to its asker only. The answer form offers one choice, off by default: "colleagues' agents may reuse this answer" **(owner: reusable only when the person agrees)**.
 
 ### 7.7 Home
 Waiting, answered, declined, held-on-your-behalf count. Their rules and a single pause switch. In the paid edition: how often their answers were reused.
@@ -138,14 +138,14 @@ This replaces v0.2's pricing as the brake on over-asking.
 
 ## 9. Answer reuse (paid edition)
 
-**(owner)** An answer given to one agent can be found and reused by other agents in the organisation.
+**(owner)** An answer given to one agent can be found and reused by other agents in the organisation, **only when the person who gave it agreed, answer by answer** (§7.6).
 
 - `find_answers(question, topic?)` returns earlier answers with who answered, when, the question as asked, confidence and signature.
 - A reused answer stays attributed and dated. The agent sees its age and may ask again; asking again about an answer the person marked still valid needs the principal's explicit approval **(PM proposal)**.
-- Decisions and authorisations are never reusable. An answer marked "for this asker only" is never returned to others. Attachments follow the answer's visibility. **(PM proposal)**
+- Decisions and authorisations are never reusable. An answer the person did not agree to share is never returned to others. Attachments follow the answer's visibility. **(PM proposal)**
 - The participant can withdraw or correct an answer; the correction is signed and replaces the earlier one in results **(PM proposal)**.
 - **In the free edition** there is no search. The agent may ask again; the person is shown "you answered a similar question on this date" with their earlier answer, and can send it again with one action. So the person is protected from retyping in both editions, and finding answers without asking anyone is what the paid edition adds **(PM proposal; §16, question 4)**.
-- Whether reuse is on by default for each answer, and what happens to the answers of someone who leaves, is open (§16, question 10).
+- **When a person leaves the organisation, their answers are archived (owner):** agents no longer find them. The person who takes over the role sees them as suggestions when a similar question arrives, and answers in their own name. Only answers the leaver had agreed to share are suggested, and the record of who asked and who answered is kept **(PM proposal)**.
 
 ## 10. Company policy (guardrail)
 
@@ -167,23 +167,25 @@ This replaces v0.2's pricing as the brake on over-asking.
 | Sign-in | Single sign-on (OIDC) | SAML, automatic provisioning (SCIM) |
 | Channels | Email, web inbox, Slack | Microsoft Teams, others |
 | Guardrail | One policy rule | Policy engine: multi-step, escalation, separation of duties |
-| Knowledge | The person can resend their own earlier answer | Answer reuse: search, freshness, visibility **(owner)** |
+| Knowledge | The person can resend their own earlier answer **(owner)** | Answer reuse: search, freshness, visibility; a leaver's answers suggested to their replacement **(owner)** |
 | Audit | View the record | Export to security tools, retention controls, tamper-evident log |
 | Insight | – | Dashboards per team (never per person; §16, question 3) |
+| Size | Up to a number of people still to be set **(owner: a size limit makes sense; number open, §16 question 11)** | Unlimited |
 | Operations | Single-instance install | High availability, upgrade tooling, support |
 | Later | – | Company-to-company, outside experts, payments |
 
-Apart from answer reuse, every placement in this table is a PM proposal. Whether the free edition is also limited by size (people or teams) is open (§16, question 11); "one team" in the rule describes who it is meant for, not a limit that exists today.
+Apart from the lines marked (owner), every placement in this table is a PM proposal. **A size limit never weakens protection:** an install over the limit stops accepting new people and keeps every rule working for those already in. Under Apache-2.0 anyone may remove the limit from their own copy, so it marks where the paid edition starts; it is not a lock.
 
-**Licence.** The repository is public and has no licence file today, so it is not yet open source. The licence of the free part and the way paid code is kept apart are proposed in ADR 0007 (Apache-2.0 for the free part; paid code in `ee/` under a commercial licence) and await the owner's decision.
+**Licence.** The repository is public and has no licence file today, so it is not yet open source. **The free part is licensed Apache-2.0 (owner).** Keeping paid code in `ee/` under a commercial licence is proposed in ADR 0007. The licence file is added with the first release (M2).
 
 **Distribution.** The free edition comes from the repository. The paid edition is listed on AWS Marketplace first, then Azure and Google Cloud. Packaging and entitlement are proposed in ADR 0007 (a container product, a 12-month contract, private offers as the main route).
 
 ## 12. Deployment and architecture
 
 - **Single-tenant, self-hosted.** One organisation per install, in its own cloud account. Our own hosted stages (dev, previews) remain for development.
-- **Cloud-neutral package.** Containers plus Postgres through a connection string. Today the web app's hosting, the malware scanner (GuardDuty), email (SES), the sign-in allow-list (SSM) and previews are AWS-specific; each becomes an interface with an AWS implementation first. ADR 0001 requires provider-neutral business logic; how far the code meets that is to be audited in M4, not assumed.
+- **Cloud-neutral package.** Containers plus Postgres through a connection string. Today the web app's hosting, the malware scanner (GuardDuty), email (SES), the sign-in allow-list (SSM) and previews are AWS-specific; each becomes an interface with an AWS implementation first. ADR 0001 requires provider-neutral business logic; how far the code meets that is to be audited in M2, not assumed.
 - **No scanner, no files.** An install without a configured malware scanner refuses attachments as "not checked", exactly as a broken scanner does today. Scanning is a protection and stays in the free edition.
+- **Identity providers.** Sign-in is built on standard OIDC, not on one vendor. It is validated against Google Workspace, Okta and Microsoft Entra ID, with Keycloak (open source) in automated tests **(PM proposal, from general knowledge of what technology companies use; no market figures checked)**. To verify when the change is proposed: how each provider exposes a person's groups, which the free edition uses for teams; Google Workspace is believed not to put groups in the sign-in token.
 - **Identity.** The organisation's identity provider replaces the owner's allow-list as the source of people. A principal is verified by the method `organisation_idp` in place of `owner_allowlist`. Connector authorization (ADR 0004) is otherwise kept. Magic links and the allow-list remain for development stages only.
 - **Signatures.** Keys are held by the install, so a signature proves the answer was recorded for that signed-in person and not altered since; it does not protect against the organisation's own administrators. Stronger proof (keys the person holds) is needed for §17 and is out of the first release **(PM proposal)**.
 - **CLAUDE.md** still states v0.2 rules (magic link only for participants, Stripe, email wording with offer and competition note, hosting in eu-west-3 as the product's home). It is updated in the same step as this PRD's approval; until then this PRD does not override it.
@@ -192,13 +194,12 @@ Apart from answer reuse, every placement in this table is a PM proposal. Whether
 
 Done: **M0 Foundation**, **M1 Protocol and connector**. Within M2, done: design foundations, approval page, attachments.
 
-Re-plan **(PM proposal; order to be confirmed, §16 question 6)**:
+Re-plan. **The installable free release comes first (owner).** What exists today cannot deliver a question to a person, so the first release includes the thinnest complete loop; where that line sits is a PM proposal (§16, question 6).
 
-- **M2 People.** Sign-in through an identity provider; the administrator role; profiles, teams, roles; personal rules; pause; discovery by name, role and fit.
-- **M3 Delivery and answer.** Validation against rules; requests to a role; queue, load and waiting; quota per asker; forward; notification by email and Slack; request page; answer form with voice; attestation and signature; the record; resending an earlier answer.
-- **M4 Install.** Licence; cloud-neutral package; provider interfaces; the single guardrail rule with a harness example; install guide; first public release of the free edition.
-- **M5 Paid edition.** Answer reuse; entitlement; AWS Marketplace listing; then policy engine, connectors, audit export.
-- **M6 Beyond the company.** §17.
+- **M2 First free release.** Apache-2.0 licence; cloud-neutral package and provider interfaces; sign-in through an identity provider; the administrator role (including switching a person off); the thinnest loop: a request to a named person, checked against a minimal set of rules (accepted request types, pause), an email notification, the request page, the answer form with attestation and signature; install guide; first public release.
+- **M3 People and attention.** Profiles, teams, roles; full personal rules (hours, daily limit, who may ask); discovery by role and fit; requests to a role; queue, load and waiting; quota per asker; forward; Slack; voice answers; resending an earlier answer; the single guardrail rule with a harness example; the size limit.
+- **M4 Paid edition.** Answer reuse with the person's agreement; entitlement; AWS Marketplace listing; then policy engine, connectors, audit export.
+- **M5 Beyond the company.** §17.
 
 Each milestone ends at a product-owner validation on a preview deployment.
 
@@ -219,19 +220,19 @@ Adoption: installs, installs still active after 30 days, free-to-paid conversion
 
 ## 16. Open questions
 
-1. **Can an employee refuse to be reachable at all,** or only shape how (hours, types, limits)? The one rule suggests they can pause without limit; the organisation may see that differently.
+1. **Switching off.** Answered: an administrator switches a person off; a person does not remove themselves (owner, as the PM understood it; to confirm at review). Still open: pause has no time limit (PM proposal), so a person can stay unreachable; administrators are told when a role has nobody reachable, not who paused.
 2. **Urgent requests:** is opt-in by the person (for example while on call) the only way past their hours? (PM proposal: yes.)
 3. **Employee monitoring.** Response times and counts per person are workplace monitoring in the EU (works councils, GDPR). PM proposal: no ratings of individuals, dashboards per team only, and a documented data-protection position before the first install.
-4. **Free "answer exists" signal:** keep it free (protects the person) or make reuse wholly paid?
+4. **Answered (owner):** in the free edition the person can resend their earlier answer; search is paid.
 5. **Slack in the free edition:** PM proposal yes, on the assumption (untested) that technology companies will not try a tool that reaches people only by email.
-6. **Order of milestones:** people and delivery first (M2, M3), or the install and licence first (M4) so outsiders can try what exists?
+6. **Order of milestones.** Answered: free release first (owner). To confirm: the first release includes the thinnest loop described in §13 M2, because without it nobody can answer a question.
 7. **Name.** The owner keeps "A2H" although Twilio published a protocol of the same name in February 2026 **(owner)**. A trademark check is the owner's to commission; whether to interoperate with that specification is open.
 8. **Quota defaults** and who may change them.
 9. Whether audio is retained after transcription, and for how long (carried over).
-10. **Reuse and the answerer.** Is each answer reusable unless the person marks it "for this asker only", or only when they agree? What happens to a person's answers when they leave the organisation?
-11. **Is the free edition limited by size** (people or teams), or only by features?
-12. **First install.** Which identity provider do we validate against, and is there a design partner organisation?
-13. **Unlimited pause and guarded actions.** If everyone in a role is paused or outside their hours until after a guarded request's deadline, the action is refused. Is that acceptable for the organisations we target, given escalation is paid?
+10. **Reuse and the answerer.** Answered (owner): reusable only when the person agrees; a leaver's answers are archived and suggested to their replacement (§9). To confirm: only answers the leaver agreed to share are suggested.
+11. **Size limit of the free edition.** Answered: limited by size too (owner). Open: the number, and whether it counts people or teams.
+12. **First install.** Identity providers: §12 (PM proposal). No design partner yet (owner); finding one is open.
+13. **Answered (owner):** a guarded action that nobody may answer before its deadline is refused; escalation is paid.
 
 ## 17. Later: beyond the company
 
@@ -256,6 +257,13 @@ From v0.2, kept as the direction for after internal use works:
 | 2026-11-11 | Agents see a person's load; every legitimate request reaches the person | owner |
 | 2026-11-11 | Answers are reusable across the organisation; answer reuse is a paid feature | owner |
 | 2026-11-11 | Edition rule: free for one team to run safely, paid for an organisation at scale | owner |
+| 2026-11-11 | Administrators can switch a person off (as the PM understood it; to confirm) | owner |
+| 2026-11-11 | A guarded action nobody may answer before its deadline is refused; escalation is paid | owner |
+| 2026-11-11 | An answer is reusable only when the person agrees; a leaver's answers are archived and suggested to their replacement | owner |
+| 2026-11-11 | Free edition: the person can resend an earlier answer; search is paid | owner |
+| 2026-11-11 | The free edition is also limited by size (number open) | owner |
+| 2026-11-11 | Apache-2.0 for the free part | owner |
+| 2026-11-11 | The installable free release comes first | owner |
 
 ## 19. Reference material
 
