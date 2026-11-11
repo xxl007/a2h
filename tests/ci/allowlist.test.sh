@@ -85,6 +85,13 @@ run SEED=none ssm-put-denied add pr-51 "$A"
 denied_put() { [ "$RC" -ne 0 ] && [[ "$OUT" == *AccessDenied* && "$OUT" != *"@"* ]]; }
 check "a denied write fails the step with the aws error, no address in the output" denied_put
 
+# Cold review of #120, N2: an aws error that quotes the value never reaches the (public) log unredacted.
+redacted() { [ "$RC" -eq 1 ] && [[ "$OUT" != *"@"* && "$OUT" == *"<address>"* ]]; }
+run SEED="$OWNER" ssm-put-echo add pr-51 "$A"
+check "a failed write whose aws error quotes the value prints <address>, never an address" redacted
+run SEED="$OWNER" ssm-get-echo add pr-51 "$A"
+check "a failed read whose aws error quotes the value prints <address>, never an address" redacted
+
 run SEED=none ok add pr-51 "not-an-address"
 check "a value without @ is refused before any aws call" [ "$RC" -eq 64 ] && [ -z "$SSM" ]
 
@@ -103,6 +110,13 @@ check "dev remove: takes the run's addresses out and keeps every other one" dev_
 check "dev remove prints counts, never an address" no_address_in_out
 run SEED="$OWNER,$RA" ok remove dev "$RA,$RB"
 check "dev remove when one of the run's addresses is already gone removes the other" dev_written "$OWNER"
+# Cold review of #120, N1: a list the owner wrote with duplicates (any case) must not hide the change.
+run SEED="$OWNER,$OWNER,$A,$(tr '[:lower:]' '[:upper:]' <<<"$A")" ok add dev "$RA,$RB"
+check "dev add over a list with duplicates still admits the run's principals (written once each)" dev_written "$OWNER,$A,$RA,$RB"
+run SEED="$OWNER,$OWNER,$RA,$RA,$RB" ok remove dev "$RA,$RB"
+check "dev remove over a list with duplicates takes the run's principals out" dev_written "$OWNER"
+run SEED="$OWNER,$OWNER" ok add pr-51 "$A"
+check "preview add over a list with duplicates writes the new address" value_is "$OWNER,$A"
 # On dev only the per-run QA form is accepted: CI can never take the owner's
 # address (or anyone else's) off dev's list, nor put one on it.
 dev_foreign_refused() { [ "$RC" -eq 64 ] && [ "$VALUE" = "$OWNER,$A,$RA" ] && [ -z "$SSM" ] && [[ "$OUT" != *"@"* ]]; }

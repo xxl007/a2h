@@ -56,6 +56,8 @@ case "${1-} ${2-}" in
         echo "get $name" >>"$STUB_DIR/ssm"
         case "$*" in *--with-decryption*) ;; *) echo "stub: SecureString read without --with-decryption" >&2; exit 255 ;; esac
         [ -f "$STUB_DIR/allowlist" ] || err ParameterNotFound GetParameter "Parameter $name not found."
+        # An error that quotes the stored value (allowlist.sh must redact addresses before printing it).
+        [ "$mode" = "ssm-get-echo" ] && err InternalServerError GetParameter "failed on value $(cat "$STUB_DIR/allowlist")"
         cat "$STUB_DIR/allowlist"; echo ;;
       *) err ParameterNotFound GetParameter "unexpected parameter $name" ;;
     esac
@@ -65,6 +67,8 @@ case "${1-} ${2-}" in
     name=$(arg --name "$@")
     echo "put $name" >>"$STUB_DIR/ssm"
     [ "$mode" = "ssm-put-denied" ] && err AccessDeniedException PutParameter "not authorized"
+    # A failure whose message quotes the value given (allowlist.sh must redact addresses before printing it).
+    [ "$mode" = "ssm-put-echo" ] && err ValidationException PutParameter "Value '$(arg --value "$@")' failed to satisfy constraint"
     case "$name" in */principal-allowlist) ;; *) err ValidationException PutParameter "unexpected parameter $name" ;; esac
     [ "$(arg --type "$@")" = "SecureString" ] || { echo "stub: allow-list written as $(arg --type "$@"), want SecureString" >&2; exit 255; }
     case "$*" in *--overwrite*) ;; *) [ -f "$STUB_DIR/allowlist" ] && err ParameterAlreadyExists PutParameter "exists" ;; esac

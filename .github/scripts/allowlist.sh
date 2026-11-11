@@ -44,9 +44,17 @@ parameter_name() {
   esac
 }
 
-# Splits a list value into lower-cased addresses, one per line, dropping `none`.
+# Splits a list value into lower-cased addresses, one per line, dropping `none`
+# and duplicates (first occurrence kept), so counts are counts of distinct
+# addresses: a list with duplicates must not look unchanged after an add.
 split_list() {
-  tr -s ', \t\r\n' '\n' <<<"$1" | tr '[:upper:]' '[:lower:]' | grep -v '^$' | grep -vx "$NONE" || true
+  tr -s ', \t\r\n' '\n' <<<"$1" | tr '[:upper:]' '[:lower:]' | grep -v '^$' | grep -vx "$NONE" | awk '!seen[$0]++' || true
+}
+
+# AWS error text can quote what it was given; the repository and its CI logs
+# are public, so every address-like token is replaced before printing.
+redact() {
+  sed -E 's/[^[:space:],"'"'"']+@[^[:space:],"'"'"']+/<address>/g' <<<"$1"
 }
 
 # Lines in a possibly empty value.
@@ -100,8 +108,7 @@ if [ "$rc" -ne 0 ]; then
     echo "allowlist: $stage remove: the parameter does not exist; nothing to do"
     exit 0
   fi
-  # The aws error names the parameter and the operation, never the value.
-  echo "allowlist: reading $name failed: $current_raw" >&2
+  echo "allowlist: reading $name failed: $(redact "$current_raw")" >&2
   exit 1
 fi
 current=$(split_list "$current_raw")
@@ -126,7 +133,7 @@ put_out=$(aws ssm put-parameter --name "$name" --type SecureString --overwrite -
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
-  echo "allowlist: writing $name failed: $put_out" >&2
+  echo "allowlist: writing $name failed: $(redact "$put_out")" >&2
   exit 1
 fi
 echo "allowlist: $stage $command: $given_count address(es) given; the list held $current_count and now holds $next_count"
