@@ -4,7 +4,7 @@
 - Date: 2026-11-11
 - Deciders: product owner (Galem L.), PM agent
 - Scope: who A2H is for, how it is deployed and sold, and which rules replace the money model inside an organisation. Governs `docs/PRD.md` from v0.3 and every change proposed after `m2-attachments`.
-- Related: `docs/PRD.md` v0.3; ADR 0001 (stack and hosting; provider-neutral business logic); ADR 0002 (money model, now the later phase); ADR 0007 (licence and packaging, to be written).
+- Related: `docs/PRD.md` v0.3; ADR 0001 (stack and hosting; provider-neutral business logic); ADR 0002 (money model, now the later phase); ADR 0007 (licence and packaging).
 
 ## Context
 

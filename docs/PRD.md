@@ -144,7 +144,7 @@ This replaces v0.2's pricing as the brake on over-asking.
 - A reused answer stays attributed and dated. The agent sees its age and may ask again; asking again about an answer the person marked still valid needs the principal's explicit approval **(PM proposal)**.
 - Decisions and authorisations are never reusable. An answer the person did not agree to share is never returned to others. Attachments follow the answer's visibility. **(PM proposal)**
 - The participant can withdraw or correct an answer; the correction is signed and replaces the earlier one in results **(PM proposal)**.
-- **In the free edition** there is no search. The agent may ask again; the person is shown "you answered a similar question on this date" with their earlier answer, and can send it again with one action. So the person is protected from retyping in both editions, and finding answers without asking anyone is what the paid edition adds **(PM proposal; §16, question 4)**.
+- **In the free edition** there is no search. The agent may ask again; the person is shown "you answered a similar question on this date" with their earlier answer, and can send it again with one action. So the person is protected from retyping in both editions, and finding answers without asking anyone is what the paid edition adds **(owner)**.
 - **When a person leaves the organisation, their answers are archived (owner):** agents no longer find them. The person who takes over the role sees them as suggestions when a similar question arrives, and answers in their own name. Only answers the leaver had agreed to share are suggested, and the record of who asked and who answered is kept **(PM proposal)**.
 
 ## 10. Company policy (guardrail)
