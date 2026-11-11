@@ -175,9 +175,9 @@ This replaces v0.2's pricing as the brake on over-asking.
 
 Apart from answer reuse, every placement in this table is a PM proposal. Whether the free edition is also limited by size (people or teams) is open (§16, question 11); "one team" in the rule describes who it is meant for, not a limit that exists today.
 
-**Licence.** The repository is public and has no licence file today, so it is not yet open source. The licence of the free part and the way paid code is kept apart are decided in ADR 0007, after the research in progress.
+**Licence.** The repository is public and has no licence file today, so it is not yet open source. The licence of the free part and the way paid code is kept apart are proposed in ADR 0007 (Apache-2.0 for the free part; paid code in `ee/` under a commercial licence) and await the owner's decision.
 
-**Distribution.** The free edition comes from the repository. The paid edition is listed on AWS Marketplace first, then Azure and Google Cloud. Packaging and entitlement follow ADR 0007.
+**Distribution.** The free edition comes from the repository. The paid edition is listed on AWS Marketplace first, then Azure and Google Cloud. Packaging and entitlement are proposed in ADR 0007 (a container product, a 12-month contract, private offers as the main route).
 
 ## 12. Deployment and architecture
 
