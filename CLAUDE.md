@@ -1,10 +1,10 @@
 # A2H — Agent-to-Human protocol
 
-This repository implements A2H: a protocol and platform that lets AI agents find consenting humans, send them questions on behalf of an accountable principal, and bring back attested answers. Read `docs/PRD.md` before doing anything. Product decisions live there; this file is about how we work.
+This repository implements A2H: open-source software an organisation installs so that its AI agents can reach its own people, under each person's rules, on behalf of an accountable principal, and bring back attested answers (PRD v0.3, ADR 0006). Read `docs/PRD.md` before doing anything. Product decisions live there; this file is about how we work.
 
 ## The one rule
 
-**Nothing reaches a human that the human's rules do not allow, and nothing leaves a principal that the principal did not approve.** Every change is checked against this. The human's attention is the scarce resource; the agent's convenience never wins a tie.
+**Nothing reaches a human that the human's rules do not allow, and nothing leaves a principal that the principal did not approve.** Company policy cannot override a person's rules. Every change is checked against this. The human's attention is the scarce resource; the agent's convenience never wins a tie.
 
 ## Roles
 
@@ -14,7 +14,7 @@ Work is done by a small team of agents. The user (product owner) watches every m
 |---|---|---|
 | **PM** (main session) | Owns `docs/PRD.md`, `openspec/`, the roadmap and all communication with the product owner. Writes proposals, splits tasks, dispatches subagents, requests gates. Never writes production code. | superpowers `brainstorming`, `writing-plans`, `subagent-driven-development`, `dispatching-parallel-agents`; OpenSpec `propose` / `apply` / `archive` |
 | **Design** | Owns `packages/ui` (tokens, components, Storybook), screen specs and copy in each change's `design.md`, accessibility. Reviews implemented UI on previews with Playwright screenshots. | `.claude/skills/a2h-design`, `requesting-code-review` |
-| **Protocol dev** | Owns `packages/protocol`, `apps/mcp`, `apps/worker`, auction and settlement logic. | `test-driven-development`, `systematic-debugging`, `verification-before-completion`, `using-git-worktrees`, `finishing-a-development-branch`, `.claude/skills/a2h-protocol` |
+| **Protocol dev** | Owns `packages/protocol`, `apps/mcp`, `apps/worker`, validation, delivery and attestation logic. | `test-driven-development`, `systematic-debugging`, `verification-before-completion`, `using-git-worktrees`, `finishing-a-development-branch`, `.claude/skills/a2h-protocol` |
 | **Web dev** | Owns `apps/web` (participant PWA, principal dashboard). | same as Protocol dev, plus `.claude/skills/a2h-design` |
 | **QA** | Owns `tests/`, CI, the release checklist, adversarial cases. Writes failing tests for every spec scenario before marking a change verifiable. | `test-driven-development`, Playwright MCP, `.claude/skills/a2h-protocol` |
 | **Reviewer** (ephemeral, cold) | Reviews each PR without having seen it being written. | `receiving-code-review` counterpart; blocks on: missing tests, spec drift, the one rule |
@@ -32,7 +32,7 @@ Agents are dispatched with `subagent_type` matching `.claude/agents/<role>.md`. 
 7. **Gate 2 (product owner).** PM posts: what shipped, preview link, issues closed, what was deliberately not done. Waits for validation.
 8. **Archive.** `/opsx:archive` merges spec deltas into `openspec/specs/`. Specs are the living truth; the PRD is updated if intent changed.
 
-Milestones (M0–M6) are listed in `docs/PRD.md` §10. A milestone ends only at a passed Gate 2.
+Milestones (M0–M5) are listed in `docs/PRD.md` §13. A milestone ends only at a passed Gate 2.
 
 ## Tracking: GitHub only
 
@@ -48,7 +48,7 @@ pnpm + Turborepo monorepo, TypeScript everywhere, Node 22.
 ```
 apps/web        Next.js (App Router). Participant PWA + principal dashboard. Server actions for forms.
 apps/mcp        A2H MCP server. @modelcontextprotocol/server (v2 packages), Streamable HTTP, stateless (2026-07-28 spec).
-apps/worker     pg-boss jobs: expiries, fan-out, payouts, email, transcription.
+apps/worker     pg-boss jobs: expiries, fan-out, email, transcription.
 infra/          SST (4.x) stacks: web, mcp, worker, database, email, storage, previews.
 packages/protocol  Zod schemas + JSON Schema export for profile, manifest, request types, answers, attestation, settlement. Pure, no I/O.
 packages/db     Drizzle schema + migrations (Postgres).
@@ -60,10 +60,12 @@ docs/           PRD.md, decisions/, runbooks/.
 .claude/        agents/, skills/, settings.
 ```
 
-- Auth: Better Auth. Magic link only for participants; LinkedIn and X as read-only OAuth imports, never as login requirements.
-- Payments: Stripe. PaymentIntent manual capture for holds (authorise the bid, capture the cleared price), Connect Express for payouts, Identity for verification. Test mode until the owner says otherwise.
+- Auth: Better Auth. People sign in through the organisation's identity provider (standard OIDC; validated against Google Workspace, Okta, Microsoft Entra ID, Keycloak in tests). Magic links and the sign-in allow-list are for our development stages only.
+- Payments: none in the first release. Inside an organisation every request uses the free lane; the protocol keeps its money fields for the later phase (PRD §17, ADR 0002). Existing Stripe code stays in test mode and is not extended.
+- Licence: Apache-2.0 for the free edition. Paid features are kept apart from it (ADR 0007).
+- The product is single-tenant and self-hosted: containers plus Postgres through a connection string. Anything cloud-specific sits behind an interface with an AWS implementation first.
 - Email: SES (React Email renders the templates). Transcription: one `Transcriber` interface; Amazon Transcribe first, Deepgram as fallback. Voice notes and attachments in S3 via presigned uploads with lifecycle rules.
-- Hosting: AWS, single region (eu-west-3 Paris), defined in `infra/` with SST (4.x, the Ion component API).
+- Hosting of our own development stages (dev, previews): AWS, single region (eu-west-3 Paris), defined in `infra/` with SST (4.x, the Ion component API).
   - `apps/web` → Amplify Hosting (Next.js SSR) or OpenNext on CloudFront + Lambda; SST decides, ADR records it.
   - `apps/mcp` and `apps/worker` → ECS Fargate services behind one ALB (idle timeout ≥ 1 h for SSE). Not App Runner: its 120 s request limit breaks streams.
   - Postgres → Aurora Serverless v2.
@@ -82,8 +84,8 @@ Configured in `.mcp.json`. GitHub (issues, PRs, projects), Playwright (QA, desig
 - Money is integers in minor units. All money moves happen in a Postgres transaction with an append-only `ledger_entries` table. Never update a balance in place.
 - Every request carries an accountable principal (verified person or organisation). Every answer carries a signature, timestamp, confidence, and `answered_personally: true`.
 - Rules-of-engagement enforcement happens at manifest validation, server side, before any delivery. A blocked manifest is logged and counted for the participant to see.
-- Emails carry the summary only: asker, request type, offer, deadline, competition note. Never the question text.
-- Identity verification is required for paid lanes but may lag until payout. The principal is told when an answer comes from a not-yet-verified participant.
+- Notifications (email, Slack) carry the summary only: who asks and for whom, request type, deadline. Never the question text.
+- Protection is never a paid feature: anything that enforces the one rule is in the free edition, and a lapsed licence or a size limit never switches a protection off.
 - No agent assistance on the participant side. The answer form never calls a model.
 - Accessibility: WCAG 2.2 AA, keyboard-complete, 44px targets on the PWA, reduced-motion respected.
 - Logging: structured, no PII in logs, request ids everywhere. Secrets only in env, never in the repo.
