@@ -35,12 +35,16 @@ An administrator SHALL be able to remove a person's access and to restore it. Re
 - **WHEN** an administrator restores that person's access
 - **THEN** the person can sign in again and their earlier consents work again without being given anew
 
+#### Scenario: Access of an administrator removed
+- **WHEN** an administrator removes the access of another administrator, including one named in the configuration
+- **THEN** that person loses access and is not an administrator while their access is removed, unless they are the last remaining administrator, in which case the action is refused
+
 #### Scenario: Administrator removes their own access
 - **WHEN** an administrator tries to remove their own access
 - **THEN** the action is refused
 
 ### Requirement: Administrators name other administrators
-An administrator SHALL be able to make another person with access an administrator and to withdraw that role. The role of the last remaining administrator SHALL NOT be withdrawn, and an administrator named in the configuration SHALL remain one while the configuration names them.
+An administrator SHALL be able to make another person with access an administrator and to withdraw that role. The role of the last remaining administrator SHALL NOT be withdrawn, and a person named in the configuration SHALL remain an administrator while the configuration names them and they have access. Only administrators who have signed in and have access count as remaining.
 
 #### Scenario: Role granted
 - **WHEN** an administrator makes another person an administrator
