@@ -348,8 +348,10 @@ function assertVerifyJob(f) {
   // design D2) run in the background for about 23 minutes alongside the suites: 30 is the preview's bound.
   // dev keeps 15 (no expiry flows after a merge).
   // m2-attachments 6.1: dev's own file step (file flows and the live EICAR, with a real scanner) adds about
-  // 6 minutes: 25 is dev's bound.
-  const bound = f === "preview.yml" ? 30 : 25;
+  // 6 minutes: 25 was dev's bound. Issue #118: dev now admits fresh QA principals per run, and the sign-in
+  // may wait up to 5.5 minutes for the web app to re-read the allow-list (D7); dev's job took 17 min 10 s in
+  // run 42920351631 before that wait, so 30 is dev's bound too.
+  const bound = 30;
   assert.equal(j["timeout-minutes"] <= bound, true, `${f} verify must stay under ${bound} minutes`);
   const creds = indexOf(j, isCreds, `${f} verify AWS credentials`);
   assert.equal(steps(j).filter(isCreds).length, 1, `${f} verify: one credentials step`);
@@ -387,34 +389,32 @@ function assertVerifyJob(f) {
 // --- m1-hosted-connector task 8.3: sign-in before the suites -------------------
 // The verify job reads the stage's mail sink, obtains tokens (A2H_TOKEN,
 // A2H_TOKEN_2 through GITHUB_ENV, masked) before the contract run and runs the
-// web app's own flows after the e2e. On a preview it first admits the two
-// synthetic principals on the preview's own allow-list parameter and removes
-// them whatever happened (design D7). On dev the allow-list is the owner's
-// (/a2h/shared/principal-allowlist): CI never writes it; the owner puts the
-// two QA addresses there once (runbook aws-bootstrap.md §15).
+// web app's own flows after the e2e. It first admits the two synthetic
+// principals on the stage's allow-list parameter and removes them whatever
+// happened (design D7): a preview's own parameter, or dev's shared
+// /a2h/shared/principal-allowlist (issue #118, owner decision 2026-11-11),
+// where allowlist.sh accepts the per-run QA addresses only, so the owner's
+// addresses on that list are never touched (runbook aws-bootstrap.md §15).
 const ALLOWLIST = ".github/scripts/allowlist.sh";
 const QA_EMAILS = ["qa-principal-a@a2h-protocol.org", "qa-principal-b@a2h-protocol.org"];
+const PER_RUN = QA_EMAILS.map((e) => e.replace("@", "-${{ github.run_id }}-${{ github.run_attempt }}@"));
 
 function assertSignIn(f, j, creds, at) {
   const env = { ...(wf[f].env ?? {}), ...(j.env ?? {}) };
   const stage = f === "deploy.yml" ? "dev" : "pr-${{ github.event.pull_request.number }}";
   assert.equal(env.STAGE, stage, `${f} verify STAGE`);
   assert.equal(env.A2H_STAGE, stage, `${f} verify A2H_STAGE (the suites' expected stage)`);
-  if (f === "preview.yml") {
-    // m2-approval-page 6.1 (verify pr-85, run 42246226973): a principal's monthly budget is one value for every
-    // stage (infra/config.ts developmentPolicy, €500 on previews) and the preview schema persists across runs,
-    // so the fifth verify run on one preview was refused with over_budget. A preview's QA principals are fresh
-    // per run: the address carries the run id and attempt (a re-run must not inherit the attempt's spend), the
-    // allow-list add and remove steps take the same variables, and the principal rows are created at sign-in.
-    // dev keeps the two fixed addresses: its list is the owner's, which CI never writes.
-    assert.deepEqual(
-      [env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2],
-      QA_EMAILS.map((e) => e.replace("@", "-${{ github.run_id }}-${{ github.run_attempt }}@")),
-      `${f} verify: the two synthetic QA addresses, fresh per run and attempt`,
-    );
-  } else {
-    assert.deepEqual([env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2], QA_EMAILS, `${f} verify: the two synthetic QA addresses`);
-  }
+  // m2-approval-page 6.1 (verify pr-85, run 42246226973): a principal's monthly budget is one value per stage
+  // (infra/config.ts developmentPolicy, €500 on previews, €5,000 on dev) and the schema persists across runs,
+  // so the fifth verify run on one preview was refused with over_budget; dev's fixed principals would run out
+  // after about 13 deploys a month (issue #118, ~€360 a run since #117). Every stage's QA principals are fresh
+  // per run: the address carries the run id and attempt (a re-run must not inherit the attempt's spend), the
+  // allow-list add and remove steps take the same variables, and the principal rows are created at sign-in.
+  assert.deepEqual(
+    [env.A2H_TEST_EMAIL, env.A2H_TEST_EMAIL_2],
+    PER_RUN,
+    `${f} verify: the two synthetic QA addresses, fresh per run and attempt`,
+  );
   for (const e of QA_EMAILS) assert.match(e, /^qa-principal-[ab]@a2h-protocol\.org$/, "synthetic addresses under the product domain only");
 
   const sink = indexOf(j, (s) => runs(s, "A2H_MAIL_SINK_BUCKET=") && runs(s, "GITHUB_ENV"), `${f} verify mail sink location`);
@@ -437,21 +437,23 @@ function assertSignIn(f, j, creds, at) {
   assert.equal(steps(j)[flood]["continue-on-error"], undefined, `${f}: a failing flood fails the job`);
   assert.equal(steps(j)[tokens].id, "tokens");
   assert.equal(steps(j)[webE2e].id, "web-e2e");
-  if (f === "preview.yml") {
-    const add = indexOf(j, (s) => runs(s, `${ALLOWLIST} add`), `${f} verify allow-list add`);
-    const remove = indexOf(j, (s) => runs(s, `${ALLOWLIST} remove`), `${f} verify allow-list remove`);
-    assert.ok(creds < add && add < sink, `${f} verify: the allow-list add runs with the deploy role, before the sink and the tokens`);
-    assert.ok(webE2e < remove, `${f} verify: the allow-list removal after everything`);
-    assert.equal(steps(j)[add].id, "allowlist");
-    assert.match(steps(j)[add].run, /allowlist\.sh add "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: add both addresses of the job's stage`);
-    assert.match(steps(j)[remove].run, /allowlist\.sh remove "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: remove the same`);
-    assert.match(String(steps(j)[remove].if ?? ""), /always\(\)/, `${f}: the removal runs whatever the outcome`);
-    assert.match(String(steps(j)[remove].if ?? ""), /steps\.allowlist\.outcome == 'success'/, `${f}: nothing to remove when nothing was added`);
-  } else {
-    // dev's list is the owner's: no step of the dev verify job touches allowlist.sh or writes a parameter.
-    assert.ok(!steps(j).some((s) => runs(s, "allowlist")), `${f} verify: CI never writes dev's allow-list (the owner's; runbook §15)`);
-    assert.ok(!steps(j).some((s) => runs(s, "ssm put-parameter")), `${f} verify: no SSM write`);
-  }
+  // Both stages (dev since issue #118): add before the sign-in, remove whatever happened, after every suite.
+  const add = indexOf(j, (s) => runs(s, `${ALLOWLIST} add`), `${f} verify allow-list add`);
+  const remove = indexOf(j, (s) => runs(s, `${ALLOWLIST} remove`), `${f} verify allow-list remove`);
+  assert.ok(creds < add && add < sink, `${f} verify: the allow-list add runs with the deploy role, before the sink and the tokens`);
+  assert.ok(webE2e < remove, `${f} verify: the allow-list removal after everything`);
+  assert.ok(
+    steps(j).every((s, i) => !runs(s, "pnpm --filter") || i < remove),
+    `${f} verify: no suite (nor the spend report) runs after the QA principals are removed`,
+  );
+  assert.equal(steps(j)[add].id, "allowlist");
+  assert.match(steps(j)[add].run, /allowlist\.sh add "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: add both addresses of the job's stage`);
+  assert.match(steps(j)[remove].run, /allowlist\.sh remove "\$STAGE" "\$A2H_TEST_EMAIL,\$A2H_TEST_EMAIL_2"/, `${f}: remove the same`);
+  assert.match(String(steps(j)[remove].if ?? ""), /always\(\)/, `${f}: the removal runs whatever the outcome`);
+  assert.match(String(steps(j)[remove].if ?? ""), /steps\.allowlist\.outcome == 'success'/, `${f}: nothing to remove when nothing was added`);
+  // Nothing else in the job writes a parameter: the script is the only writer, and on dev it refuses any
+  // address but the per-run QA ones (tests/ci/allowlist.test.sh).
+  assert.ok(!steps(j).some((s) => runs(s, "ssm put-parameter")), `${f} verify: no SSM write outside allowlist.sh`);
   // The bucket parameter is the one dev publishes (infra/config.ts).
   assert.match(steps(j)[sink].run, /aws ssm get-parameter --name \/a2h\/shared\/uploads-bucket /, `${f}: the sink is in the shared uploads bucket`);
   // The token step gets the URLs through env and writes GITHUB_ENV itself (masked); the suites read A2H_TOKEN from there.
@@ -597,9 +599,16 @@ test("allowlist.sh names the same parameter per stage as infra/config.ts allowli
   }
   const prod = spawnSync("bash", [script, "name", "prod"], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
   assert.equal(prod.status, 64, "prod must be a usage error: QA never signs in on prod");
-  // add and remove act on a preview's own parameter only; dev's and prod's are the owner's (no aws on PATH: refused before any call).
-  for (const [command, stage] of [["add", "dev"], ["remove", "dev"], ["add", "prod"]]) {
-    const r = spawnSync("bash", [script, command, stage, QA_EMAILS.join(",")], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
+  // prod is the owner's alone; on dev (issue #118) only the per-run QA addresses are accepted, so the fixed
+  // ones (which the owner removes) and any other address are refused (no aws on PATH: refused before any call).
+  const real = (e) => e.replace("${{ github.run_id }}-${{ github.run_attempt }}", "43012452475-1");
+  for (const [command, stage, list] of [
+    ["add", "dev", QA_EMAILS],
+    ["remove", "dev", QA_EMAILS],
+    ["add", "prod", PER_RUN.map(real)],
+    ["remove", "prod", PER_RUN.map(real)],
+  ]) {
+    const r = spawnSync("bash", [script, command, stage, list.join(",")], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } });
     assert.equal(r.status, 64, `${command} ${stage} must be refused: ${r.stderr}`);
     assert.doesNotMatch(r.stdout + r.stderr, /@/, "no address in the output");
   }
@@ -725,7 +734,11 @@ test("deploy.yml: a verify job needs deploy and runs the suites against dev", ()
   for (const needle of ["@a2h/tests contract", "@a2h/tests adversarial", "@a2h/tests e2e"]) {
     assert.equal(stepRunning(j, needle).env?.A2H_STAGE ?? j.env?.A2H_STAGE, "dev", `${needle}: A2H_STAGE must be dev`);
   }
-  assert.ok(steps(j).some((s) => runs(s, "GITHUB_STEP_SUMMARY") && String(s.if ?? "").includes("always()")), "outcome not written to the run summary");
+  const summary = steps(j).find((s) => runs(s, "GITHUB_STEP_SUMMARY") && String(s.if ?? "").includes("always()"));
+  assert.ok(summary, "outcome not written to the run summary");
+  // Issue #118: the allow-list step's outcome is in the summary (a refused or failed write is named there).
+  assert.match(String(summary.env?.ALLOWLIST ?? ""), /steps\.allowlist\.outcome/, "the summary reads the allow-list step");
+  assert.match(summary.run, /\$\{?ALLOWLIST/, "the summary prints the allow-list outcome");
 });
 
 // The sst deploy step is extracted and run the way the runner runs it, with a

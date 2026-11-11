@@ -125,33 +125,38 @@ jobs:
   # suite's live half, web e2e and the web app's own flows against dev's URLs;
   # the workflow is red when any fails. The 61-minute idle-stream test stays
   # opt-in, by hand (tests/README.md). Under ten minutes (task 8.3), plus about
-  # six for the file flows (m2-attachments 6.1): 25.
+  # six for the file flows (m2-attachments 6.1): 25. Plus up to 5.5 minutes
+  # at sign-in while the web app re-reads the allow-list with the run's fresh
+  # QA addresses (issue #118; run 42920351631 took 17 min 10 s without it): 30.
   verify:
     name: verify dev
     needs: deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     # One verify of dev at a time (run 41501855008 on a preview: overlapping
-    # verifies share the stage's sign-ins, sink and registration limiter).
+    # verifies share the stage's sign-ins, sink and registration limiter, and
+    # one's allow-list removal must not sign the other's principals out).
     concurrency:
       group: verify-dev
       cancel-in-progress: false
     permissions:
-      # id-token: the stage's deploy role, for the stage's mail sink only
-      # (m1-hosted-connector task 8.3). Nothing is deployed from here, and
-      # dev's sign-in allow-list is never written from here.
+      # id-token: the stage's deploy role, for two things only: the run's QA
+      # addresses on dev's sign-in allow-list and the stage's mail sink
+      # (m1-hosted-connector task 8.3, issue #118). Nothing is deployed from here.
       id-token: write
       contents: read
     env:
       STAGE: dev
       A2H_STAGE: dev
-      # Synthetic QA principals (no mailbox exists; non-prod stages send nothing).
-      # dev's allow-list (/a2h/shared/principal-allowlist) is the owner's and
-      # read-only for CI: the owner puts these two addresses on it once
-      # (runbook aws-bootstrap.md §15); without them the sign-in step fails
-      # and the summary says so.
-      A2H_TEST_EMAIL: qa-principal-a@a2h-protocol.org
-      A2H_TEST_EMAIL_2: qa-principal-b@a2h-protocol.org
+      # Synthetic QA principals (no mailbox exists; non-prod stages send nothing),
+      # fresh per run and attempt as on previews (issue #118, owner decision
+      # 2026-11-11): dev's monthly budget per principal (€5,000) held about 13
+      # runs for fixed principals. Admitted on dev's shared allow-list
+      # (/a2h/shared/principal-allowlist) for the run and removed at the end;
+      # allowlist.sh accepts only this per-run form on dev, so the owner's
+      # addresses on that list are never added or removed by CI.
+      A2H_TEST_EMAIL: qa-principal-a-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
+      A2H_TEST_EMAIL_2: qa-principal-b-${{ github.run_id }}-${{ github.run_attempt }}@a2h-protocol.org
       # m2-attachments 6.1: the file suites run in their own step ("File flows"), not in the general
       # contract and adversarial steps.
       A2H_FILE_SUITES: own-step
@@ -180,12 +185,20 @@ jobs:
       - name: Build the packages the suites import
         run: pnpm --filter "@a2h/tests^..." build
 
-      - name: Configure AWS credentials (OIDC; mail sink only)
+      - name: Configure AWS credentials (OIDC; allow-list and mail sink only)
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6
         with:
           role-to-assume: ${{ vars.AWS_DEV_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: a2h-verify-${{ env.STAGE }}
+
+      # Issue #118 (as preview.yml, design D7): the run's two synthetic
+      # addresses are added to dev's shared list for this run and removed at
+      # the end; every other address (the owner's) is kept. The script prints
+      # counts, never an address, and refuses any other address on dev.
+      - name: Admit the QA principals on the stage's sign-in allow-list
+        id: allowlist
+        run: .github/scripts/allowlist.sh add "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
 
       # The uploads bucket holds the stage's mail sink under tmp/dev/mail/
       # (design D6).
@@ -196,7 +209,9 @@ jobs:
 
       # Sign-in by magic link through the sink, consent, code, token (tests/lib/
       # obtain-token.ts): A2H_TOKEN and A2H_TOKEN_2 reach the suites through
-      # GITHUB_ENV, masked. Needs the two QA addresses on the owner's dev list.
+      # GITHUB_ENV, masked. The web app re-reads the allow-list within five
+      # minutes (D7): the script asks for a link again every 30 s for up to
+      # 5.5 minutes (tests/lib/obtain-token.ts signInUntilLink).
       - name: Sign in through the mail sink and obtain tokens
         id: tokens
         env:
@@ -286,8 +301,8 @@ jobs:
         run: pnpm --filter @a2h/tests exec node --test --test-reporter=spec --test-name-pattern="case A8" adversarial/authorization.live.test.ts
 
       # Issue #114: what the QA principals committed, as the server counts it
-      # (amounts and counts only). On a preview the principals are fresh per
-      # run, so these are the run's spend; the budget guard's lines in the
+      # (amounts and counts only). The principals are fresh per run (issue
+      # #118), so these are the run's spend; the budget guard's lines in the
       # suites' logs show it at the start of each guarded flow.
       - name: QA principals' spend (amounts only)
         if: ${{ !cancelled() && steps.tokens.outcome == 'success' }}
@@ -295,6 +310,10 @@ jobs:
         env:
           A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
         run: pnpm --filter @a2h/tests spend "end of run"
+
+      - name: Remove the QA principals from the sign-in allow-list
+        if: always() && steps.allowlist.outcome == 'success'
+        run: .github/scripts/allowlist.sh remove "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"
 
       # No artifact (task 10.7, cold review of #51 B4): a Playwright trace, screenshot or report of
       # the sign-in and consent flows can hold a magic link, a session cookie or a code, and the
@@ -304,6 +323,7 @@ jobs:
         if: always()
         env:
           JOB_STATUS: ${{ job.status }}
+          ALLOWLIST: ${{ steps.allowlist.outcome }}
           TOKENS: ${{ steps.tokens.outcome }}
           SMOKE: ${{ steps.smoke.outcome }}
           CONTRACT: ${{ steps.contract.outcome }}
@@ -326,7 +346,8 @@ jobs:
             echo
             echo "| Suite | Outcome |"
             echo "|---|---|"
-            echo "| sign-in (tokens; the QA addresses must be on dev's allow-list, runbook §15) | ${TOKENS:-not run} |"
+            echo "| allow-list (the run's QA addresses on dev's list, runbook §15) | ${ALLOWLIST:-not run} |"
+            echo "| sign-in (tokens through the mail sink) | ${TOKENS:-not run} |"
             echo "| smoke | ${SMOKE:-not run} |"
             echo "| contract | ${CONTRACT:-not run} |"
             echo "| adversarial | ${ADVERSARIAL:-not run} |"
