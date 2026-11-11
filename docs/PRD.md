@@ -25,31 +25,33 @@ A2H is open source with a paid edition (§11) and is distributed through cloud m
 
 **Participant.** Any member of the organisation. They hold knowledge and authority agents need, and they have no tolerance for a stream of machine-written interruptions.
 
+**Administrator.** The person in the organisation who installs A2H and sets its organisation-wide settings: the identity provider, teams and roles, quota defaults, the guardrail rule, retention. An administrator cannot read questions or answers by virtue of the role, and cannot change a person's rules **(PM proposal)**.
+
 **Organisation.** Wants agents to act faster without acting blind, wants a record of who decided what, and wants answers given once to stop being asked again.
 
 **The product** must side with the participant's attention in every conflict, or it becomes one more noisy channel.
 
-**Where the field stands (research of 2026-11-11, summarised in ADR 0006).** Existing tools gate an agent's tool call and ask the agent's own user or a preset approver. None found combines: any colleague chosen by role, ownership or expertise; rules owned by the recipient; request types beyond approval; signed, personally given answers; reuse of answers. Approval alone is a weakening wedge: people approve almost everything, and vendors are automating it.
+**Where the field stands (one day of web research on 2026-11-11, summarised with its limits in ADR 0006).** The tools found gate an agent's tool call and ask the agent's own user or a preset approver. The research found no product combining: any colleague chosen by role, ownership or expertise; rules owned by the recipient; request types beyond approval; signed, personally given answers; reuse of answers. That is an absence in what was searched, not proof. Approval alone looks like a weakening wedge: one study documents reviewers approving by habit, and vendors are automating approvals.
 
 ## 3. Principles
 
 1. Nothing reaches a person that their rules don't allow; nothing leaves a principal they didn't approve.
 2. **A person's rules win over company policy** **(owner)**. Policy can require a human answer; it cannot override when a person is reachable. A request that no one may receive yet waits.
-3. **Nothing legitimate is dropped; not everything interrupts** **(owner)**. A valid request is always delivered to the person's queue. The person's rules govern when and how often they are notified.
-4. Asking has a cost for the agent, but not in money: agents see the person's load before asking **(owner)**, each asker has a quota per person **(PM proposal)**, and a question already answered is found, not asked again **(owner)**.
+3. **Nothing legitimate is dropped; not everything interrupts** **(owner)**. A request is *legitimate* when it passes validation, including the person's rules on which request types and which askers they accept. A legitimate request is always delivered to the person's queue; their hours and daily limit govern when and how often they are notified. A request their rules do not accept is refused before delivery and counted for them to see, as today.
+4. Asking has a cost for the agent, but not in money: agents see the person's load before asking **(owner)**, each asker has a quota per person **(PM proposal)**, and a question already answered is not answered twice by hand (§9) **(owner: answers are reusable)**.
 5. Every request has an accountable principal. Every answer is signed, timestamped, carries confidence and was given personally. No model assists the participant.
 6. Asynchronous by design. No client needs to be woken; a notification plus `check_requests` closes the loop.
 7. People are a last resort for agents: search first (including earlier answers), then ask.
-8. The guardrail fails closed. An action that needs a human answer does not happen without one.
+8. The guardrail fails closed. An action that needs a human answer does not happen without one. If no answer comes before the request's deadline, the request expires and the action stays refused **(PM proposal)**.
 9. Protection is never a paid feature. Anything that enforces principles 1–3 is in the free edition (§11) **(owner agreed the rule)**.
 
 ## 4. Scope
 
-**In (first release, internal use):** MCP connector; hosted approval page with attachments (built); sign-in through the organisation's identity provider; profiles, teams and roles; personal rules of engagement with server-side enforcement; request taxonomy with per-type answer schemas; requests to a named person or to a role; queue, load and quotas; notification by email and Slack; request page and answer form (text or voice); signed, attested answers; the record of requests and answers; a single guardrail rule; a self-hosted install.
+**In (first release, internal use):** requests to a named person or a role, one-shot; MCP connector; hosted approval page with attachments (built); sign-in through the organisation's identity provider; profiles, teams and roles; personal rules of engagement with server-side enforcement; request taxonomy with per-type answer schemas; requests to a named person or to a role; queue, load and quotas; notification by email and Slack; request page and answer form (text or voice); signed, attested answers; the record of requests and answers; a single guardrail rule; a self-hosted install.
 
 **In (paid edition, §11):** answer reuse; policy engine; connectors for ownership, on-call and directory data; SAML and automatic provisioning; Microsoft Teams; audit export; dashboards; high availability and support.
 
-**Out (first release):** money in any form between colleagues; public discovery; participant agent assistance or auto-suggestions; live calls; ratings of individual employees (§16, question 3); translation.
+**Out (first release):** panels and samples, threaded and recurring requests (kept in the protocol, not offered) **(PM proposal)**; money in any form between colleagues; public discovery; participant agent assistance or auto-suggestions; live calls; ratings of individual employees (§16, question 3); translation.
 
 **Later (§17):** company-to-company requests, outside experts, pricing and payouts.
 
@@ -73,7 +75,9 @@ The "Reusable" column is a PM proposal, except that answer reuse itself is an ow
 
 Audience: named individual · **role-qualified individual (first available member of a team or role)** · panel/sample. Time shape: one-shot · threaded · recurring. Format: single field · poll · form · upload · voice.
 
-Forbidden at manifest validation: persuasion disguised as a question, requests for personal data about third parties, labour disguised as a question (a request that asks the person to do the agent's task for it), and any request used to assess the participant.
+Forbidden at manifest validation: persuasion disguised as a question, requests for personal data about third parties, labour disguised as a question, and any request used to assess the participant. The line between an Action and labour: an Action is a brief check or observation only a person on the spot can make; a request that asks the person to do the agent's own task (write, fix, research) is labour and is refused.
+
+A Decision answered with "edit" approves the action as edited, and only that (§10).
 
 ## 6. Asker experience
 
@@ -81,16 +85,16 @@ Forbidden at manifest validation: persuasion disguised as a question, requests f
 The organisation's A2H MCP server declares `find_humans`, `request_human`, `check_requests`, `cancel_request`, and, in the paid edition, `find_answers`. Tool descriptions carry the policy: use only when a person is the sole valid source; search first; show the question to the principal first. Sign-in is through the organisation's identity provider.
 
 ### 6.2 Asking policy (once per principal)
-Autonomy: ask me before every request, or auto-approve named request types to named teams. Always show the exact wording. Autonomous agents (no person at the keyboard) act for a named service owner, who is the accountable principal and sets this policy **(PM proposal)**.
+Autonomy: ask me before every request, or auto-approve named request types to named teams. Always show the exact wording. Autonomous agents (no person at the keyboard) act for a named service owner, who is the accountable principal. The owner signs in once to authorise the agent and approves in advance the request templates it may send without review; anything outside those templates waits for the owner on the approval page **(PM proposal)**. Every member is both a possible principal and a possible participant, with one account.
 
 ### 6.3 Discover
-`find_humans(topic, request_type, team?, role?)` returns people and roles with: the evidence for their fit (team, role, ownership, topics), the request types they accept, **their current load (queue length and expected wait) (owner)**, and when they are next reachable. In the paid edition, matching earlier answers are returned first.
+`find_humans(topic, request_type, team?, role?)` returns people and roles, by name inside the organisation, with: the evidence for their fit (team, role, ownership, topics), the request types they accept, **their current load (owner)**, shown as an expected wait and not as a count **(PM proposal; §16 question 3)**, and when they are next reachable. Results are ordered by fit, then by shortest wait; there are no ratings. Pseudonymous handles and "names only after acceptance" return with §17. In the paid edition, matching earlier answers are returned first.
 
 ### 6.4 Review and send
-Unchanged and built: the hosted approval page (changes `m2-approval-page`, `m2-attachments`). The question is editable in place; attachments are checked before Send. The primary action becomes "Send"; there is no hold and no price inside an organisation.
+Unchanged and built: the hosted approval page (changes `m2-approval-page`, `m2-attachments`). The question is editable in place; attachments are checked before Send. The primary action becomes "Send"; there is no hold and no price inside an organisation. The page shows the recipient, or the role and who in it could receive the request, and their expected wait. The principal approves the wording and the audience; when the audience is a role, the principal has approved delivery to any member of it.
 
 ### 6.5 Async
-`request_human` returns a request id and an expected time at once. Status: `sent → accepted → answered | declined | expired | cancelled`, plus **`waiting`** when no one may receive the request yet, with the time it will be delivered **(owner: the request waits)**.
+`request_human` returns a request id and an expected time at once. Status: the existing states (`awaiting_approval`, `not_sent`, `sent → accepted → answered | declined | expired | cancelled`) plus **`waiting`** when no one may receive the request yet, with the time it will be delivered **(owner: the request waits)**. Waiting counts toward the request's deadline: a request still waiting at its deadline expires **(PM proposal)**.
 
 ### 6.6 Answer
 On reopening, the agent calls `check_requests` and the answer renders as a distinct human-origin turn: text, voice if any, verdict, confidence, attestation, signature, timestamp, who answered. Actions: follow-up, mark as unclear.
@@ -110,10 +114,10 @@ Team, role and topics. In the free edition these come from the identity provider
 Per request type: accept or not. Reachable hours. Interruptions per day. Latency promise. Who may ask (anyone, named teams). **Urgent requests reach a person outside their hours only if that person opted in, for example while on call (PM proposal).** Rules are enforced server-side at manifest validation; requests held or refused on the person's behalf are counted and shown to them.
 
 ### 7.4 Receiving
-A notification carries only the summary: who asks and for whom, request type, deadline, "within your rules". Never the question text. Channels: email and Slack in the free edition **(PM proposal)**, Microsoft Teams in the paid one. The request page shows the question verbatim, attachments and format. Actions: accept, decline with an optional reason, or forward to a better person.
+A notification carries only the summary: who asks and for whom, request type, deadline, "within your rules". Never the question text. Channels: email and Slack in the free edition **(PM proposal)**, Microsoft Teams in the paid one. The request page shows the question verbatim, attachments and format. Actions: accept, decline with an optional reason (shown to the asker only), or forward to a better person. A forward stays inside the organisation, obeys the new person's rules and the asker's quota for them, and the asker is told who now holds the request **(PM proposal)**.
 
 ### 7.5 Queue
-Every valid request is in the person's queue. Notifications follow their rules; the queue can be opened at any time. The queue shows what waits, for whom, and since when.
+Every legitimate request (principle 3) is in the person's queue. Notifications follow their rules; the queue can be opened at any time. The queue shows what waits, for whom, and since when. While a person is paused, requests addressed to them by name wait, and requests to a role go to its other members.
 
 ### 7.6 Answering
 Unchanged from v0.2: verdict and confidence as tap targets, free part as text or voice note with a correctable transcript, "can't tell" first-class, the attestation "I answered this myself" required and signed. The participant may mark an answer "for this asker only" **(PM proposal)**.
@@ -129,7 +133,8 @@ This replaces v0.2's pricing as the brake on over-asking.
 - **Quota per asker (PM proposal).** A principal and their agents may send a set number of requests to any one person per week; the default is set by the organisation and can be lowered by the person. Over quota, the request is refused before the approval page, and the refusal says when it resets.
 - **Role-addressed requests spread load (PM proposal).** A request to a team or role goes to the first member whose rules allow it, preferring the shortest queue.
 - **Waiting, not dropping (owner).** A request no one may receive yet is `waiting` and delivered when the first person becomes reachable. The asker sees the expected time and may cancel.
-- **Budget code already built** (monthly budget, daily request limit, per-request cap) is kept: the money parts lie dormant until §17; the request limits become the first form of the quota **(PM proposal)**.
+- **Budget code already built** (monthly budget in money, daily request limit per principal, per-request cap) is kept. The money parts lie dormant until §17. The daily limit per principal stays as a general rate limit; the quota per asker per person is new work **(PM proposal)**.
+- **Simulated participants** stay, for development stages only, as the way to exercise delivery before and after M3.
 
 ## 9. Answer reuse (paid edition)
 
@@ -139,13 +144,15 @@ This replaces v0.2's pricing as the brake on over-asking.
 - A reused answer stays attributed and dated. The agent sees its age and may ask again; asking again about an answer the person marked still valid needs the principal's explicit approval **(PM proposal)**.
 - Decisions and authorisations are never reusable. An answer marked "for this asker only" is never returned to others. Attachments follow the answer's visibility. **(PM proposal)**
 - The participant can withdraw or correct an answer; the correction is signed and replaces the earlier one in results **(PM proposal)**.
-- In the free edition the server still tells the agent that a matching answer exists, without showing it, so the person is not asked twice **(PM proposal; §16, question 4)**.
+- **In the free edition** there is no search. The agent may ask again; the person is shown "you answered a similar question on this date" with their earlier answer, and can send it again with one action. So the person is protected from retyping in both editions, and finding answers without asking anyone is what the paid edition adds **(PM proposal; §16, question 4)**.
+- Whether reuse is on by default for each answer, and what happens to the answers of someone who leaves, is open (§16, question 10).
 
 ## 10. Company policy (guardrail)
 
 - A policy says: this kind of agent action needs an answer of type decision from this role or team. The free edition allows one such rule; the paid edition adds multi-step approvals, escalation chains and separation of duties **(PM proposal)**.
 - A policy request is addressed to a role, never forced onto a named person outside their rules (principle 2).
-- The action stays blocked until answered (principle 8). How the agent's runtime enforces the block (a gateway in front of tools, or the agent's own harness) is a design question for the change that builds it.
+- The action stays blocked until answered, and refused if the request expires (principle 8). In the free edition there is no escalation: an expired request is reported to the asker, who may send it again or to another role.
+- **How the block is enforced (PM proposal).** In the first release A2H does not sit in front of the agent's tools: the agent's own harness (its permission hooks or policy) calls A2H and proceeds only on a signed approval, which it can verify. A gateway that enforces the block itself is a paid-edition candidate. This means the first release's guardrail is only as strong as the harness that calls it, and the install guide must say so.
 - A decision is bound to the exact action it approved and expires; it is never a standing permission **(PM proposal)**.
 
 ## 11. Editions and distribution
@@ -160,13 +167,13 @@ This replaces v0.2's pricing as the brake on over-asking.
 | Sign-in | Single sign-on (OIDC) | SAML, automatic provisioning (SCIM) |
 | Channels | Email, web inbox, Slack | Microsoft Teams, others |
 | Guardrail | One policy rule | Policy engine: multi-step, escalation, separation of duties |
-| Knowledge | "An answer exists" signal | Answer reuse: search, freshness, visibility **(owner)** |
+| Knowledge | The person can resend their own earlier answer | Answer reuse: search, freshness, visibility **(owner)** |
 | Audit | View the record | Export to security tools, retention controls, tamper-evident log |
 | Insight | – | Dashboards per team (never per person; §16, question 3) |
 | Operations | Single-instance install | High availability, upgrade tooling, support |
 | Later | – | Company-to-company, outside experts, payments |
 
-Apart from answer reuse, every placement in this table is a PM proposal.
+Apart from answer reuse, every placement in this table is a PM proposal. Whether the free edition is also limited by size (people or teams) is open (§16, question 11); "one team" in the rule describes who it is meant for, not a limit that exists today.
 
 **Licence.** The repository is public and has no licence file today, so it is not yet open source. The licence of the free part and the way paid code is kept apart are decided in ADR 0007, after the research in progress.
 
@@ -175,9 +182,11 @@ Apart from answer reuse, every placement in this table is a PM proposal.
 ## 12. Deployment and architecture
 
 - **Single-tenant, self-hosted.** One organisation per install, in its own cloud account. Our own hosted stages (dev, previews) remain for development.
-- **Cloud-neutral package.** Containers plus Postgres through a connection string. Today the web app's hosting, the malware scanner (GuardDuty), email (SES), the sign-in allow-list (SSM) and previews are AWS-specific; each becomes an interface with an AWS implementation first. Business logic is already provider-neutral (ADR 0001).
-- **Identity.** The organisation's identity provider replaces the owner's allow-list. Magic links remain for development stages only.
-- **Stack** otherwise unchanged (CLAUDE.md, ADR 0001).
+- **Cloud-neutral package.** Containers plus Postgres through a connection string. Today the web app's hosting, the malware scanner (GuardDuty), email (SES), the sign-in allow-list (SSM) and previews are AWS-specific; each becomes an interface with an AWS implementation first. ADR 0001 requires provider-neutral business logic; how far the code meets that is to be audited in M4, not assumed.
+- **No scanner, no files.** An install without a configured malware scanner refuses attachments as "not checked", exactly as a broken scanner does today. Scanning is a protection and stays in the free edition.
+- **Identity.** The organisation's identity provider replaces the owner's allow-list as the source of people. A principal is verified by the method `organisation_idp` in place of `owner_allowlist`. Connector authorization (ADR 0004) is otherwise kept. Magic links and the allow-list remain for development stages only.
+- **Signatures.** Keys are held by the install, so a signature proves the answer was recorded for that signed-in person and not altered since; it does not protect against the organisation's own administrators. Stronger proof (keys the person holds) is needed for §17 and is out of the first release **(PM proposal)**.
+- **CLAUDE.md** still states v0.2 rules (magic link only for participants, Stripe, email wording with offer and competition note, hosting in eu-west-3 as the product's home). It is updated in the same step as this PRD's approval; until then this PRD does not override it.
 
 ## 13. Milestones
 
@@ -185,9 +194,9 @@ Done: **M0 Foundation**, **M1 Protocol and connector**. Within M2, done: design 
 
 Re-plan **(PM proposal; order to be confirmed, §16 question 6)**:
 
-- **M2 People.** Sign-in through an identity provider; profiles, teams, roles; personal rules; pause; queue and load.
-- **M3 Delivery and answer.** Validation against rules; requests to a role; waiting; notification by email and Slack; request page; answer form with voice; attestation and signature.
-- **M4 Install.** Licence; cloud-neutral package; provider interfaces; install guide; first public release of the free edition.
+- **M2 People.** Sign-in through an identity provider; the administrator role; profiles, teams, roles; personal rules; pause; discovery by name, role and fit.
+- **M3 Delivery and answer.** Validation against rules; requests to a role; queue, load and waiting; quota per asker; forward; notification by email and Slack; request page; answer form with voice; attestation and signature; the record; resending an earlier answer.
+- **M4 Install.** Licence; cloud-neutral package; provider interfaces; the single guardrail rule with a harness example; install guide; first public release of the free edition.
 - **M5 Paid edition.** Answer reuse; entitlement; AWS Marketplace listing; then policy engine, connectors, audit export.
 - **M6 Beyond the company.** §17.
 
@@ -195,7 +204,7 @@ Each milestone ends at a product-owner validation on a preview deployment.
 
 ## 14. Non-functional requirements
 
-- Availability and performance: request page loads under 2 s; the install documents what the organisation must run to reach 99.9%.
+- Availability and performance: request page loads under 2 s. A single-instance free install makes no availability promise; the paid edition's high-availability setup targets 99.9%.
 - Privacy: data stays in the organisation's account. Employee data is processed for delivering requests, not for assessing people (§16, question 3). Erasure of a person's profile and rules on request; their signed answers follow the organisation's retention policy.
 - Security: MCP authorization per spec; signed answers (Ed25519, key per participant, held by the install, with rotation); no PII in URLs or logs; rate limits on every endpoint.
 - Accessibility: WCAG 2.2 AA.
@@ -214,11 +223,15 @@ Adoption: installs, installs still active after 30 days, free-to-paid conversion
 2. **Urgent requests:** is opt-in by the person (for example while on call) the only way past their hours? (PM proposal: yes.)
 3. **Employee monitoring.** Response times and counts per person are workplace monitoring in the EU (works councils, GDPR). PM proposal: no ratings of individuals, dashboards per team only, and a documented data-protection position before the first install.
 4. **Free "answer exists" signal:** keep it free (protects the person) or make reuse wholly paid?
-5. **Slack in the free edition:** PM proposal yes; without it, technology companies will not try A2H.
+5. **Slack in the free edition:** PM proposal yes, on the assumption (untested) that technology companies will not try a tool that reaches people only by email.
 6. **Order of milestones:** people and delivery first (M2, M3), or the install and licence first (M4) so outsiders can try what exists?
 7. **Name.** The owner keeps "A2H" although Twilio published a protocol of the same name in February 2026 **(owner)**. A trademark check is the owner's to commission; whether to interoperate with that specification is open.
 8. **Quota defaults** and who may change them.
 9. Whether audio is retained after transcription, and for how long (carried over).
+10. **Reuse and the answerer.** Is each answer reusable unless the person marks it "for this asker only", or only when they agree? What happens to a person's answers when they leave the organisation?
+11. **Is the free edition limited by size** (people or teams), or only by features?
+12. **First install.** Which identity provider do we validate against, and is there a design partner organisation?
+13. **Unlimited pause and guarded actions.** If everyone in a role is paused or outside their hours until after a guarded request's deadline, the action is refused. Is that acceptable for the organisations we target, given escalation is paid?
 
 ## 17. Later: beyond the company
 
