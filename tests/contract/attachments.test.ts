@@ -73,6 +73,19 @@ const OL = "sim-ol-6a23";
 const TH = "sim-th-2a91";
 const OL_BID = grossReserve(OL, "verification", FEE_PERCENT);
 const TH_BID = grossReserve(TH, "verification", FEE_PERCENT);
+/**
+ * "Add and send" and "Remove a file" Send to a participant who accepts files;
+ * who, and the amount, play no part. sim-jw-9e48 (prompt persona, files
+ * accepted by default) on its cheapest lane: opinion at the gross reserve,
+ * €7.50 against sim-ol-6a23's €31.25, so the file step fits the per-run
+ * principal's budget (issue #114). "Participant does not accept files" keeps
+ * sim-th-2a91, the one participant that refuses files; the scenarios that
+ * never Send stay on sim-ol-6a23 (an awaiting request holds nothing), and
+ * "Files over the participant's total" needs its 5 MB total.
+ */
+const JW = "sim-jw-9e48";
+const JW_BID = grossReserve(JW, "opinion", FEE_PERCENT);
+const POLL = { format: "poll", options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] };
 const PAGE_A = pageSkip("a");
 const PAGE_AB = pageSkip("a", "b");
 const LOG_FILES = (process.env["A2H_LOCAL_LOG_FILES"] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -96,7 +109,8 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
   before(async () => {
     c = await principalClient();
     browser = await launch();
-    guard = await budgetGuard(c, 2 * OL_BID + TH_BID, 8);
+    // Spends: "Add and send" and "Remove a file" one request each to JW, "Participant does not accept files" one to TH.
+    guard = await budgetGuard(c, 2 * JW_BID + TH_BID, 3);
   });
   after(async () => {
     await c?.close();
@@ -104,8 +118,10 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
   });
 
   async function awaitingOn(page: Page, handle: string, question: string): Promise<Awaiting> {
-    const bid = handle === OL ? OL_BID : TH_BID;
-    const a = await requestAwaiting(c, manifest(handle, "verification", bid, question));
+    const a = await requestAwaiting(
+      c,
+      handle === JW ? manifest(JW, "opinion", JW_BID, question, POLL) : manifest(handle, "verification", handle === OL ? OL_BID : TH_BID, question),
+    );
     assert.equal(await openLink(page, a.out.approval_url), PAGE.awaiting);
     return a;
   }
@@ -132,7 +148,7 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
     if (guard) return t.skip(guard);
     const page = await pageAs(browser, "a");
     try {
-      const a = await awaitingOn(page, OL, "Is the colour contrast of the attached leaflet and chart sufficient for low-vision readers?");
+      const a = await awaitingOn(page, JW, "Is the colour contrast of the attached leaflet and chart sufficient for low-vision readers?");
       const pdf = pdfOfSize(2 * MB, "leaflet.pdf");
       const png = pngOfSize(300 * KB, "chart.png");
       const add = await captureAction(page, addOf("leaflet.pdf"), () => addFiles(page, [pdf, png]));
@@ -194,7 +210,7 @@ describe("files on a real request (m2-attachments, live)", { skip: ELSEWHERE || 
   test("Scenario: Remove a file, Scenario: Sent files are fixed (remove after Send)", async (t) => {
     const page = await pageAs(browser, "a");
     try {
-      const a = await awaitingOn(page, OL, "Do the headings in the attached summary follow a logical order for screen-reader users?");
+      const a = await awaitingOn(page, JW, "Do the headings in the attached summary follow a logical order for screen-reader users?");
       await addFiles(page, [F.markdown(), F.pdf()]);
       const up = await afterUpload(page, "summary.md");
       if (!need(t, up)) return;
