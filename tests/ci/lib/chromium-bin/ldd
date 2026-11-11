@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Stub of ldd for tests/ci/chromium.test.sh. Logs "ldd <file>" to $STUB_DIR/calls.
+# STUB_MODE missing: one library is reported "not found" until install-deps ran;
+# missing-persist: reported whatever happens.
+set -euo pipefail
+printf 'ldd %s\n' "$*" >>"$STUB_DIR/calls"
+printf '\tlinux-vdso.so.1 (0x00007ffd00000000)\n'
+if [[ "${STUB_MODE-}" == *missing-persist* ]] || { [[ "${STUB_MODE-}" == *missing* ]] && [ ! -e "$STUB_DIR/deps-installed" ]; }; then
+  printf '\tlibgbm.so.1 => not found\n'
+fi
+printf '\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f0000000000)\n'

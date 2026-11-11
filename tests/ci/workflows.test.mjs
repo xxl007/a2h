@@ -21,6 +21,9 @@ const wf = Object.fromEntries(files.map((f) => [f, YAML.parse(text[f])]));
 
 const TEARDOWN_CALL = "./.github/workflows/preview-teardown.yml";
 const PREVIEW_GROUP = "preview-pr-${{ github.event.pull_request.number }}";
+// The one way a workflow installs Playwright's browser (outage of 2026-11-11: `playwright install --with-deps`
+// failed on apt for Ubuntu's mirrors although the runner image already held every library Chromium links against).
+const CHROMIUM = ".github/scripts/chromium.sh";
 
 const jobs = (f) => Object.entries(wf[f]?.jobs ?? {});
 const steps = (job) => job.steps ?? [];
@@ -362,9 +365,9 @@ function assertVerifyJob(f) {
     assert.equal(s["continue-on-error"], undefined, `${f} verify ${s.name}: a failing suite must fail the job`);
   }
   assertSignIn(f, j, creds, at);
-  // Chromium with its system dependencies, before the e2e.
-  const pw = indexOf(j, (s) => runs(s, "playwright install") && runs(s, "--with-deps") && runs(s, "chromium"), "playwright install");
-  assert.ok(pw < at[E2E], `${f} verify installs Playwright after the e2e`);
+  // Chromium through chromium.sh (no Ubuntu apt mirror unless a library is missing), before the e2e.
+  const pw = indexOf(j, (s) => runs(s, CHROMIUM), `${f} verify installs Chromium with ${CHROMIUM}`);
+  assert.ok(pw < at[E2E], `${f} verify installs Chromium after the e2e`);
   // The URLs come from the deploy job, through env, never interpolated into a script.
   const contract = steps(j)[at[1]];
   const adversarial = steps(j)[at[2]];
@@ -1013,6 +1016,21 @@ test("the adversarial suite's in-process half runs in CI's pnpm test and cannot 
 // CI records none of it and uploads nothing; the job log (with ::add-mask:: on tokens)
 // is the only failure evidence.
 const uncommented = (src) => src.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+
+test("no workflow installs Playwright's browser or its OS packages directly: only through chromium.sh", () => {
+  const bad = [];
+  for (const f of files) {
+    for (const [id, j] of jobs(f)) {
+      for (const s of steps(j)) {
+        if (typeof s.run !== "string") continue;
+        if (/playwright\s+(install|install-deps)\b/.test(s.run) || /--with-deps\b/.test(s.run)) bad.push(`${f} ${id}: ${s.name ?? s.run}`);
+      }
+    }
+  }
+  assert.deepEqual(bad, [], `install the browser with ${CHROMIUM}: --with-deps and install-deps go through Ubuntu's apt mirrors`);
+  const users = jobsRunning(CHROMIUM).map(({ f, id }) => `${f} ${id}`).sort();
+  assert.deepEqual(users, ["deploy.yml verify", "preview.yml verify"], `the verify jobs, and only they, run ${CHROMIUM}`);
+});
 
 test("no workflow uploads an artifact: nothing a run produces can carry a credential out of the runner", () => {
   const bad = [];
