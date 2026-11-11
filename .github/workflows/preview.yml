@@ -328,8 +328,10 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # No --with-deps: apt could not reach Ubuntu's mirrors on 2026-11-11 and the runner image already
+      # holds every library Chromium needs; the script proves it with ldd (apt only as a fallback).
       - name: Install Chromium
-        run: pnpm --filter @a2h/tests exec playwright install --with-deps chromium
+        run: .github/scripts/chromium.sh
 
       # The live suites import @a2h/protocol, which resolves to its build
       # output (dist/); build it and the other workspace packages they import.

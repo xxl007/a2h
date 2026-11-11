@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Stub of pnpm for tests/ci/chromium.test.sh. No network, nothing installed.
+# Logs each call's arguments to $STUB_DIR/calls. STUB_MODE:
+#   install-fails  `playwright install` exits 1
+#   no-binary      `playwright install` succeeds but leaves no browser binary
+#   deps-fail      `playwright install-deps` exits 100 (apt unreachable)
+# A successful `playwright install chromium` leaves the two binaries Playwright
+# downloads (chrome, chrome-headless-shell) under $PLAYWRIGHT_BROWSERS_PATH; a
+# successful `install-deps` marks $STUB_DIR/deps-installed for the ldd stub.
+set -euo pipefail
+printf '%s\n' "$*" >>"$STUB_DIR/calls"
+case " $* " in
+  *" playwright install-deps "*)
+    if [[ "${STUB_MODE-}" == *deps-fail* ]]; then echo "E: Unable to fetch some archives" >&2; exit 100; fi
+    : >"$STUB_DIR/deps-installed" ;;
+  *" playwright install "*)
+    if [[ "${STUB_MODE-}" == *install-fails* ]]; then echo "Error: download failed" >&2; exit 1; fi
+    if [[ "${STUB_MODE-}" != *no-binary* ]]; then
+      mkdir -p "$PLAYWRIGHT_BROWSERS_PATH/chromium-1/chrome-linux64" "$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-1/chrome-headless-shell-linux64"
+      : >"$PLAYWRIGHT_BROWSERS_PATH/chromium-1/chrome-linux64/chrome"
+      : >"$PLAYWRIGHT_BROWSERS_PATH/chromium_headless_shell-1/chrome-headless-shell-linux64/chrome-headless-shell"
+      chmod +x "$PLAYWRIGHT_BROWSERS_PATH"/*/*/chrome*
+    fi ;;
+  *) echo "pnpm stub: unexpected call: $*" >&2; exit 2 ;;
+esac
