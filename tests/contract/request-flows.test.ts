@@ -21,9 +21,9 @@
 // four sent requests, about €77 of monthly budget held, of which about €54
 // stays committed as cleared amounts (prompt €7.75, slow €8.88, can't tell
 // €37.50); the decline releases its hold. The slow and can't-tell flows are
-// skipped, with the reason, when they would leave the owner less than
-// OWNER_HEADROOM (contract/a2h.ts) on the stage; the whole file is skipped
-// the same way when even the prompt and decline flows would.
+// skipped, with the reason, when the budget guard (contract/a2h.ts) finds
+// the server would refuse them over budget or the daily limit; the whole file
+// is skipped the same way when even the prompt and decline flows would.
 //
 // Persona delays (seed): prompt 20 s, decline 15 s, can't tell 30 s, slow
 // accepts at 25 s and answers at 100 s; the worker's dispatcher adds up to

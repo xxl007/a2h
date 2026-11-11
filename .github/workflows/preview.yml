@@ -502,6 +502,17 @@ jobs:
           fi
           exit "$(cat "$RUNNER_TEMP/expiry-flows.exit")"
 
+      # Issue #114: what the QA principals committed, as the server counts it
+      # (amounts and counts only). On a preview the principals are fresh per
+      # run, so these are the run's spend; the budget guard's lines in the
+      # suites' logs show it at the start of each guarded flow.
+      - name: QA principals' spend (amounts only)
+        if: ${{ !cancelled() && steps.tokens.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: pnpm --filter @a2h/tests spend "end of run"
+
       - name: Remove the QA principals from the sign-in allow-list
         if: always() && steps.allowlist.outcome == 'success'
         run: .github/scripts/allowlist.sh remove "$STAGE" "$A2H_TEST_EMAIL,$A2H_TEST_EMAIL_2"

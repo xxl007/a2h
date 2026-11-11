@@ -15,7 +15,8 @@
     "files": "node --test --test-reporter=spec contract/attachments.test.ts adversarial/attachments.live.test.ts",
     "e2e": "playwright test",
     "local-stage": "node local/stage.ts",
-    "obtain-token": "node lib/obtain-token.ts"
+    "obtain-token": "node lib/obtain-token.ts",
+    "spend": "node lib/spend.ts"
   },
   "devDependencies": {
     "@a2h/db": "workspace:*",
