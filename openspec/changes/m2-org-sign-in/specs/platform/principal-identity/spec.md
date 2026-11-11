@@ -53,7 +53,7 @@ A web session SHALL end at most 12 hours after the sign-in at the provider that 
 
 #### Scenario: Session reaches twelve hours
 - **WHEN** a signed-in person uses the web app more than 12 hours after signing in at the provider
-- **THEN** they are sent to the provider again; if the provider still holds a session for them they return signed in without typing anything, and if the provider no longer accepts them they are not signed in
+- **THEN** they see the sign-in page with a notice that their session ended; signing in takes them to the provider, from which they return signed in without typing anything if the provider still holds a session for them, and are not signed in if the provider no longer accepts them
 
 #### Scenario: Agent renews within the window
 - **WHEN** a client refreshes its token and its principal signed in at the provider within the last 7 days

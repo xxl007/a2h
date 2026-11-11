@@ -38,12 +38,14 @@ A database hook removes the provider's access, refresh and ID tokens before the 
 - Administrators named in the configuration (`ADMINISTRATOR_EMAILS`) are computed at each check, not stored. A person is an administrator when they have access and are either named or flagged.
 - Removing access sets the column, deletes the person's sessions and revokes their refresh-token families in one transaction with the action row. The four places that ask the allow-list today (user creation, session creation, the request gate, the token endpoint) and consent ask one predicate: access not removed, and, for people without a provider account, on the allow-list.
 - Last-administrator and own-access rules are enforced inside the same transaction, under a lock on the administrators' rows.
+- The record of actions shows each person's current name and email address, joined from the account (accounts are never deleted); no copy is kept in the action row.
+- The people list is loaded whole and searched in the browser, for up to 1,000 people; larger installs need server-side search, outside this change.
 - The people list query selects name, email address, access and administrator only. A test asserts that `last_idp_sign_in_at` is not selected.
 
 ### D8 Stages and configuration
 - `SIGN_IN_METHODS` per stage: production `idp`; dev `idp,magic_link` once the owner has registered the application, `magic_link` until then; previews `magic_link` only (redirect addresses are per host, and a preview cannot reach a test provider on the CI runner).
 - With `magic_link` absent the magic-link plugin is not registered: its paths return 404 and no code path can create a link. Production stops receiving the allow-list parameter and the permission to read it.
-- New settings: `IDP_DISCOVERY_URL`, `IDP_CLIENT_ID`, `IDP_CLIENT_SECRET` (stage secret), `IDP_EMAIL_VERIFIED_CLAIM`, `ADMINISTRATOR_EMAILS`. Read through `apps/web/src/config.ts`; no AWS SDK in the sign-in code.
+- New settings: `IDP_DISCOVERY_URL`, `IDP_CLIENT_ID`, `IDP_CLIENT_SECRET` (stage secret), `IDP_EMAIL_VERIFIED_CLAIM`, `ADMINISTRATOR_EMAILS`, and two optional ones used only in copy: `ORGANISATION_NAME` and `ADMINISTRATOR_CONTACT`. A production install without the first three and at least one administrator refuses to start. Read through `apps/web/src/config.ts`; no AWS SDK in the sign-in code.
 - The Better Auth instance built per transaction at consent is built without the provider plugin, so discovery is not fetched again.
 - Discovery happens once per server instance. If it fails, the sign-in page shows "unavailable, try again" and the next request retries.
 
