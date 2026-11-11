@@ -1,6 +1,6 @@
 # ADR 0006: A2H is built for organisations
 
-- Status: proposed (owner decisions of 2026-11-11 recorded; takes effect when the owner approves PRD v0.3)
+- Status: accepted (owner approved PRD v0.3 on 2026-11-11)
 - Date: 2026-11-11
 - Deciders: product owner (Galem L.), PM agent
 - Scope: who A2H is for, how it is deployed and sold, and which rules replace the money model inside an organisation. Governs `docs/PRD.md` from v0.3 and every change proposed after `m2-attachments`.
@@ -46,7 +46,7 @@ Sources are public pages read on that date. Claims marked "not verified" rest on
 
 - **Money leaves the first release.** No auction, holds, payouts or identity verification between colleagues. ADR 0002 describes the later phase. The protocol keeps its money fields; inside an organisation every request uses the free lane.
 - **The brake on over-asking becomes attention, not price:** load shown to agents, a quota per asker, role-addressed requests, waiting, and answers found before people are asked (PRD §8, §9).
-- **The one rule gains a clause:** company policy cannot override a person's rules (PRD §3, principle 2). CLAUDE.md's wording of the rule itself still holds; other parts of CLAUDE.md state v0.2 rules (magic link only, Stripe, email wording, hosting) and are updated when PRD v0.3 is approved.
+- **The one rule gains a clause:** company policy cannot override a person's rules (PRD §3, principle 2). CLAUDE.md was updated with the approval of PRD v0.3.
 - **Participants come from the organisation's identity provider**, not from invitation and LinkedIn/X import. The owner's sign-in allow-list becomes a development-stage tool.
 - **Deployment becomes single-tenant and self-hosted.** AWS-specific parts (web hosting, GuardDuty scanning, SES, the SSM allow-list, previews) move behind interfaces with an AWS implementation first. ADR 0001's provider-neutral rule already points this way.
 - **Notifications extend beyond email** (Slack; Teams in the paid edition). v0.2 excluded other channels.

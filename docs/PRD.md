@@ -1,10 +1,10 @@
 # A2H — Product Requirements Document
 
-Version 0.3 (draft for owner review) · 11 November 2026 · Owner: Galem L. · Status: direction change, not yet approved
+Version 0.3 · 11 November 2026 · Owner: Galem L. · Status: approved by the owner on 2026-11-11
 
 Version 0.2 described a public marketplace of experts and "sensors" paid by auction. Version 0.3 re-aims the product at organisations (ADR 0006). What v0.2 said about the public market is kept, shortened, in §17 as the later phase; its full text is in git history.
 
-Lines marked **(owner)** are decisions the owner made on 2026-11-11. Lines marked **(PM proposal)** are the PM's defaults and stand only if the owner accepts them at review. Everything unmarked is carried over from v0.2 or follows directly from an owner decision.
+Lines marked **(owner)** are decisions the owner made on 2026-11-11. Lines marked **(PM proposal)** were the PM's defaults; the owner approved the document with them on 2026-11-11, so they stand until changed. Everything unmarked is carried over from v0.2 or follows directly from an owner decision.
 
 ## 1. Summary
 
@@ -105,7 +105,7 @@ Every request and answer across all of a principal's agents, with status and tim
 ## 7. Participant experience
 
 ### 7.1 Joining
-A person exists in A2H once they sign in through the identity provider, or once the directory is synchronised. No invitation, no external import. **An administrator can switch a person off: they are then neither discoverable nor reachable. A person does not remove themselves; they shape how they are reached through their rules and the pause switch (owner, as the PM understood the answer; §16, question 1).** An administrator cannot switch a person's pause off or change their rules.
+A person exists in A2H once they sign in through the identity provider, or once the directory is synchronised. No invitation, no external import. **An administrator can switch a person off: they are then neither discoverable nor reachable. A person does not remove themselves; they shape how they are reached through their rules and the pause switch (owner).** An administrator cannot switch a person's pause off or change their rules.
 
 ### 7.2 Profile
 Team, role and topics. In the free edition these come from the identity provider's groups and from what the person enters. In the paid edition, connectors add code ownership, on-call rotas and directory data, each shown as evidence the person can correct.
@@ -188,7 +188,7 @@ Apart from the lines marked (owner), every placement in this table is a PM propo
 - **Identity providers.** Sign-in is built on standard OIDC, not on one vendor. It is validated against Google Workspace, Okta and Microsoft Entra ID, with Keycloak (open source) in automated tests **(PM proposal, from general knowledge of what technology companies use; no market figures checked)**. To verify when the change is proposed: how each provider exposes a person's groups, which the free edition uses for teams; Google Workspace is believed not to put groups in the sign-in token.
 - **Identity.** The organisation's identity provider replaces the owner's allow-list as the source of people. A principal is verified by the method `organisation_idp` in place of `owner_allowlist`. Connector authorization (ADR 0004) is otherwise kept. Magic links and the allow-list remain for development stages only.
 - **Signatures.** Keys are held by the install, so a signature proves the answer was recorded for that signed-in person and not altered since; it does not protect against the organisation's own administrators. Stronger proof (keys the person holds) is needed for §17 and is out of the first release **(PM proposal)**.
-- **CLAUDE.md** still states v0.2 rules (magic link only for participants, Stripe, email wording with offer and competition note, hosting in eu-west-3 as the product's home). It is updated in the same step as this PRD's approval; until then this PRD does not override it.
+- **CLAUDE.md** was updated with this PRD's approval (sign-in, no payments in the first release, licence, notification wording, hosting as development stages only).
 
 ## 13. Milestones
 
@@ -220,16 +220,16 @@ Adoption: installs, installs still active after 30 days, free-to-paid conversion
 
 ## 16. Open questions
 
-1. **Switching off.** Answered: an administrator switches a person off; a person does not remove themselves (owner, as the PM understood it; to confirm at review). Still open: pause has no time limit (PM proposal), so a person can stay unreachable; administrators are told when a role has nobody reachable, not who paused.
+1. **Switching off.** Answered: an administrator switches a person off; a person does not remove themselves (owner). Still open: pause has no time limit (PM proposal), so a person can stay unreachable; administrators are told when a role has nobody reachable, not who paused.
 2. **Urgent requests:** is opt-in by the person (for example while on call) the only way past their hours? (PM proposal: yes.)
 3. **Employee monitoring.** Response times and counts per person are workplace monitoring in the EU (works councils, GDPR). PM proposal: no ratings of individuals, dashboards per team only, and a documented data-protection position before the first install.
 4. **Answered (owner):** in the free edition the person can resend their earlier answer; search is paid.
 5. **Slack in the free edition:** PM proposal yes, on the assumption (untested) that technology companies will not try a tool that reaches people only by email.
-6. **Order of milestones.** Answered: free release first (owner). To confirm: the first release includes the thinnest loop described in §13 M2, because without it nobody can answer a question.
+6. **Order of milestones.** Answered: free release first (owner). Confirmed with the approval: the first release includes the thinnest loop described in §13 M2, because without it nobody can answer a question.
 7. **Name.** The owner keeps "A2H" although Twilio published a protocol of the same name in February 2026 **(owner)**. A trademark check is the owner's to commission; whether to interoperate with that specification is open.
 8. **Quota defaults** and who may change them.
 9. Whether audio is retained after transcription, and for how long (carried over).
-10. **Reuse and the answerer.** Answered (owner): reusable only when the person agrees; a leaver's answers are archived and suggested to their replacement (§9). To confirm: only answers the leaver agreed to share are suggested.
+10. **Reuse and the answerer.** Answered (owner): reusable only when the person agrees; a leaver's answers are archived and suggested to their replacement (§9). Confirmed with the approval: only answers the leaver agreed to share are suggested.
 11. **Size limit of the free edition.** Answered: limited by size too (owner). Open: the number, and whether it counts people or teams.
 12. **First install.** Identity providers: §12 (PM proposal). No design partner yet (owner); finding one is open.
 13. **Answered (owner):** a guarded action that nobody may answer before its deadline is refused; escalation is paid.
@@ -257,13 +257,14 @@ From v0.2, kept as the direction for after internal use works:
 | 2026-11-11 | Agents see a person's load; every legitimate request reaches the person | owner |
 | 2026-11-11 | Answers are reusable across the organisation; answer reuse is a paid feature | owner |
 | 2026-11-11 | Edition rule: free for one team to run safely, paid for an organisation at scale | owner |
-| 2026-11-11 | Administrators can switch a person off (as the PM understood it; to confirm) | owner |
+| 2026-11-11 | Administrators can switch a person off; a person does not remove themselves | owner |
 | 2026-11-11 | A guarded action nobody may answer before its deadline is refused; escalation is paid | owner |
 | 2026-11-11 | An answer is reusable only when the person agrees; a leaver's answers are archived and suggested to their replacement | owner |
 | 2026-11-11 | Free edition: the person can resend an earlier answer; search is paid | owner |
 | 2026-11-11 | The free edition is also limited by size (number open) | owner |
 | 2026-11-11 | Apache-2.0 for the free part | owner |
 | 2026-11-11 | The installable free release comes first | owner |
+| 2026-11-11 | PRD v0.3 approved, including the PM proposals it contains | owner |
 
 ## 19. Reference material
 
