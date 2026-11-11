@@ -84,9 +84,10 @@ jobs:
       # parsing them (tests/ci/*.test.mjs; yaml is a devDependency of @a2h/tests).
       - name: Check CI scripts
         run: |
-          shellcheck -x .github/scripts/*.sh tests/ci/*.sh tests/ci/lib/fixtures.sh tests/ci/lib/bin/aws
+          shellcheck -x .github/scripts/*.sh tests/ci/*.sh tests/ci/lib/fixtures.sh tests/ci/lib/bin/aws tests/ci/lib/chromium-bin/*
           bash tests/ci/pr-schema.test.sh
           bash tests/ci/allowlist.test.sh
+          bash tests/ci/chromium.test.sh
           bash tests/ci/infra-consistency.test.sh
           node --test tests/ci/*.test.mjs
 
