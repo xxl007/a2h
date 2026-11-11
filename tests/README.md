@@ -67,7 +67,7 @@ bash tests/ci/preview-smoke.sh <alb-dns> dev
 | `A2H_WEB_URL`, `A2H_ISSUER` | contract | The stage's web URL (derived from the domain when unset) and its authorization server (`<web>/api/auth`; `A2H_ISSUER` only for the local stage). |
 | `A2H_AUTH_REQUIRED`, `A2H_PING_OPEN` | contract, adversarial | Override, for the local stage only, what infra/service-env.ts says about the stage's gate. |
 | `A2H_MAIL_SINK_BUCKET`, `A2H_MAIL_SINK_DIR` | obtain-token, e2e | The stage's mail sink: the uploads bucket (`/a2h/shared/uploads-bucket`, read with the deploy role) or a local server's `LOCAL_MAIL_DIR`. |
-| `A2H_TEST_EMAIL`, `A2H_TEST_EMAIL_2` | obtain-token, e2e | The two synthetic QA principals (`qa-principal-a@` and `qa-principal-b@a2h-protocol.org`; on a preview with `-<run id>-<attempt>` before the `@`, so every verify run gets fresh principals and a fresh monthly budget: pr-85 ran out of its €500 at the fifth run): on a preview the verify job admits them on the preview's own parameter for its run and removes them; on dev the owner's list holds them (CI never writes `/a2h/shared/principal-allowlist`; runbook §15). |
+| `A2H_TEST_EMAIL`, `A2H_TEST_EMAIL_2` | obtain-token, e2e | The two synthetic QA principals (`qa-principal-a@` and `qa-principal-b@a2h-protocol.org` by default; in CI with `-<run id>-<attempt>` before the `@`, so every verify run gets fresh principals and a fresh monthly budget: pr-85 ran out of its €500 at the fifth run, and dev's fixed principals would have run out of €5,000 after about 13 runs, issue #118): the verify job admits them on the stage's list for its run and removes them, on a preview its own parameter, on dev `/a2h/shared/principal-allowlist`, where `allowlist.sh` accepts the per-run form only and the owner's addresses stay untouched (runbook §15). |
 | `A2H_EDGE_FLOOD`, `A2H_RATE_FLOOD` | contract | `1`: run the edge flood ("Flood from one address") or the per-principal flood ("Minute limit reached"). Opt-in: they block the caller's address or principal for the rest of the window. Run last, by hand. |
 
 Notes:
@@ -630,7 +630,8 @@ Suites: **contract** = `tests/contract`, live; **adversarial** = `tests/adversar
 ### Running the sign-in step and the live suites by hand
 
 ```sh
-# A deployed stage (the deploy role for the sink; the two QA addresses on the stage's allow-list, runbook §15):
+# A preview (the deploy role for the sink; the two QA addresses on the stage's allow-list, runbook §15).
+# On dev, allowlist.sh accepts only qa-principal-<a|b>-<run id>-<attempt>@a2h-protocol.org (pick any two numbers):
 .github/scripts/allowlist.sh add pr-<n> qa-principal-a@a2h-protocol.org,qa-principal-b@a2h-protocol.org
 export A2H_WEB_URL=https://pr-<n>.dev.a2h-protocol.org A2H_MCP_URL=https://mcp.dev.a2h-protocol.org/pr-<n>/mcp
 export A2H_MAIL_SINK_BUCKET=$(aws ssm get-parameter --name /a2h/shared/uploads-bucket --query Parameter.Value --output text)
@@ -729,7 +730,7 @@ The M1 form cases were rewritten for the page: `manifest.live.test.ts` cases 1 t
 
 ## Scenario to test map: m2-attachments
 
-Specs: `openspec/changes/m2-attachments/specs/` (four deltas). Live tests drive real requests: `request_human` returns the link, the QA principal adds files on the approval page (`lib/files.ts`: the system picker, the rows' state pills, the page's own server actions captured and replayed, the browser's upload answered by the test where a case posts its own body), and `check_requests` reports what the agent may know.
+Specs: `openspec/changes/archive/2026-11-11-m2-attachments/specs/` (four deltas). Live tests drive real requests: `request_human` returns the link, the QA principal adds files on the approval page (`lib/files.ts`: the system picker, the rows' state pills, the page's own server actions captured and replayed, the browser's upload answered by the test where a case posts its own body), and `check_requests` reports what the agent may know.
 
 **What a stage must offer, and when it does.** Uploading needs the uploads bucket's CORS for the stage's web origin (POST); a ready or refused-by-scan file needs the worker's content check and a scan result. Previews borrow dev's bucket, and its POST CORS, S3 → EventBridge and the GuardDuty plan are created by dev's stack, which deploys from `main` only; the preview deploys its own event rule and queue. Until this change reaches `main` and dev deploys, a browser upload on any preview fails, and the tests that need storage or a check result are skipped with the reason ("uploads to storage are not available on this stage …", "files are not checked on this stage …"). `A2H_E2E_REQUIRE_FILE_STORAGE=1` and `A2H_E2E_REQUIRE_FILE_CHECKS=1` turn those skips into failures (the same variables as `apps/web/test/e2e/files.spec.ts`):
 

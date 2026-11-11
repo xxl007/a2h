@@ -14,7 +14,7 @@ const repo = resolve(here, "../..");
 const set = process.argv[2] ?? "approval";
 const sets = {
   approval: { change: "m2-approval-page", dir: "openspec/changes/archive/2026-11-07-m2-approval-page/screens" },
-  attachments: { change: "m2-attachments", dir: "openspec/changes/m2-attachments/screens" },
+  attachments: { change: "m2-attachments", dir: "openspec/changes/archive/2026-11-11-m2-attachments/screens" },
 };
 if (!(set in sets)) throw new Error(`Unknown set ${set}; use ${Object.keys(sets).join(" or ")}`);
 const out = resolve(process.argv[3] ?? join(repo, sets[set].dir));

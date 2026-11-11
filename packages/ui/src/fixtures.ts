@@ -116,3 +116,9 @@ export const refusedFiles: Record<ApprovalFileRefusal, ApprovalFile> = {
   not_checked: { id: "r-unchecked", name: "patient-diary-template.pdf", mediaType: "application/pdf", sizeBytes: Math.round(4.2 * MB), state: "refused", refusal: "not_checked" },
   upload_failed: { id: "r-failed", name: "IMG_2042.jpg", mediaType: "image/jpeg", sizeBytes: Math.round(2.9 * MB), state: "refused", refusal: "upload_failed" },
 };
+
+/**
+ * `not_checked` on a file that is not a PDF: the reason drops the password sentence and ends
+ * "Remove it and add it again." (fix after m2-attachments Gate 2; the PDF wording is unchanged).
+ */
+export const notCheckedText: ApprovalFile = { id: "r-unchecked-txt", name: "visit-notes.txt", mediaType: "text/plain", sizeBytes: 12 * 1024, state: "refused", refusal: "not_checked" };

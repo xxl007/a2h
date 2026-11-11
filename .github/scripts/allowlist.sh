@@ -2,16 +2,19 @@
 # The sign-in allow-list of a stage (m1-hosted-connector design D7, group 8.3
 # fact): add or remove addresses in the stage's SSM SecureString, keeping
 # every other address, so the verify job can sign its two synthetic QA
-# principals in on a preview (or dev) and take them out again when it ends.
+# principals in on a preview or on dev and take them out again when it ends.
 #
-# Usage: allowlist.sh name <stage>
-#        allowlist.sh add    pr-<n> <address>[,<address>...]
-#        allowlist.sh remove pr-<n> <address>[,<address>...]
-#   `name` answers for dev and pr-<n>; prod is refused (QA never signs in on
-#   prod). `add` and `remove` act on a preview's own parameter only: dev's
-#   /a2h/shared/principal-allowlist and prod's are the owner's lists, which CI
-#   reads and never writes (runbook aws-bootstrap.md §15; the dev verify job
-#   signs in with the QA addresses the owner put there once).
+# Usage: allowlist.sh name <dev|pr-<n>>
+#        allowlist.sh add    <dev|pr-<n>> <address>[,<address>...]
+#        allowlist.sh remove <dev|pr-<n>> <address>[,<address>...]
+#   prod is refused for every command (QA never signs in on prod; its list is
+#   the owner's alone). On a preview any address is accepted (its own
+#   parameter, removed with the stage). On dev (issue #118, owner decision
+#   2026-11-11) only the verify job's per-run QA addresses,
+#   qa-principal-<a|b>-<run id>-<attempt>@a2h-protocol.org, are accepted:
+#   /a2h/shared/principal-allowlist also holds the owner's addresses, which
+#   this script can therefore never add or remove (runbook aws-bootstrap.md
+#   §15). Anything else given for dev is refused before any aws call.
 #   The parameter is /a2h/shared/principal-allowlist for dev and
 #   /a2h/pr-<n>/principal-allowlist for a preview (infra/config.ts
 #   allowlistParameterName; tests/ci/workflows.test.mjs checks they agree).
@@ -28,7 +31,7 @@ set -euo pipefail
 NONE="none"
 
 usage() {
-  echo "usage: $0 name <dev|pr-<n>> | $0 add|remove pr-<n> <address>[,<address>...]" >&2
+  echo "usage: $0 name|add|remove <dev|pr-<n>> [<address>[,<address>...]]" >&2
   exit 64
 }
 
@@ -41,9 +44,17 @@ parameter_name() {
   esac
 }
 
-# Splits a list value into lower-cased addresses, one per line, dropping `none`.
+# Splits a list value into lower-cased addresses, one per line, dropping `none`
+# and duplicates (first occurrence kept), so counts are counts of distinct
+# addresses: a list with duplicates must not look unchanged after an add.
 split_list() {
-  tr -s ', \t\r\n' '\n' <<<"$1" | tr '[:upper:]' '[:lower:]' | grep -v '^$' | grep -vx "$NONE" || true
+  tr -s ', \t\r\n' '\n' <<<"$1" | tr '[:upper:]' '[:lower:]' | grep -v '^$' | grep -vx "$NONE" | awk '!seen[$0]++' || true
+}
+
+# AWS error text can quote what it was given; the repository and its CI logs
+# are public, so every address-like token is replaced before printing.
+redact() {
+  sed -E 's/[^[:space:],"'"'"']+@[^[:space:],"'"'"']+/<address>/g' <<<"$1"
 }
 
 # Lines in a possibly empty value.
@@ -62,12 +73,7 @@ case "$command" in
     echo "$name"
     exit 0 ;;
   add | remove)
-    [ "$#" -eq 3 ] || usage
-    case "$stage" in
-      pr-*) ;;
-      *) echo "allowlist: $command on $stage refused: CI writes a preview's own parameter only; $name is the owner's list (runbook aws-bootstrap.md §15)" >&2; exit 64 ;;
-    esac
-    ;;
+    [ "$#" -eq 3 ] || usage ;;
   *) usage ;;
 esac
 
@@ -78,6 +84,12 @@ while IFS= read -r a; do
     *@*.*) ;;
     *) echo "allowlist: not an address (no @): refusing" >&2; exit 64 ;;
   esac
+  # dev's list is shared with the owner: only the verify job's per-run QA
+  # addresses may be written or removed there (the address is not printed).
+  if [ "$stage" = dev ] && ! [[ "$a" =~ ^qa-principal-[ab]-[0-9]+-[0-9]+@a2h-protocol\.org$ ]]; then
+    echo "allowlist: $command on dev refused: only the per-run QA addresses (qa-principal-<a|b>-<run id>-<attempt> on the product domain) are written to $name; every other address on it is the owner's (runbook aws-bootstrap.md §15)" >&2
+    exit 64
+  fi
 done <<<"$given"
 given_count=$(wc -l <<<"$given" | tr -d ' ')
 
@@ -96,8 +108,7 @@ if [ "$rc" -ne 0 ]; then
     echo "allowlist: $stage remove: the parameter does not exist; nothing to do"
     exit 0
   fi
-  # The aws error names the parameter and the operation, never the value.
-  echo "allowlist: reading $name failed: $current_raw" >&2
+  echo "allowlist: reading $name failed: $(redact "$current_raw")" >&2
   exit 1
 fi
 current=$(split_list "$current_raw")
@@ -122,7 +133,7 @@ put_out=$(aws ssm put-parameter --name "$name" --type SecureString --overwrite -
 rc=$?
 set -e
 if [ "$rc" -ne 0 ]; then
-  echo "allowlist: writing $name failed: $put_out" >&2
+  echo "allowlist: writing $name failed: $(redact "$put_out")" >&2
   exit 1
 fi
 echo "allowlist: $stage $command: $given_count address(es) given; the list held $current_count and now holds $next_count"

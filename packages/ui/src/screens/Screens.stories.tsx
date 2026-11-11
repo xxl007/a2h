@@ -10,6 +10,7 @@ import {
   notesMd,
   photoUploading,
   readingsCsv,
+  notCheckedText,
   refusedFiles,
   claudeCode,
   connectedClients,
@@ -207,6 +208,8 @@ export const FilesRefusedTotal: Story = {
 export const FilesRefusedCount: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, chartPng, notesMd, photo(4), photo(5), refusedFiles.count]} /> };
 export const FilesRefusedSecurityCheck: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, refusedFiles.malware]} /> };
 export const FilesRefusedNotChecked: Story = { render: () => <ApprovalScreen {...withFiles} files={[refusedFiles.not_checked]} /> };
+/** F5f for a file that is not a PDF: the reason names no password and ends "Remove it and add it again." */
+export const FilesRefusedNotCheckedText: Story = { render: () => <ApprovalScreen {...withFiles} files={[notCheckedText]} /> };
 export const FilesRefusedUploadFailed: Story = { render: () => <ApprovalScreen {...withFiles} files={[refusedFiles.upload_failed]} /> };
 export const FilesMixed: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, chartPng, readingsCsv, photoUploading]} /> };
 export const FilesRefusedListed: Story = { render: () => <ApprovalScreen {...withFiles} files={[leafletPdf, refusedFiles.type, chartPng]} /> };
