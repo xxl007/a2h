@@ -76,6 +76,17 @@ const SECOND = 1000;
 const FEE_PERCENT = 20;
 const OL = "sim-ol-6a23";
 const OL_BID = grossReserve(OL, "verification", FEE_PERCENT);
+/**
+ * The cases that Send (F7, F8) need a participant who accepts files; who, and
+ * the amount, play no part. sim-jw-9e48 (prompt persona, files accepted by
+ * default) on its cheapest lane: opinion at the gross reserve, €7.50 against
+ * sim-ol-6a23's €31.25, so the file step fits the per-run principal's budget
+ * (issue #114). The cases that never Send stay on sim-ol-6a23: an awaiting
+ * request holds nothing.
+ */
+const JW = "sim-jw-9e48";
+const JW_BID = grossReserve(JW, "opinion", FEE_PERCENT);
+const POLL = { format: "poll", options: [{ id: "yes", label: "Yes" }, { id: "no", label: "No" }] };
 const PAGE_A = pageSkip("a");
 const PAGE_AB = pageSkip("a", "b") || (process.env["A2H_TOKEN_2"] ? false : "needs A2H_TOKEN_2 (principal B's token)");
 /** Live rounds of the race (each sends a request); the local red runs use more. */
@@ -121,7 +132,8 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
     a = await principalClient();
     if (process.env["A2H_TOKEN_2"]) b = await principalClient({ token: process.env["A2H_TOKEN_2"] });
     browser = await launch();
-    guard = await budgetGuard(a, OL_BID * (1 + RACE_ROUNDS), 12);
+    // Spends: F7 sends one request, F8 one a round.
+    guard = await budgetGuard(a, JW_BID * (1 + RACE_ROUNDS), 1 + RACE_ROUNDS);
   });
   after(async () => {
     await a?.close();
@@ -131,6 +143,12 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
 
   async function awaitingOn(page: Page, c: A2hClient, question: string): Promise<Awaiting> {
     const r = await requestAwaiting(c, manifest(OL, "verification", OL_BID, question));
+    assert.equal(await openLink(page, r.out.approval_url), PAGE.awaiting);
+    return r;
+  }
+  /** An awaiting request the case will Send: the cheapest file-accepting lane (JW_BID). */
+  async function awaitingToSend(page: Page, c: A2hClient, question: string): Promise<Awaiting> {
+    const r = await requestAwaiting(c, manifest(JW, "opinion", JW_BID, question, POLL));
     assert.equal(await openLink(page, r.out.approval_url), PAGE.awaiting);
     return r;
   }
@@ -341,7 +359,7 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
     if (guard) return t.skip(guard);
     const page = await pageAs(browser, "a");
     try {
-      const r = await awaitingOn(page, a, "Is the attached table of contents complete?");
+      const r = await awaitingToSend(page, a, "Is the attached table of contents complete?");
       const added = await captureAction(page, addOf("leaflet.pdf"), () => addFiles(page, [F.pdf()]));
       const policy = policyOf(added.result) as UploadPolicy;
       const id = fileIdOf(added.result)!;
@@ -399,7 +417,7 @@ describe("adversarial: files fail closed (m2-attachments, live)", { skip: ELSEWH
     for (let round = 1; round <= RACE_ROUNDS; round++) {
       const page = await pageAs(browser, "a");
       try {
-        const r = await awaitingOn(page, a, `Is the attached chart honest about its scale? (race ${round})`);
+        const r = await awaitingToSend(page, a, `Is the attached chart honest about its scale? (race ${round})`);
         const added = await captureAction(page, addOf("chart.png"), () => addFiles(page, [F.png(), F.csv()]));
         const pngId = fileIdOf(added.result)!;
         for (const name of ["chart.png", "figures.csv"]) {

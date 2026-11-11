@@ -283,6 +283,17 @@ jobs:
           A2H_DCR_FLOOD: "1"
         run: pnpm --filter @a2h/tests exec node --test --test-reporter=spec --test-name-pattern="case A8" adversarial/authorization.live.test.ts
 
+      # Issue #114: what the QA principals committed, as the server counts it
+      # (amounts and counts only). On a preview the principals are fresh per
+      # run, so these are the run's spend; the budget guard's lines in the
+      # suites' logs show it at the start of each guarded flow.
+      - name: QA principals' spend (amounts only)
+        if: ${{ !cancelled() && steps.tokens.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          A2H_MCP_URL: ${{ needs.deploy.outputs.mcp }}
+        run: pnpm --filter @a2h/tests spend "end of run"
+
       # No artifact (task 10.7, cold review of #51 B4): a Playwright trace, screenshot or report of
       # the sign-in and consent flows can hold a magic link, a session cookie or a code, and the
       # repository is public. The job log, with tokens masked, is the failure evidence.
