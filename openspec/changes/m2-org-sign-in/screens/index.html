@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Organisation sign-in and administrators, static specs · A2H</title></head>
+<body style="font-family: system-ui, sans-serif; max-width: 62ch; margin: 2rem auto; padding: 0 1rem; line-height: 1.5">
+<h1>Organisation sign-in and administrators: one static spec per state</h1>
+<p>Change <code>m2-org-sign-in</code>, described in <code>screens.md</code>. Written by hand with <code>screens/build.mjs</code> from the styles of <code>packages/ui</code>; components that do not exist yet are sketched and listed as needed. Not interactive. Light or dark follows your system setting. People and addresses are invented.</p>
+<ol>
+<li><a href="s1-sign-in.html">S1 Sign in, production install: one action, organisation's name not configured</a></li>
+<li><a href="s1b-sign-in-named.html">S1 Sign in, production install, organisation's name configured (&quot;Automi&quot;)</a></li>
+<li><a href="s1c-sign-in-connecting.html">S1 Sign in, arriving from an agent's connection</a></li>
+<li><a href="s1d-sign-in-opening.html">S1 Sign in, after pressing: opening the organisation's sign-in</a></li>
+<li><a href="s1e-sign-in-error.html">S1 Sign in could not be started (our side)</a></li>
+<li><a href="s2-sign-in-dev-both.html">S2 Sign in, development stage: organisation's sign-in and the magic link</a></li>
+<li><a href="s3a-not-completed.html">S3a Not signed in: cancelled, or the organisation's sign-in returned an error (neutral)</a></li>
+<li><a href="s3a2-not-completed-dev.html">S3a The same on a development stage with both methods</a></li>
+<li><a href="s3b-refused-email.html">S3b Refused: no confirmed email address from the organisation's sign-in</a></li>
+<li><a href="s3c-access-removed.html">S3c Refused: access removed by an administrator</a></li>
+<li><a href="s4-session-ended.html">S4 Session ended (12 hours, or ended by an administrator): sign in again</a></li>
+<li><a href="p1-people.html">P1 People and access: six people, every kind of row</a></li>
+<li><a href="p2-only-you.html">P2 Empty: only yourself</a></li>
+<li><a href="p3-loading.html">P3 Loading</a></li>
+<li><a href="p4-error.html">P4 Error: the list could not be loaded</a></li>
+<li><a href="p5-long-list.html">P5 Long list: 214 people, search, the Show choice, 50 at a time</a></li>
+<li><a href="p5b-search.html">P5b Long list, searched: &quot;rossi&quot;</a></li>
+<li><a href="p5c-no-match.html">P5c Long list, search with no match</a></li>
+<li><a href="p6-confirm-remove.html">P6 Remove access: confirmation</a></li>
+<li><a href="p6b-removing.html">P6b Remove access: confirmed, in progress</a></li>
+<li><a href="p7-removed.html">P7 Access removed: said in the row</a></li>
+<li><a href="p8-confirm-restore.html">P8 Restore access: confirmation</a></li>
+<li><a href="p9-confirm-grant.html">P9 Make administrator: confirmation</a></li>
+<li><a href="p10-confirm-withdraw.html">P10 Withdraw administrator role: confirmation</a></li>
+<li><a href="p10b-confirm-withdraw-self.html">P10b Withdraw your own administrator role: confirmation (you are not named in the configuration)</a></li>
+<li><a href="p11-reasons.html">P11 Refusals said before the action: own access, the only administrator, named in configuration</a></li>
+<li><a href="p11b-refused-last-admin.html">P11b Refused by the server: withdrawing would leave no administrator (the page was out of date)</a></li>
+<li><a href="p12-action-error.html">P12 An action did not go through (our side)</a></li>
+<li><a href="p13-offline.html">P13 Offline</a></li>
+<li><a href="p14-record.html">P14 Record of administrator actions</a></li>
+<li><a href="p14b-record-empty.html">P14b Record of administrator actions: nothing yet</a></li>
+<li><a href="n1-not-administrator.html">N1 A signed-in person who is not an administrator opens the administrators' page</a></li>
+</ol>
+</body>
+</html>
