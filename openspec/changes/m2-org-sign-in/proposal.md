@@ -48,11 +48,11 @@ A2H is now installed by an organisation for its own people (ADR 0006). Today the
 - **Validation against real providers needs tenants we do not have.** CI covers Keycloak only. Google Workspace is validated at Gate 2 if the owner registers the application there; Okta and Microsoft Entra ID are checked on free developer tenants only if the owner creates them, and are otherwise reported as not validated.
 - **Two sign-in methods on development stages** double the paths to test; the production configuration must make the magic-link path unreachable, and a test proves it.
 
-## Open questions for the product owner
+## Owner decisions at Gate 1 (2026-11-11)
 
-1. **Which identity provider do you sign in with at Gate 2?** PM default: your company's Google Workspace on the dev stage. You would register the application there and store its secret; I give you the exact steps.
-2. **Renewal window for agents: 7 days** since the principal's last sign-in at the provider (PM default). Longer is more convenient, shorter ends a leaver's agents sooner.
-3. **Removing access** ends a person's sessions and agent connections at once and keeps their record. Marking someone as having left (answers archived, PRD §9) comes with answer reuse in M4. Agreed?
+1. Gate 2 is validated with the owner's Google Workspace on the dev stage; the owner registers the application and stores its secret.
+2. The renewal window for agents is 7 days since the principal's last sign-in at the provider.
+3. Removing access ends sessions and agent connections at once and keeps the record. Marking someone as having left comes with answer reuse (M4).
 
 ## How the product owner validates (Gate 2)
 
