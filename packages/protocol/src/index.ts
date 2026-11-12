@@ -22,3 +22,4 @@ export * from "./content-rules.ts";
 export * from "./validate.ts";
 export * from "./limits.ts";
 export * from "./approval.ts";
+export * from "./access.ts";
