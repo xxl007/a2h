@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P11 Refusals said before the action: own access, the only administrator · A2H spec (m2-org-sign-in)</title>
+<!-- Static spec written by Design with screens/build.mjs; described in ../screens.md. Not interactive.
+     Styles are packages/ui's own (tokens, base, CSS modules; class names prefixed with their module) plus a
+     block marked "Proposed" for components that do not exist yet. Reference width 390 px; resize to check
+     320 and 1280. Light or dark follows the system. People and addresses are invented. -->
+<style>
+/*
+ * A2H design tokens, semantic tier (ADR 0003 decision 2, skill §2).
+ *
+ * PROVISIONAL VALUES. The primitive ladder (OKLCH neutral tilted warm, the
+ * platform accent hue, the status hues) is settled by the m2-design-foundations
+ * change at its owner checkpoint. Until then every semantic role resolves to a
+ * CSS system colour (Canvas, CanvasText, LinkText) or a color-mix of them: the
+ * browser supplies the value in both themes, no hue is invented here, and the
+ * foundations change replaces this file's right-hand sides without touching a
+ * component, a story or a screen.
+ *
+ * Known provisional gaps: status triplets share the neutral derivation (status
+ * is always carried in words, skill §3.2), and the accent is the user agent's
+ * link colour.
+ *
+ * Apps and components use var(--role) only. No hex or OKLCH value is written
+ * anywhere in packages/ui until the primitives tier exists (test/tokens.test.ts).
+ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Colour roles */
+  --surface: Canvas;
+  --surface-2: color-mix(in srgb, CanvasText 5%, Canvas);
+  --text: CanvasText;
+  --text-muted: color-mix(in srgb, CanvasText 66%, Canvas);
+  --border: color-mix(in srgb, CanvasText 16%, transparent);
+  --border-strong: color-mix(in srgb, CanvasText 58%, transparent);
+  --accent: LinkText;
+  --on-accent: Canvas;
+  --focus: LinkText;
+
+  /* Status triplets: provisional, neutral-derived; the word carries the status */
+  --success-bg: var(--surface-2);
+  --success-border: var(--border-strong);
+  --success-text: var(--text);
+  --pending-bg: var(--surface-2);
+  --pending-border: var(--border-strong);
+  --pending-text: var(--text);
+  --danger-bg: var(--surface-2);
+  --danger-border: var(--border-strong);
+  --danger-text: var(--text);
+  --neutral-bg: var(--surface-2);
+  --neutral-border: var(--border);
+  --neutral-text: var(--text);
+
+  /* Typography (skill §2.5): system stack everywhere in this change */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --text-xs: 0.75rem;   /* 12 / 16 */
+  --text-sm: 0.875rem;  /* 14 / 20 */
+  --text-md: 1rem;      /* 16 / 24 */
+  --text-lg: 1.25rem;   /* 20 / 28 */
+  --text-xl: 1.5rem;    /* 24 / 32 */
+  --leading-xs: 1rem;
+  --leading-sm: 1.25rem;
+  --leading-md: 1.5rem;
+  --leading-lg: 1.75rem;
+  --leading-xl: 2rem;
+  --weight-regular: 400;
+  --weight-strong: 600;
+  --measure: 62ch;
+
+  /* Spacing (ADR 0003 decision 5) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Targets (skill §7): 44 px on every surface of this change */
+  --target-min: 44px;
+
+  /* Motion: used only under prefers-reduced-motion: no-preference */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+/*
+ * Base document styles for apps/web pages built from packages/ui (skill §7, §8).
+ * Imported once by the app after tokens.css. Never shipped into the MCP App card.
+ */
+html {
+  font-family: var(--font-sans);
+  font-size: 100%;
+  line-height: var(--leading-md);
+  background: var(--surface);
+  color: var(--text);
+  -webkit-text-size-adjust: 100%;
+}
+
+body { margin: 0; }
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+h1, h2, h3 { text-wrap: balance; }
+
+.AuthShell-page { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); }
+.AuthShell-banner { display: block; }
+.AuthShell-header {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap;
+  padding: var(--space-3) max(var(--space-4), env(safe-area-inset-right)) var(--space-3) max(var(--space-4), env(safe-area-inset-left));
+  border-bottom: 1px solid var(--border);
+}
+.AuthShell-wordmark { font-weight: var(--weight-strong); font-size: var(--text-lg); line-height: var(--leading-lg); }
+.AuthShell-account { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); }
+.AuthShell-account form { margin: 0; }
+.AuthShell-email { color: var(--text); overflow-wrap: anywhere; }
+.AuthShell-stage { margin: 0; padding: var(--space-2) max(var(--space-4), env(safe-area-inset-left)); font-size: var(--text-sm); line-height: var(--leading-sm); background: var(--neutral-bg); color: var(--neutral-text); border-bottom: 1px solid var(--neutral-border); }
+.AuthShell-main {
+  flex: 1; width: 100%; box-sizing: border-box; max-width: 480px; margin: 0 auto;
+  padding: var(--space-6) max(var(--space-4), env(safe-area-inset-right)) calc(var(--space-6) + env(safe-area-inset-bottom)) max(var(--space-4), env(safe-area-inset-left));
+  display: flex; flex-direction: column; gap: var(--space-5);
+}
+.AuthShell-wide { max-width: 640px; }
+
+.Screen-title { margin: 0; font-size: var(--text-xl); line-height: var(--leading-xl); font-weight: var(--weight-strong); }
+.Screen-title:focus { outline: none; }
+.Screen-title:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.Screen-lead { margin: 0; font-size: var(--text-md); line-height: var(--leading-md); max-width: var(--measure); }
+.Screen-body { margin: 0; font-size: var(--text-md); line-height: var(--leading-md); max-width: var(--measure); }
+.Screen-muted { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); max-width: var(--measure); }
+.Screen-stack { display: flex; flex-direction: column; gap: var(--space-4); }
+.Screen-form { display: flex; flex-direction: column; gap: var(--space-4); margin: 0; }
+.Screen-actions { display: flex; flex-direction: column; gap: var(--space-2); }
+.Screen-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.Screen-h2 { margin: 0; font-size: var(--text-md); line-height: var(--leading-md); font-weight: var(--weight-strong); }
+.Screen-scopes { margin: 0; padding: 0 0 0 var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); }
+.Screen-scopes li { font-size: var(--text-md); line-height: var(--leading-md); }
+.Screen-strong { font-weight: var(--weight-strong); overflow-wrap: anywhere; }
+.Screen-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+@media (min-width: 600px) {
+  .Screen-actions { flex-direction: row-reverse; justify-content: flex-start; }
+}
+.Screen-tight { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.Button-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  min-width: var(--target-min);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--weight-strong);
+  line-height: var(--leading-md);
+  text-decoration: none;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.Button-button[data-focus-visible] { outline: 2px solid var(--focus); outline-offset: 2px; }
+.Button-button[data-disabled] { cursor: not-allowed; opacity: 0.6; }
+.Button-button[data-pending] { cursor: progress; }
+.Button-primary { background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+.Button-ghost { background: transparent; color: var(--accent); border: 1px solid var(--border-strong); }
+.Button-full { width: 100%; }
+.Button-textLink { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.Button-textLink[data-focus-visible] { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--radius-sm); }
+@media (prefers-reduced-motion: no-preference) {
+  .Button-button { transition: opacity var(--motion-fast) var(--motion-ease); }
+}
+
+.Notice-notice {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  line-height: var(--leading-sm);
+}
+.Notice-notice p { margin: 0; }
+.Notice-notice p + p { margin-top: var(--space-2); }
+.Notice-title { font-weight: var(--weight-strong); margin: 0 0 var(--space-1); font-size: var(--text-sm); line-height: var(--leading-sm); }
+.Notice-danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger-text); border-width: 2px; }
+.Notice-pending { background: var(--pending-bg); border-color: var(--pending-border); color: var(--pending-text); }
+.Notice-success { background: var(--success-bg); border-color: var(--success-border); color: var(--success-text); }
+.Notice-neutral { background: var(--neutral-bg); border-color: var(--neutral-border); color: var(--neutral-text); }
+.Notice-platform { background: var(--surface); color: var(--text); }
+.Notice-platform .Notice-title { color: var(--accent); }
+.Notice-reference { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--text-muted); }
+
+.StatusPill-pill {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border: 1px solid;
+  border-radius: var(--radius-pill);
+  font-size: var(--text-xs);
+  line-height: calc(var(--leading-xs) + 4px);
+  font-weight: var(--weight-strong);
+  white-space: nowrap;
+}
+.StatusPill-success { background: var(--success-bg); border-color: var(--success-border); color: var(--success-text); }
+.StatusPill-pending { background: var(--pending-bg); border-color: var(--pending-border); color: var(--pending-text); }
+.StatusPill-danger { background: var(--danger-bg); border-color: var(--danger-border); color: var(--danger-text); }
+.StatusPill-neutral { background: var(--neutral-bg); border-color: var(--neutral-border); color: var(--neutral-text); }
+
+.TextField-field { display: flex; flex-direction: column; gap: var(--space-2); }
+.TextField-label { font-size: var(--text-sm); line-height: var(--leading-sm); font-weight: var(--weight-strong); color: var(--text); }
+.TextField-input {
+  min-height: var(--target-min);
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md); /* 16 px: no zoom on focus in mobile Safari */
+}
+.TextField-input[data-focus-visible], .TextField-input[data-focused] { outline: 2px solid var(--focus); outline-offset: 2px; }
+.TextField-input[data-invalid] { border-width: 2px; border-color: var(--danger-border); }
+.TextField-description { font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); }
+.TextField-error { font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--danger-text); font-weight: var(--weight-strong); }
+
+.Skeleton-skeleton { display: block; background: var(--surface-2); border-radius: var(--radius-md); }
+@media (prefers-reduced-motion: no-preference) {
+  .Skeleton-skeleton { animation: pulse 1.6s var(--motion-ease) infinite alternate; }
+  @keyframes pulse { from { opacity: 1; } to { opacity: 0.55; } }
+}
+
+.ClientRow-row { border-bottom: 1px solid var(--border); padding: var(--space-4) 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.ClientRow-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.ClientRow-who { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; flex: 1 1 220px; }
+.ClientRow-name { margin: 0; color: var(--accent); font-weight: var(--weight-strong); font-size: var(--text-md); line-height: var(--leading-md); overflow-wrap: anywhere; }
+.ClientRow-origin { margin: 0; font-family: var(--font-mono); font-size: var(--text-sm); line-height: var(--leading-sm); overflow-wrap: anywhere; }
+.ClientRow-dates { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ClientRow-confirm { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-2); }
+.ClientRow-confirm:focus { outline: none; }
+.ClientRow-confirm:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.ClientRow-question { margin: 0; font-weight: var(--weight-strong); font-size: var(--text-md); line-height: var(--leading-md); overflow-wrap: anywhere; }
+.ClientRow-body { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); max-width: var(--measure); }
+.ClientRow-buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.ClientRow-local { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text); }
+
+
+/* ---- Proposed (components needed, screens.md "Components"): semantic tokens only ---- */
+.visuallyHidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+/* AuthShell: links in the header (new prop) */
+.AuthShell-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0 var(--space-4); }
+.AuthShell-nav a, .AdminNav-list a { display: inline-flex; align-items: center; min-height: var(--target-min); }
+.AuthShell-nav a[aria-current], .AdminNav-list a[aria-current] { color: var(--text); font-weight: var(--weight-strong); text-decoration: none; }
+/* AdminNav: People / Record of actions */
+.AdminNav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0 var(--space-5); border-bottom: 1px solid var(--border); font-size: var(--text-md); line-height: var(--leading-md); }
+/* PersonRow */
+.PersonRow-row { border-bottom: 1px solid var(--border); padding: var(--space-4) 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.PersonRow-summary { display: flex; flex-direction: column; gap: var(--space-3); }
+.PersonRow-who { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.PersonRow-name { margin: 0; color: var(--text); font-weight: var(--weight-strong); font-size: var(--text-md); line-height: var(--leading-md); overflow-wrap: anywhere; }
+.PersonRow-name:focus { outline: none; }
+.PersonRow-name:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.PersonRow-you { font-weight: var(--weight-regular); color: var(--text-muted); }
+.PersonRow-email { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text); overflow-wrap: anywhere; }
+.PersonRow-states { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-1) 0 0; }
+.PersonRow-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.PersonRow-reason { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); max-width: var(--measure); }
+/* PeopleTools: search and the "Show" choice */
+.PeopleTools-tools { display: flex; flex-direction: column; gap: var(--space-4); }
+.Segments-group { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.Segments-legend { padding: 0; font-size: var(--text-sm); line-height: var(--leading-sm); font-weight: var(--weight-strong); color: var(--text); }
+.Segments-options { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.Segments-option { display: inline-flex; align-items: center; gap: var(--space-2); min-height: var(--target-min); box-sizing: border-box; padding: 0 var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--radius-md); font-size: var(--text-sm); line-height: var(--leading-sm); font-variant-numeric: tabular-nums; cursor: pointer; }
+.Segments-option input { accent-color: var(--accent); margin: 0; width: 1rem; height: 1rem; }
+.Segments-option:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.Segments-option:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.PeopleTools-count { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.PeopleTools-more { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+/* ActionRecord */
+.Record-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+.Record-entry { border-bottom: 1px solid var(--border); padding: var(--space-3) 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.Record-what { margin: 0; font-size: var(--text-md); line-height: var(--leading-md); overflow-wrap: anywhere; }
+.Record-when { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); font-variant-numeric: tabular-nums; }
+.Record-who { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); overflow-wrap: anywhere; }
+/* Sign-in: the two methods on a development stage */
+.SignIn-method { display: flex; flex-direction: column; gap: var(--space-4); }
+.SignIn-method + .SignIn-method { border-top: 1px solid var(--border); padding-top: var(--space-5); }
+
+</style>
+</head>
+<body>
+<div class="AuthShell-page"><header class="AuthShell-banner"><div class="AuthShell-header"><span class="AuthShell-wordmark">A2H</span><div class="AuthShell-account"><nav class="AuthShell-nav" aria-label="A2H"><ul><li><a class="Button-textLink" href="#connected-apps">Connected apps</a></li><li><a class="Button-textLink" href="p1-people.html" aria-current="page">People and access</a></li></ul></nav><span>Signed in as <span class="AuthShell-email">galem@example.com</span></span><form method="post"><button type="submit" class="Button-button Button-ghost">Sign out</button></form></div></div></header><main class="AuthShell-main AuthShell-wide"><h1 class="Screen-title">People and access</h1><nav aria-label="Administration"><ul class="AdminNav-list"><li><a class="Button-textLink" href="p1-people.html" aria-current="page">People</a></li><li><a class="Button-textLink" href="p14-record.html">Record of actions</a></li></ul></nav><p class="Screen-lead">Everyone who has signed in to A2H. You can remove or restore a person's access and choose who else is an administrator.</p><p class="Screen-muted">Nobody's requests, answers or rules are shown here, to you or to any other administrator. Who can sign in at all is decided in your organisation's sign-in, not on this page.</p><p class="PeopleTools-count" role="status">3 people · 1 administrator · 0 with access removed</p><ul class="Screen-list" aria-label="People"><li class="PersonRow-row"><div class="PersonRow-summary"><div class="PersonRow-who"><h2 class="PersonRow-name">Galem L. <span class="PersonRow-you">(you)</span></h2><p class="PersonRow-email">galem@example.com</p><p class="PersonRow-states"><span class="StatusPill-pill StatusPill-success">Has access</span> <span class="StatusPill-pill StatusPill-neutral">Administrator</span></p></div></div><p class="PersonRow-reason">You can't remove your own access.</p><p class="PersonRow-reason">You are the only administrator. Make someone else an administrator before this role can be withdrawn.</p></li><li class="PersonRow-row"><div class="PersonRow-summary"><div class="PersonRow-who"><h2 class="PersonRow-name">Sanne Kok</h2><p class="PersonRow-email">sanne.kok@example.com</p><p class="PersonRow-states"><span class="StatusPill-pill StatusPill-success">Has access</span></p></div><div class="PersonRow-actions"><button type="button" class="Button-button Button-ghost" aria-label="Remove access for Sanne Kok (sanne.kok@example.com)">Remove access</button><button type="button" class="Button-button Button-ghost" aria-label="Make administrator: Sanne Kok (sanne.kok@example.com)">Make administrator</button></div></div></li><li class="PersonRow-row"><div class="PersonRow-summary"><div class="PersonRow-who"><h2 class="PersonRow-name">Tom Aubert</h2><p class="PersonRow-email">tom.aubert@example.com</p><p class="PersonRow-states"><span class="StatusPill-pill StatusPill-success">Has access</span></p></div><div class="PersonRow-actions"><button type="button" class="Button-button Button-ghost" aria-label="Remove access for Tom Aubert (tom.aubert@example.com)">Remove access</button><button type="button" class="Button-button Button-ghost" aria-label="Make administrator: Tom Aubert (tom.aubert@example.com)">Make administrator</button></div></div></li></ul></main></div>
+</body>
+</html>
