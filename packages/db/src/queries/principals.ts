@@ -17,7 +17,7 @@ import {
 } from "@a2h/protocol";
 import { eq, lt, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
-import { principalPolicies, principals, rateLimitWindows } from "../schema.ts";
+import { PRINCIPAL_VERIFICATION_METHODS, type PrincipalVerificationMethod, principalPolicies, principals, rateLimitWindows } from "../schema.ts";
 
 /** Any Drizzle Postgres database or transaction. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- the drivers differ in their schema type parameters only
@@ -37,6 +37,14 @@ export interface PrincipalDefaults {
   policy: PrincipalPolicy;
   /** Default `real_name`. */
   identity_mode?: Principal["identity_mode"];
+  /**
+   * How the person signed in before this consent (m2-org-sign-in design D9):
+   * `organisation_idp` when their account has a provider account,
+   * `owner_allowlist` for a magic-link sign-in. Default `owner_allowlist`,
+   * the only method before m2-org-sign-in. Used only when the principal is
+   * created: a stored verification is never changed.
+   */
+  verification_method?: PrincipalVerificationMethod;
 }
 
 /** A principal and its policy, or null when either row is missing. Reads only. */
@@ -73,14 +81,19 @@ export async function principalWithPolicy(db: PrincipalsDb, principalId: string)
 /**
  * Create the principal and its policy from `defaults` if they do not exist,
  * in one transaction (a savepoint inside the caller's), and return the rows
- * as stored. A new principal is verified by the owner's allow-list (decision
- * 8: only owner-listed addresses can sign in and reach consent). Idempotent:
+ * as stored. A new principal is verified by the method of the sign-in that
+ * led to this consent (`defaults.verification_method`): the owner's
+ * allow-list (decision 8: only owner-listed addresses can sign in by magic
+ * link and reach consent) or the organisation's identity provider
+ * (m2-org-sign-in D9). Idempotent:
  * an existing principal or policy is never changed, so a second consent
  * cannot reset a policy or a verification, and two concurrent calls create
  * one of each (`ON CONFLICT DO NOTHING`).
  */
 export async function ensurePrincipal(db: PrincipalsDb, principalId: string, defaults: PrincipalDefaults): Promise<PrincipalWithPolicy> {
   const policy = PrincipalPolicySchema.parse(defaults.policy);
+  const method = defaults.verification_method ?? "owner_allowlist";
+  if (!PRINCIPAL_VERIFICATION_METHODS.includes(method)) throw new Error("unknown verification method");
   return db.transaction(async (tx) => {
     await tx
       .insert(principals)
@@ -88,7 +101,7 @@ export async function ensurePrincipal(db: PrincipalsDb, principalId: string, def
         principal_id: principalId,
         identity_mode: defaults.identity_mode ?? "real_name",
         verified: true,
-        verification_method: "owner_allowlist",
+        verification_method: method,
       })
       .onConflictDoNothing({ target: principals.principal_id });
     await tx

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { getTableConfig, type PgTable } from "drizzle-orm/pg-core";
 import * as protocol from "@a2h/protocol";
 import * as schema from "../src/schema.ts";
+import * as authSchema from "../src/auth-schema.ts";
 import { MIGRATIONS_DIR, migrationFiles } from "./lib/postgres.ts";
 
 const tables = (Object.values(schema) as unknown[]).filter((v): v is PgTable => {
@@ -120,6 +121,79 @@ describe("enums and codes come from @a2h/protocol", () => {
     for (const re of [protocol.REQUEST_ID_PATTERN, protocol.HANDLE_PATTERN, protocol.OPAQUE_ID_PATTERN, protocol.SIGNATURE_PATTERN, protocol.PUBLIC_KEY_PATTERN]) {
       assert.ok(allSql.includes(`'${re.source}'`), re.source);
     }
+  });
+});
+
+// m2-org-sign-in task 3.2 (design D7, D9, Migration Plan): three columns on
+// Better Auth's `user`, the append-only `administrator_actions`, and
+// `organisation_idp` among the verification methods, in one migration.
+describe("m2-org-sign-in task 3.2: access state, administrators, organisation_idp", () => {
+  const M2 = migrationFiles().filter((f) => readFileSync(join(MIGRATIONS_DIR, f), "utf8").includes("administrator_actions"));
+  const m2Sql = M2.map((f) => readFileSync(join(MIGRATIONS_DIR, f), "utf8")).join("\n");
+
+  test("user gains access_removed_at (null = has access), is_administrator (false by default) and last_idp_sign_in_at", () => {
+    const cols = new Map(getTableConfig(authSchema.user).columns.map((c) => [c.name, c]));
+    assert.equal(cols.get("access_removed_at")?.notNull, false);
+    assert.match(cols.get("access_removed_at")!.getSQLType(), /^timestamp/);
+    assert.equal(cols.get("is_administrator")?.notNull, true);
+    assert.equal(cols.get("is_administrator")?.default, false);
+    assert.equal(cols.get("is_administrator")?.getSQLType(), "boolean");
+    assert.equal(cols.get("last_idp_sign_in_at")?.notNull, false);
+    assert.match(cols.get("last_idp_sign_in_at")!.getSQLType(), /^timestamp/);
+  });
+
+  test("the user columns are declared in Better Auth's configuration, which auth-schema.ts is generated from (never by hand)", () => {
+    const authTs = readFileSync(new URL("../../../apps/web/src/auth/auth.ts", import.meta.url), "utf8");
+    for (const field of ["accessRemovedAt", "isAdministrator", "lastIdpSignInAt"]) {
+      assert.match(authTs, new RegExp(`${field}: \\{[^}]*input: false`), `${field} is an additional field no request body can set`);
+      assert.ok(Object.hasOwn(authSchema.user, field), `auth-schema.ts user.${field}`);
+    }
+  });
+
+  test("administrator_actions holds who, to whom, what and when, nothing else: no name, no address, no free text", () => {
+    const t = byName.get("administrator_actions");
+    assert.ok(t, "table administrator_actions");
+    assert.deepEqual(t.columns.map((c) => c.name).sort(), ["action", "actor_user_id", "at", "id", "subject_user_id"]);
+    for (const c of t.columns) assert.equal(c.notNull, true, c.name);
+    assert.match(t.columns.find((c) => c.name === "action")!.getSQLType(), /^(varchar|character varying)\(\d+\)$/);
+    assert.equal(t.columns.find((c) => c.name === "at")!.getSQLType(), "timestamp with time zone");
+  });
+
+  test("the actions are the four of design D7, held by a check constraint", () => {
+    assert.deepEqual([...schema.ADMINISTRATOR_ACTIONS], ["remove_access", "restore_access", "grant_administrator", "withdraw_administrator"]);
+    const t = byName.get("administrator_actions")!;
+    assert.ok(t.checks.some((c) => c.name === "administrator_actions_action_known"));
+    for (const a of schema.ADMINISTRATOR_ACTIONS) assert.ok(m2Sql.includes(`'${a}'`), a);
+  });
+
+  test("actor and subject reference the account without cascade: an account with a record cannot be deleted from under it", () => {
+    const t = byName.get("administrator_actions")!;
+    assert.equal(t.foreignKeys.length, 2);
+    for (const fk of t.foreignKeys) {
+      const ref = fk.reference();
+      assert.equal(getTableConfig(ref.foreignTable).name, "user");
+      assert.deepEqual(ref.foreignColumns.map((c) => c.name), ["id"]);
+      assert.ok(fk.onDelete === undefined || fk.onDelete === "no action" || fk.onDelete === "restrict", String(fk.onDelete));
+    }
+    assert.doesNotMatch(m2Sql, /administrator_actions[^;]*ON DELETE cascade/i);
+  });
+
+  test("organisation_idp is a verification method next to owner_allowlist (design D9)", () => {
+    assert.deepEqual([...schema.PRINCIPAL_VERIFICATION_METHODS], ["owner_allowlist", "organisation_idp"]);
+    assert.match(m2Sql, /principals_verification_method_known[^;]*'owner_allowlist', 'organisation_idp'/);
+  });
+
+  test("one migration carries all of it, with the no-update, no-delete, no-truncate triggers of 0001", () => {
+    assert.equal(M2.length, 1, M2.join(","));
+    for (const piece of [
+      /ADD COLUMN "access_removed_at"/,
+      /ADD COLUMN "is_administrator" boolean DEFAULT false NOT NULL/,
+      /ADD COLUMN "last_idp_sign_in_at"/,
+      /CREATE TABLE "administrator_actions"/,
+      /CREATE TRIGGER administrator_actions_append_only BEFORE UPDATE OR DELETE ON administrator_actions FOR EACH ROW EXECUTE FUNCTION a2h_append_only\(\)/,
+      /CREATE TRIGGER administrator_actions_no_truncate BEFORE TRUNCATE ON administrator_actions FOR EACH STATEMENT EXECUTE FUNCTION a2h_append_only\(\)/,
+    ]) assert.match(m2Sql, piece);
+    assert.doesNotMatch(m2Sql, /\bUPDATE\s+"?(user|principals)"?\s+SET/i, "no backfill (design: Migration Plan)");
   });
 });
 

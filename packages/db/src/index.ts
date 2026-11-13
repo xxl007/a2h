@@ -5,6 +5,7 @@ export * from "./queries/mcp.ts";
 export * from "./queries/approval.ts";
 export * from "./queries/files.ts";
 export * from "./queries/principals.ts";
+export * from "./queries/access.ts";
 export * from "./auth-schema.ts";
 // The Drizzle query operators of the same drizzle-orm instance as the schema,
 // for callers whose package manager resolves another copy of drizzle-orm

@@ -75,6 +75,54 @@ describe("principal queries (Postgres 17)", { skip }, () => {
       assert.deepEqual(rows[0], { verified: true, verification_method: "owner_allowlist" });
     });
 
+    // m2-org-sign-in design D9; spec platform/principal-identity "Principals
+    // signed in through the identity provider are verified by it".
+    test("Scenario: Consent creates a principal verified by the organisation: verified true, method organisation_idp, in the caller's transaction", async () => {
+      const db = dbOf(poolA);
+      const got = await db.transaction((tx) => ensurePrincipal(tx, "u_idp_first", { policy: STAGE_DEFAULT, verification_method: "organisation_idp" }));
+      assert.deepEqual(got.principal, { principal_id: "u_idp_first", identity_mode: "real_name", verified: true });
+      const { rows } = await poolA.query<{ verified: boolean; verification_method: string | null }>(
+        `SELECT verified, verification_method FROM principals WHERE principal_id = 'u_idp_first'`,
+      );
+      assert.deepEqual(rows[0], { verified: true, verification_method: "organisation_idp" });
+      // Rolled back with the consent it belongs to.
+      await assert.rejects(
+        db.transaction(async (tx) => {
+          await ensurePrincipal(tx, "u_idp_rolled_back", { policy: STAGE_DEFAULT, verification_method: "organisation_idp" });
+          throw new Error("consent not recorded");
+        }),
+        /consent not recorded/,
+      );
+      assert.equal(await principalWithPolicy(db, "u_idp_rolled_back"), null);
+    });
+
+    test("a caller that names no method keeps today's behaviour (owner_allowlist) until the web app passes one", async () => {
+      await ensurePrincipal(dbOf(poolA), "u_no_method_named", { policy: STAGE_DEFAULT });
+      const { rows } = await poolA.query<{ verification_method: string | null }>(`SELECT verification_method FROM principals WHERE principal_id = 'u_no_method_named'`);
+      assert.equal(rows[0]?.verification_method, "owner_allowlist");
+    });
+
+    test("a method the database does not know is refused before anything is written", async () => {
+      await assert.rejects(ensurePrincipal(dbOf(poolA), "u_bad_method", { policy: STAGE_DEFAULT, verification_method: "self_declared" as never }));
+      assert.equal(await principalWithPolicy(dbOf(poolA), "u_bad_method"), null);
+    });
+
+    test("Scenario: Second consent leaves verification as stored: each method stays as first recorded, whichever the later sign-in", async () => {
+      const db = dbOf(poolA);
+      await ensurePrincipal(db, "u_first_link", { policy: STAGE_DEFAULT, verification_method: "owner_allowlist" });
+      await ensurePrincipal(db, "u_first_link", { policy: STAGE_DEFAULT, verification_method: "organisation_idp" });
+      await ensurePrincipal(db, "u_first_idp", { policy: STAGE_DEFAULT, verification_method: "organisation_idp" });
+      await ensurePrincipal(db, "u_first_idp", { policy: STAGE_DEFAULT, verification_method: "owner_allowlist" });
+      await ensurePrincipal(db, "u_first_idp", { policy: STAGE_DEFAULT });
+      const { rows } = await poolA.query<{ principal_id: string; verified: boolean; verification_method: string | null }>(
+        `SELECT principal_id, verified, verification_method FROM principals WHERE principal_id IN ('u_first_link', 'u_first_idp') ORDER BY principal_id`,
+      );
+      assert.deepEqual(rows, [
+        { principal_id: "u_first_idp", verified: true, verification_method: "organisation_idp" },
+        { principal_id: "u_first_link", verified: true, verification_method: "owner_allowlist" },
+      ]);
+    });
+
     test("Scenario: Second consent leaves verification as stored: an unverified row without a method stays so", async () => {
       // A row from before decision 8 (or flipped by hand): verified false, no method.
       await poolA.query(`INSERT INTO principals (principal_id, identity_mode, verified) VALUES ('u_before_d8', 'real_name', false)`);

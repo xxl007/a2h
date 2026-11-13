@@ -33,6 +33,9 @@ export const user = pgTable("user", {
     .defaultNow()
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
+  accessRemovedAt: timestamp("access_removed_at"),
+  isAdministrator: boolean("is_administrator").default(false).notNull(),
+  lastIdpSignInAt: timestamp("last_idp_sign_in_at"),
 });
 
 export const session = pgTable(
