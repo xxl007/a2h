@@ -44,8 +44,38 @@ export { FileUpload } from "./components/FileUpload.js";
 export type { FileUploadProps } from "./components/FileUpload.js";
 export type { ClientRegistration, ClientSummary, DisplayDate, FormAction, ScopeName } from "./components/types.js";
 
+export { NavLinks } from "./components/NavLinks.js";
+export type { NavLinkItem, NavLinksProps } from "./components/NavLinks.js";
+export { AdminNav } from "./components/AdminNav.js";
+export type { AdminNavProps } from "./components/AdminNav.js";
+export { SearchField } from "./components/SearchField.js";
+export type { SearchFieldProps } from "./components/SearchField.js";
+export { ChoiceGroup } from "./components/ChoiceGroup.js";
+export type { ChoiceGroupProps, ChoiceOption } from "./components/ChoiceGroup.js";
+export { confirmationCopy, PersonRow } from "./components/PersonRow.js";
+export type { PersonRowFocus, PersonRowNotice, PersonRowProps, PersonRowStatus } from "./components/PersonRow.js";
+export { ActionRecord } from "./components/ActionRecord.js";
+export type { ActionRecordProps } from "./components/ActionRecord.js";
+export { countLine, filterPeople, isActiveAdministrator, peopleCounts, personOffers, recordSentence } from "./components/people.js";
+export type {
+  PeopleShow,
+  Person,
+  PersonAction,
+  PersonActionResult,
+  PersonOffers,
+  PersonRefusal,
+  RecordAction,
+  RecordEntry,
+} from "./components/people.js";
+
 export { SignInScreen } from "./screens/SignInScreen.js";
-export type { SignInScreenProps, SignInState } from "./screens/SignInScreen.js";
+export type { SignInMethod, SignInNotice, SignInScreenProps, SignInState } from "./screens/SignInScreen.js";
+export { AccessRefusedScreen, administratorContactLine, NotAdministratorScreen } from "./screens/AccessRefusedScreen.js";
+export type { AccessRefusedScreenProps, NotAdministratorScreenProps } from "./screens/AccessRefusedScreen.js";
+export { PeopleScreen } from "./screens/PeopleScreen.js";
+export type { PeopleScreenProps, PeopleState, PersonActionHandler } from "./screens/PeopleScreen.js";
+export { RecordScreen } from "./screens/RecordScreen.js";
+export type { RecordScreenProps, RecordState } from "./screens/RecordScreen.js";
 export { CheckEmailScreen, LinkExpiredScreen } from "./screens/CheckEmailScreen.js";
 export type { CheckEmailScreenProps, CheckEmailState, LinkExpiredScreenProps } from "./screens/CheckEmailScreen.js";
 export { ConsentScreen } from "./screens/ConsentScreen.js";
@@ -66,4 +96,4 @@ export type {
   ApprovalScreenProps,
   ApprovalState,
 } from "./screens/ApprovalScreen.js";
-export { copy, fill } from "./screens/copy.js";
+export { copy, fill, signInWords } from "./screens/copy.js";

@@ -1,0 +1,19 @@
+.row { border-bottom: 1px solid var(--border); padding: var(--space-4) 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.summary { display: flex; flex-direction: column; gap: var(--space-3); }
+.who { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+/* A person's name: plain text on the surface, never the accent (ADR 0003 D3). */
+.name { margin: 0; color: var(--text); font-weight: var(--weight-strong); font-size: var(--text-md); line-height: var(--leading-md); overflow-wrap: anywhere; }
+.name:focus { outline: none; }
+.name:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.you { font-weight: var(--weight-regular); color: var(--text-muted); }
+.email { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text); overflow-wrap: anywhere; }
+.states { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-1) 0 0; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.trigger { display: inline-flex; }
+.reason { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); max-width: var(--measure); }
+.confirm { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-2); }
+.confirm:focus { outline: none; }
+.confirm:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.question { margin: 0; font-weight: var(--weight-strong); font-size: var(--text-md); line-height: var(--leading-md); overflow-wrap: anywhere; }
+.body { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); max-width: var(--measure); }
+.buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); }

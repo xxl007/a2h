@@ -4,6 +4,7 @@ import { AuthShell } from "../components/AuthShell.js";
 import { ClientRow, type ClientRowState, type ConnectedClient } from "../components/ClientRow.js";
 import { Notice } from "../components/Notice.js";
 import { Skeleton } from "../components/Skeleton.js";
+import type { NavLinkItem } from "../components/NavLinks.js";
 import type { FormAction } from "../components/types.js";
 import { copy, fill } from "./copy.js";
 import styles from "./Screen.module.css";
@@ -23,6 +24,10 @@ export interface ConnectedClientsScreenProps {
   initialDisconnected?: string;
   reloadHref?: string;
   stageName?: string;
+  /** Header links (m2-org-sign-in): "Connected apps", and "People and access" for administrators only. */
+  links?: readonly NavLinkItem[];
+  /** Arriving here after withdrawing one's own administrator role (screens.md P10, from a flash, never the URL). */
+  notice?: "own-role-withdrawn";
 }
 
 /** /account/clients (design.md "Screen 4: Connected apps"). */
@@ -37,6 +42,8 @@ export function ConnectedClientsScreen({
   initialDisconnected,
   reloadHref = "/account/clients",
   stageName,
+  links,
+  notice,
 }: ConnectedClientsScreenProps) {
   const c = copy.clients;
   const [removed, setRemoved] = useState<readonly string[]>([]);
@@ -55,8 +62,14 @@ export function ConnectedClientsScreen({
       width="wide"
       account={{ email, ...(signOutAction !== undefined ? { signOutAction } : {}) }}
       {...(stageName !== undefined ? { stageName } : {})}
+      {...(links !== undefined ? { links } : {})}
     >
       <h1 className={styles.title}>{c.title}</h1>
+      {notice === "own-role-withdrawn" && (
+        <Notice tone="success" title={copy.people.ownRoleWithdrawnTitle}>
+          <p>{copy.people.ownRoleWithdrawnBody}</p>
+        </Notice>
+      )}
       <p className={styles.lead}>{c.lead}</p>
       {disconnected !== undefined && (
         <div ref={doneRef}>

@@ -17,3 +17,11 @@
   .actions { flex-direction: row-reverse; justify-content: flex-start; }
 }
 .tight { display: flex; flex-direction: column; gap: var(--space-2); }
+/* Sign-in with two methods (development stages): each method is a section, a rule between them. */
+.method { display: flex; flex-direction: column; gap: var(--space-4); }
+.method + .method { border-top: 1px solid var(--border); padding-top: var(--space-5); }
+.reference { margin: 0; font-family: var(--font-mono); font-size: var(--text-xs); line-height: var(--leading-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+.count { margin: 0; font-size: var(--text-sm); line-height: var(--leading-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tools { display: flex; flex-direction: column; gap: var(--space-4); }
+.more { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.start { display: flex; flex-wrap: wrap; gap: var(--space-2); }

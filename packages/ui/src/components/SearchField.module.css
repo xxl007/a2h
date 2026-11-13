@@ -1,0 +1,6 @@
+.row { display: flex; gap: var(--space-2); align-items: stretch; }
+.input { flex: 1 1 auto; min-width: 0; }
+/* The field has its own clear button, in words; the browser's unlabelled one is not shown twice. */
+.input::-webkit-search-cancel-button, .input::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.clear { flex: 0 0 auto; }
+[data-empty] .clear { display: none; }

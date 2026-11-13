@@ -122,3 +122,67 @@ export const refusedFiles: Record<ApprovalFileRefusal, ApprovalFile> = {
  * "Remove it and add it again." (fix after m2-attachments Gate 2; the PDF wording is unchanged).
  */
 export const notCheckedText: ApprovalFile = { id: "r-unchecked-txt", name: "visit-notes.txt", mediaType: "text/plain", sizeBytes: 12 * 1024, state: "refused", refusal: "not_checked" };
+
+// ---- m2-org-sign-in ------------------------------------------------------------------------
+
+import type { Person, RecordEntry } from "./components/people.js";
+
+const someone = (id: string, name: string, email: string, over: Partial<Person> = {}): Person => ({
+  id,
+  name,
+  email,
+  hasAccess: true,
+  isAdministrator: false,
+  isYou: false,
+  namedInConfiguration: false,
+  administratorOnRestore: false,
+  ...over,
+});
+
+/** The viewer: an administrator named in the install's configuration. */
+export const personYou = someone("u-galem", "Galem L.", principalEmail, { isYou: true, isAdministrator: true, namedInConfiguration: true });
+export const personIlse = someone("u-ilse", "Ilse de Boer", "ilse.deboer@example.com");
+export const personMarieke = someone("u-marieke", "Marieke Visser", "marieke.visser@example.com", { isAdministrator: true });
+export const personPriya = someone("u-priya", "Priya Nair", "priya.nair@example.com", { hasAccess: false });
+export const personSanne = someone("u-sanne", "Sanne Kok", "sanne.kok@example.com");
+export const personTom = someone("u-tom", "Tom Aubert", "tom.aubert@example.com");
+export const personHanna = someone("u-hanna", "Hanna Lind", "hanna.lind@example.com", { isAdministrator: true, namedInConfiguration: true });
+
+/** Six people, every kind of row, sorted by name (screens.md P1). Invented names, example.com addresses. */
+export const people: Person[] = [personYou, personIlse, personMarieke, personPriya, personSanne, personTom];
+
+const FIRST = ["Aisha", "Anouk", "Bram", "Chloé", "Daan", "Elif", "Emma", "Farid", "Hugo", "Ines", "Jules", "Kenji", "Lea", "Lucas", "Maya", "Noor", "Omar", "Pieter", "Rosa", "Sofia", "Thijs", "Yara"];
+const LAST = ["Bakker", "Bernard", "Dubois", "Haddad", "Jansen", "Kaya", "Laurent", "Martin", "Okafor", "Peeters", "Rossi", "Smit", "Tanaka"];
+
+/** 214 generated people for the long list (screens.md P5): 213 and the viewer. */
+export const manyPeople: Person[] = (() => {
+  const many: Person[] = [];
+  for (let i = 0; many.length < 213; i++) {
+    const first = FIRST[i % FIRST.length]!;
+    const last = LAST[(i * 7 + Math.floor(i / FIRST.length)) % LAST.length]!;
+    const name = `${first} ${last}`;
+    if (many.some((m) => m.name === name)) continue;
+    const n = many.length;
+    const address = `${first}.${last}`.toLowerCase().normalize("NFD").replace(/[^a-z.]/g, "") + "@example.com";
+    many.push(someone(`u-${n}`, name, address, { hasAccess: n % 43 !== 5, isAdministrator: n === 30 || n === 120 }));
+  }
+  many.push(personYou);
+  return many.sort((a, b) => a.name.localeCompare(b.name, "en"));
+})();
+
+const galem = { name: personYou.name, email: personYou.email };
+const marieke = { name: personMarieke.name, email: personMarieke.email };
+const tom = { name: personTom.name, email: personTom.email };
+const sanne = { name: personSanne.name, email: personSanne.email };
+const priya = { name: personPriya.name, email: personPriya.email };
+
+/** Newest first (screens.md P14). Times are in UTC+01:00. */
+export const recordEntries: RecordEntry[] = [
+  { id: "act-7", action: "access_removed", by: galem, about: sanne, at: "2026-11-11T14:02:00+01:00" },
+  { id: "act-6", action: "access_restored", by: marieke, about: priya, at: "2026-11-11T11:47:00+01:00" },
+  { id: "act-5", action: "administrator_withdrawn", by: marieke, about: tom, at: "2026-11-10T09:15:00+01:00" },
+  { id: "act-4", action: "access_removed", by: galem, about: priya, at: "2026-11-09T16:30:00+01:00" },
+  { id: "act-3", action: "administrator_withdrawn", by: tom, about: tom, at: "2026-11-09T16:02:00+01:00" },
+  { id: "act-2", action: "administrator_made", by: galem, about: marieke, at: "2026-11-09T10:05:00+01:00" },
+  { id: "act-1", action: "administrator_made", by: galem, about: tom, at: "2026-11-09T10:04:00+01:00" },
+];
