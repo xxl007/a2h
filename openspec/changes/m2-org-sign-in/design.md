@@ -16,20 +16,20 @@ Non-goals: switching a person off as a participant, profiles, groups, SAML, SCIM
 One entry with the fixed provider id `idp`, configured by discovery URL, client id and client secret, with ID-token verification required. The plugin checks state (single use), PKCE S256, nonce, signature, issuer, audience and expiry. The address the organisation registers is `https://<web host>/api/auth/callback/idp`. Better Auth's `sso` and `admin` plugins are not used: the first is built for many providers per tenant, the second brings impersonation and password endpoints and has no action record or last-administrator rule.
 
 ### D2 Sign-in starts from a server action only
-The HTTP path `/sign-in/social` also accepts a raw ID token. It is disabled, as `/sign-in/magic-link` is today; the sign-in page calls a server action that starts the redirect. A test posts to the path and expects a refusal.
+The HTTP path `/sign-in/social` also accepts a raw ID token. It is disabled, as `/sign-in/magic-link` is today; the sign-in page calls a server action that starts the redirect (`auth.api.signInSocial`) and passes the library's state cookie on to the browser. A test posts to the path and expects a refusal. (Spike: holds.)
 
 ### D3 Who is let in: `validateUserInfo`
-The refusals of the spec are decided before any user, account or session is written: no email address or no verified assertion; an email address another account already has; access removed (D7). Each returns its own error code so the right page is shown. The claim that carries the verified assertion is a setting (`IDP_EMAIL_VERIFIED_CLAIM`, default `email_verified`; `xms_edov` for Microsoft Entra ID).
+The refusals of the spec are decided before any user, account or session is written: no email address or no verified assertion; an email address another account already has; access removed (D7). Each returns its own error code so the right page is shown. The spike showed that two of these are decided by the library before `validateUserInfo` runs: a missing email address (`email_not_found`) and a new subject with an existing account's address (`account_not_linked`). The sign-in page maps those library codes to the same pages as ours. The claim that carries the verified assertion is a setting (`IDP_EMAIL_VERIFIED_CLAIM`, default `email_verified`; `xms_edov` for Microsoft Entra ID).
 
 ### D4 Matching: by subject; never by email address on a production install
 The provider's subject is stored in the existing `account` table. Implicit linking by email address is disabled on production (`accountLinking.disableImplicitLinking`), because a reassigned address would otherwise open its previous holder's account. On development stages linking stays as the library does it, so one person can use both methods.
 
 ### D5 Nothing from the provider is kept except identity
-A database hook removes the provider's access, refresh and ID tokens before the `account` row is written. A test reads the row after sign-in.
+Database hooks on both `account.create` and `account.update` remove the provider's access, refresh and ID tokens (a returning sign-in writes them through update; spike). A test reads the row after a first and a returning sign-in.
 
 ### D6 Sessions and the renewal window
-- Session: 12 hours, no sliding renewal (`expiresIn` 43200, session refresh disabled) for people who signed in through the provider. Magic-link sessions on development stages keep today's lifetime.
-- `user.last_idp_sign_in_at` is written at each successful provider callback. The hook to use is not confirmed (`newSession` in an `after` hook on the callback route, or the fallback in the findings); the first build task proves one with a test.
+- Session: 12 hours, no sliding renewal (`expiresIn` 43200, session refresh disabled) for every session. The library cannot vary the lifetime by sign-in method (spike: a per-method cap slides to 7 days), so magic-link sessions on development stages also last 12 hours. PM call: nothing relies on longer magic-link sessions.
+- `user.last_idp_sign_in_at` is written by a plugin `after` hook on `/callback/:id` that reads the new session; it runs on first and returning sign-ins and not on refusals (spike). A silent sign-in through the provider's own session counts as a sign-in.
 - Refresh: the existing token-endpoint hook (`customTokenResponseFields`) refuses with `invalid_grant` and a description naming the cause when the user has a provider account and `last_idp_sign_in_at` is older than 7 days. The refresh-token family is not revoked, so a token the client kept works again after a new sign-in. The window is a constant in `packages/protocol`.
 - Users without a provider account (magic link, development stages) are outside this rule. Existing users get a null value at migration and stay outside it.
 
@@ -76,7 +76,7 @@ One migration: three `user` columns (null/false defaults), the actions table wit
 
 ## Open Questions
 
-None for the owner. For the build: the hook for `last_idp_sign_in_at` (D6).
+None. The spike (`notes/spike.md`) closed the build question on the timestamp hook.
 
 ## Screens
 
