@@ -122,6 +122,240 @@ export const copy = {
     errorTitle: "You are still signed in",
     errorBody: "Signing out did not go through. Try again.",
   },
+  /** m2-org-sign-in screens.md, S1–S5: sign-in through the organisation's sign-in. `{signIn}` / `{SignIn}` are filled by `signInWords`. */
+  orgSignIn: {
+    signInWords: "your organisation's sign-in",
+    signInWordsCapital: "Your organisation's sign-in",
+    signInWordsNamed: "the {name} sign-in",
+    signInWordsNamedCapital: "The {name} sign-in",
+    lead: "You'll go to {signIn} to confirm who you are, then come straight back. A2H never sees or keeps your password.",
+    leadConnecting:
+      "Sign in to finish connecting your agent. You'll go to {signIn} to confirm who you are, then come straight back here.",
+    leadApproving:
+      "Sign in to review the question your agent wants to send. You'll go to {signIn} to confirm who you are, then come straight back to the question.",
+    submit: "Sign in with your organisation",
+    submitNamed: "Sign in with {name}",
+    submitPending: "Opening sign-in…",
+    footnote: "Who can sign in is decided by your organisation, not by A2H. If it doesn't let you in, contact an administrator.",
+    magicLinkHeading: "Test stages only: sign in with a link by email",
+    magicLinkDescription: "Only addresses on this stage's list get a link. The link goes to the stage's mail sink, not to a mailbox.",
+    notCompletedDocumentTitle: "Not signed in · A2H",
+    notCompletedTitle: "You are not signed in",
+    notCompletedBody: "{SignIn} was not completed. Nothing was changed. You can try again.",
+    sessionEndedDocumentTitle: "Sign in again · A2H",
+    sessionEndedTitle: "Your session has ended",
+    sessionEndedBody:
+      "A2H asks you to sign in again at least every 12 hours. After signing in you come back to the page you were on. If you were in the middle of something there, check that it went through.",
+    startFailedTitle: "Sign-in could not be started",
+    startFailedBody: "Something went wrong on our side. You are not signed in. Try again.",
+    unavailableTitle: "{SignIn} is unavailable",
+    unavailableBody: "A2H could not reach it just now. You are not signed in. Try again in a moment.",
+    offlineTitle: "You're offline",
+    offlineBody: "Signing in needs a connection. Try again when you're back online.",
+    signedOutStill: "You are still signed in at {signIn}. On a shared computer, sign out there too.",
+  },
+  /** screens.md S3b, S3c. Nothing here names a person, an address or a cause. */
+  accessRefused: {
+    contact: "Contact an administrator.",
+    contactWith: "Contact an administrator: {contact}.",
+    contactLower: "contact an administrator.",
+    contactLowerWith: "contact an administrator: {contact}.",
+    tryAgain: "Try again",
+    reference: "Reference {reference}",
+    details: {
+      documentTitle: "Not signed in · A2H",
+      title: "A2H could not sign you in",
+      lead: "{SignIn} worked, but A2H can't accept the details it gave for you, so you are not signed in. Nothing was changed.",
+      body: "This can't be fixed on this page. {contact} Give them the reference below: it tells them what to correct.",
+    },
+    removed: {
+      documentTitle: "No access · A2H",
+      title: "You don't have access to A2H",
+      lead: "{SignIn} worked, but an administrator of A2H has removed your access, so you are not signed in.",
+      body: "Apps you connected can't act for you while your access is removed. Nothing of yours was deleted. To get access back: {contact}",
+    },
+  },
+  /** screens.md N1. */
+  notAdministrator: {
+    documentTitle: "For administrators · A2H",
+    title: "This page is for administrators",
+    lead: "You're signed in, but only administrators of A2H in your organisation can open this page. Nothing was changed.",
+    body: "If someone's access needs changing, {contact}",
+    action: "Go to Connected apps",
+  },
+  /** Header links (AuthShell) and the administrators' own navigation. */
+  nav: {
+    label: "A2H",
+    clients: "Connected apps",
+    people: "People and access",
+    adminLabel: "Administration",
+    adminPeople: "People",
+    adminRecord: "Record of actions",
+  },
+  /** screens.md P1–P13. */
+  people: {
+    documentTitle: "People and access · A2H",
+    title: "People and access",
+    lead: "Everyone who has signed in to A2H. You can remove or restore a person's access and choose who else is an administrator.",
+    note: "Nobody's requests, answers or rules are shown here, to you or to any other administrator. Who can sign in at all is decided in your organisation's sign-in, not on this page.",
+    listLabel: "People",
+    counts: "{people} · {administrators} · {removed} with access removed",
+    person: { one: "1 person", other: "{n} people" },
+    administrator: { one: "1 administrator", other: "{n} administrators" },
+    you: "(you)",
+    pillAccess: "Has access",
+    pillRemoved: "Access removed",
+    pillAdministrator: "Administrator",
+    who: "{name} ({email})",
+    actions: {
+      remove: { label: "Remove access", name: "Remove access for {who}" },
+      restore: { label: "Restore access", name: "Restore access for {who}" },
+      grant: { label: "Make administrator", name: "Make administrator: {who}" },
+      withdraw: { label: "Withdraw administrator role", name: "Withdraw administrator role from {who}" },
+    },
+    reasons: {
+      ownAccess: "You can't remove your own access.",
+      removedAdministrator: "Not an administrator while their access is removed. They will be one again if it is restored.",
+      configured: "Named as an administrator in this install's configuration, so the role can't be withdrawn here.",
+      configuredYou: "You are named as an administrator in this install's configuration, so your role can't be withdrawn here.",
+      onlyAdministrator: "You are the only administrator. Make someone else an administrator before this role can be withdrawn.",
+    },
+    confirm: {
+      remove: {
+        question: "Remove {name}'s access?",
+        body: "They are signed out at once and can't sign in until an administrator restores their access. Apps they connected can no longer act for them; access an app already has ends within an hour. Nothing of theirs is deleted. This goes in the record of actions.",
+        bodyAdministrator:
+          "They are signed out at once and can't sign in until an administrator restores their access. Apps they connected can no longer act for them; access an app already has ends within an hour. They also stop being an administrator while their access is removed, and are one again if it is restored. Nothing of theirs is deleted. This goes in the record of actions.",
+        yes: "Remove access",
+        pending: "Removing…",
+        no: "Keep access",
+      },
+      restore: {
+        question: "Restore {name}'s access?",
+        body: "They can sign in again, and apps they connected before work again without asking them anew. This goes in the record of actions.",
+        bodyAdministrator:
+          "They can sign in again, and apps they connected before work again without asking them anew. They will be an administrator again. This goes in the record of actions.",
+        yes: "Restore access",
+        pending: "Restoring…",
+        no: "Keep removed",
+      },
+      grant: {
+        question: "Make {name} an administrator?",
+        body: "They will be able to open this page, remove and restore people's access, and make or withdraw administrators, you included. They will not see anyone's requests, answers or rules. This goes in the record of actions.",
+        yes: "Make administrator",
+        pending: "Saving…",
+        no: "Not now",
+      },
+      withdraw: {
+        question: "Withdraw {name}'s administrator role?",
+        body: "They keep their access to A2H but can no longer open this page. This goes in the record of actions.",
+        yes: "Withdraw role",
+        pending: "Saving…",
+        no: "Keep as administrator",
+      },
+      withdrawOwn: {
+        question: "Withdraw your own administrator role?",
+        body: "You keep your access to A2H but leave this page at once. You can't come back unless another administrator makes you one again. This goes in the record of actions.",
+        yes: "Withdraw my role",
+        pending: "Saving…",
+        no: "Stay an administrator",
+      },
+    },
+    /** `{record}` is the link to the record of actions. */
+    done: {
+      inRecord: "This is in the {record}.",
+      recordLink: "record of actions",
+      remove: {
+        title: "{name}'s access is removed",
+        body: "They are signed out and can't sign in until access is restored. Access an app already has ends within an hour.",
+        bodyAdministrator:
+          "They are signed out, can't sign in until access is restored, and are not an administrator meanwhile. Access an app already has ends within an hour.",
+      },
+      restore: { title: "{name}'s access is restored", body: "They can sign in again, and apps they connected before work again." },
+      grant: { title: "{name} is now an administrator", body: "They can open this page from their next visit." },
+      withdraw: { title: "{name} is no longer an administrator", body: "They keep their access to A2H." },
+      alreadyTitle: "Already done",
+      alreadyBody: "Another administrator did this a moment ago. The list is now up to date.",
+    },
+    /** Shown on Connected apps after withdrawing one's own role. */
+    ownRoleWithdrawnTitle: "You are no longer an administrator",
+    ownRoleWithdrawnBody: "You keep your access to A2H.",
+    refused: {
+      lastWithdrawTitle: "{name} is still an administrator",
+      lastWithdrawTitleYou: "You are still an administrator",
+      lastWithdrawBody:
+        "Their role was not withdrawn: A2H would be left with no administrator. Make someone else an administrator first. The list is now up to date.",
+      lastWithdrawBodyYou:
+        "Your role was not withdrawn: A2H would be left with no administrator. Make someone else an administrator first. The list is now up to date.",
+      lastRemoveTitle: "{name} still has access",
+      lastRemoveBody: "Their access was not removed: A2H would be left with no administrator. The list is now up to date.",
+      configuredTitle: "{name} is still an administrator",
+      configuredTitleYou: "You are still an administrator",
+      configuredBody:
+        "Their role was not withdrawn: they are named as an administrator in this install's configuration, so it can't be withdrawn here. The list is now up to date.",
+      configuredBodyYou:
+        "Your role was not withdrawn: you are named as an administrator in this install's configuration, so it can't be withdrawn here. The list is now up to date.",
+      ownAccessTitle: "You still have access",
+      ownAccessBody: "You can't remove your own access. Nothing was changed.",
+    },
+    failed: {
+      remove: { title: "{name} still has access", what: "Removing access" },
+      restore: { title: "{name}'s access is still removed", what: "Restoring access" },
+      grant: { title: "{name} is not an administrator", what: "Making them an administrator" },
+      withdraw: { title: "{name} is still an administrator", what: "Withdrawing the role" },
+      withdrawTitleYou: "You are still an administrator",
+      body: "{what} did not go through. Nothing was changed. Try again.",
+    },
+    onlyYouTitle: "You're the only person so far",
+    onlyYouBody:
+      "People appear here the first time they sign in to A2H. There is nobody to invite or add on this page: your organisation's sign-in decides who can come in.",
+    loading: "Loading people",
+    errorTitle: "People could not be loaded",
+    errorBody: "Nobody's access was changed. Reload the page to try again.",
+    reload: "Reload",
+    offlineTitle: "You're offline",
+    offlineBody: "This list may be out of date. Changing access needs a connection.",
+    searchLabel: "Search people",
+    searchDescription: "By name or email address.",
+    searchClear: "Clear",
+    searchClearName: "Clear search",
+    show: "Show",
+    showEveryone: "Everyone ({n})",
+    showAdministrators: "Administrators ({n})",
+    showRemoved: "Access removed ({n})",
+    showing: "Showing {shown} of {total}",
+    showingMatching: "Showing {shown} of {total} matching “{text}”",
+    more: "Show {n} more",
+    noMatchTitle: "No one matches “{text}”",
+    noMatchBody: "Check the spelling, or search by email address. Only people who have signed in to A2H at least once are listed.",
+    clearSearch: "Clear search",
+  },
+  /** screens.md P14. */
+  record: {
+    documentTitle: "Record of actions · A2H",
+    lead: "Every time an administrator removed or restored someone's access, or made or withdrew an administrator. Newest first.",
+    note: "Entries can't be changed or deleted, by you or by anyone. Each person is shown with their current name and email address.",
+    listLabel: "Record of actions, newest first",
+    sentences: {
+      access_removed: "{by} removed {about}'s access.",
+      access_restored: "{by} restored {about}'s access.",
+      administrator_made: "{by} made {about} an administrator.",
+      administrator_withdrawn: "{by} withdrew {about}'s administrator role.",
+      administrator_withdrawn_own: "{by} withdrew their own administrator role.",
+    },
+    by: "By {by}",
+    byAbout: "By {by} · about {about}",
+    showing: "Showing {shown} of {total} {actions}",
+    action: { one: "action", other: "actions" },
+    older: "Show {n} older",
+    emptyTitle: "No actions yet",
+    emptyBody: "When an administrator removes or restores someone's access, or makes or withdraws an administrator, it is listed here.",
+    loading: "Loading the record",
+    errorTitle: "The record could not be loaded",
+    errorBody: "Nothing was changed. Reload the page to try again.",
+    offlineTitle: "You're offline",
+    offlineBody: "This record may be out of date.",
+  },
   /** m2-approval-page design.md, Screens A1–A12. */
   approval: {
     documentTitle: "Review a question · A2H",
@@ -355,6 +589,13 @@ export const copy = {
     wrongAction: "Sign out, then open the link again and sign in with the account your agent uses.",
   },
 } as const;
+
+/** "your organisation's sign-in" or, with the configured name, "the Automi sign-in" (screens.md "The organisation's name"). */
+export function signInWords(organisationName?: string, capital = false): string {
+  const c = copy.orgSignIn;
+  if (organisationName === undefined || organisationName.trim() === "") return capital ? c.signInWordsCapital : c.signInWords;
+  return fill(capital ? c.signInWordsNamedCapital : c.signInWordsNamed, { name: organisationName });
+}
 
 /** Fills {name} placeholders. Values are inserted as text; React escapes them. */
 export function fill(template: string, values: Record<string, string>): string {
