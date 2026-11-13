@@ -31,6 +31,7 @@ import {
   markFileReady,
   principalUsage,
   principalWithPolicy,
+  principals,
   pruneRateLimitWindows,
   recordBlockedManifest,
   refuseFile,
@@ -134,6 +135,13 @@ describe("packages/db queries through the Data API driver (Postgres 17)", { skip
     assert.equal(await bumpRateLimit(db, P, "day", new Date("2026-10-27T00:00:00Z")), 1);
     assert.equal(await bumpRateLimit(db, P, "day", new Date("2026-10-27T00:00:00Z")), 2);
     assert.equal(await pruneRateLimitWindows(db, new Date("2026-10-28T00:00:00Z")), 1);
+  });
+
+  test("m2-org-sign-in D9: ensurePrincipal with the method organisation_idp, and a second consent leaving it as stored", async () => {
+    await ensurePrincipal(db, "user-data-api-idp", { policy: POLICY, verification_method: "organisation_idp" });
+    await ensurePrincipal(db, "user-data-api-idp", { policy: POLICY, verification_method: "owner_allowlist" });
+    const rows = await db.select({ verified: principals.verified, verification_method: principals.verification_method }).from(principals).where(eq(principals.principal_id, "user-data-api-idp"));
+    assert.deepEqual(rows, [{ verified: true, verification_method: "organisation_idp" }]);
   });
 
   async function awaiting(id: string, expiresAt = new Date(NOW.getTime() + 24 * 3_600_000)): Promise<string> {
