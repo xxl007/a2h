@@ -89,9 +89,16 @@ export function PeopleScreen({
   const [list, setList] = useState(people);
   useEffect(() => setList(people), [people]);
 
-  const [open, setOpen] = useState<{ id: string; status: PersonRowStatus } | undefined>(
-    initial?.id !== undefined && initial.status !== undefined ? { id: initial.id, status: initial.status } : undefined,
+  // At most one confirmation is open (screens.md P6–P10); a running action belongs to its own row and
+  // stays busy whatever happens elsewhere, so several rows can be running at once.
+  const [confirming, setConfirming] = useState<{ id: string; action: PersonAction } | undefined>(
+    initial?.id !== undefined && initial.status?.kind === "confirming" ? { id: initial.id, action: initial.status.action } : undefined,
   );
+  const [running, setRunning] = useState<Readonly<Record<string, PersonAction>>>(
+    initial?.id !== undefined && initial.status?.kind === "pending" ? { [initial.id]: initial.status.action } : {},
+  );
+  const confirmingRef = useRef(confirming);
+  confirmingRef.current = confirming;
   const [notices, setNotices] = useState<Record<string, PersonRowNotice>>(
     initial?.id !== undefined && initial.notice !== undefined ? { [initial.id]: initial.notice } : {},
   );
@@ -114,12 +121,16 @@ export function PeopleScreen({
   const matching = useMemo(() => {
     if (!tools) return sorted;
     const hits = new Set(filterPeople(sorted, query, show).map((p) => p.id));
-    return sorted.filter((p) => hits.has(p.id) || pinned.includes(p.id) || open?.id === p.id);
-  }, [tools, sorted, query, show, pinned, open?.id]);
+    return sorted.filter((p) => hits.has(p.id) || pinned.includes(p.id) || confirming?.id === p.id || running[p.id] !== undefined);
+  }, [tools, sorted, query, show, pinned, confirming?.id, running]);
   const visible = tools ? matching.slice(0, shown) : sorted;
   const showing = fill(text === "" ? c.showing : c.showingMatching, { shown: String(visible.length), total: countPeople(matching.length), text });
-  const settledShowing = useSettled(showing);
   const settledText = useSettled(text);
+  // While the person is typing, the status keeps the words it last said; it speaks once typing pauses.
+  // "Show", "Show more" and actions are not typing: they update it at once.
+  const lastSaid = useRef(showing);
+  if (settledText === text) lastSaid.current = showing;
+  const statusText = lastSaid.current;
   const noMatch = tools && matching.length === 0 && text !== "";
   const step = Math.min(PEOPLE_PAGE, matching.length - shown);
 
@@ -129,35 +140,47 @@ export function PeopleScreen({
     setPinned([]);
   };
 
+  const statusOf = (id: string): PersonRowStatus | undefined => {
+    const runningAction = running[id];
+    if (runningAction !== undefined) return { kind: "pending", action: runningAction };
+    return confirming?.id === id ? { kind: "confirming", action: confirming.action } : undefined;
+  };
+
   const openConfirmation = (id: string, action: PersonAction) => {
-    setOpen({ id, status: { kind: "confirming", action } });
+    if (running[id] !== undefined) return;
+    setConfirming({ id, action });
     setNotices((all) => Object.fromEntries(Object.entries(all).filter(([key]) => key !== id)));
     focusOn(id, "confirm");
   };
   const cancel = (id: string, action: PersonAction) => {
-    setOpen(undefined);
+    if (running[id] !== undefined) return;
+    setConfirming((current) => (current?.id === id ? undefined : current));
     focusOn(id, action === "remove" || action === "restore" ? "access" : "role");
   };
   const confirm = async (id: string, action: PersonAction) => {
     const person = list.find((p) => p.id === id);
     const handler = { remove: onRemoveAccess, restore: onRestoreAccess, grant: onMakeAdministrator, withdraw: onWithdrawAdministrator }[action];
-    if (person === undefined || handler === undefined) {
-      setOpen(undefined);
+    if (person === undefined || handler === undefined || running[id] !== undefined) {
+      setConfirming((current) => (current?.id === id ? undefined : current));
       return;
     }
-    setOpen({ id, status: { kind: "pending", action } });
+    setConfirming((current) => (current?.id === id ? undefined : current));
+    setRunning((all) => ({ ...all, [id]: action }));
     const say = (notice: PersonRowNotice, target: PersonRowFocus["target"]) => {
+      setRunning((all) => Object.fromEntries(Object.entries(all).filter(([key]) => key !== id)));
       setNotices((all) => ({ ...all, [id]: notice }));
       setPinned((ids) => [...ids, id]);
-      setOpen(undefined);
-      focusOn(id, target);
+      // Focus is never taken from a confirmation the person has opened meanwhile in another row;
+      // the notice still speaks (status or alert).
+      const elsewhere = confirmingRef.current !== undefined && confirmingRef.current.id !== id;
+      if (!elsewhere) focusOn(id, target);
     };
     try {
       const result = await handler(id);
       setList(result.people);
       if (!result.ok) say({ kind: "refused", action, refusal: result.refusal }, "notice");
       else if (result.alreadyDone) say({ kind: "already-done" }, "name");
-      else if (action === "withdraw" && person.isYou) return; // the app leaves the page; the button stays busy
+      else if (action === "withdraw" && person.isYou) return; // the app leaves the page; the row stays busy
       else say({ kind: "done", action, wasAdministrator: isActiveAdministrator(person) }, "name");
     } catch (error) {
       const ref = referenceOf(error);
@@ -178,7 +201,7 @@ export function PeopleScreen({
       <p className={styles.lead}>{c.lead}</p>
       <p className={styles.muted}>{c.note}</p>
       {state === "offline" && (
-        <Notice tone="neutral" title={c.offlineTitle} live="status">
+        <Notice tone="neutral" title={c.offlineTitle}>
           <p>{c.offlineBody}</p>
         </Notice>
       )}
@@ -235,20 +258,23 @@ export function PeopleScreen({
       )}
       {listed && visible.length > 0 && (
         <ul className={styles.list} aria-label={c.listLabel}>
-          {visible.map((person) => (
+          {visible.map((person) => {
+            const status = statusOf(person.id);
+            return (
             <PersonRow
               key={person.id}
               person={person}
               onlyAdministrator={onlyAdministrator}
               recordHref={recordHref}
-              {...(open?.id === person.id ? { status: open.status } : {})}
+              {...(status !== undefined ? { status } : {})}
               {...(notices[person.id] !== undefined ? { notice: notices[person.id] } : {})}
               {...(focus?.id === person.id ? { focus: { target: focus.target, key: focus.key } } : {})}
               onOpen={(action) => openConfirmation(person.id, action)}
-              onCancel={() => open?.id === person.id && open.status.kind !== "idle" && cancel(person.id, open.status.action)}
+              onCancel={() => confirming?.id === person.id && cancel(person.id, confirming.action)}
               onConfirm={(action) => void confirm(person.id, action)}
             />
-          ))}
+            );
+          })}
         </ul>
       )}
       {listed && onlyYou && (
@@ -277,7 +303,7 @@ export function PeopleScreen({
       {listed && tools && !noMatch && (
         <div className={styles.more}>
           <p className={styles.count} role="status">
-            {settledShowing}
+            {statusText}
           </p>
           {step > 0 && (
             <Button

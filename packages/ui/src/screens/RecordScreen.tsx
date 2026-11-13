@@ -71,7 +71,7 @@ export function RecordScreen({
       <p className={styles.lead}>{c.lead}</p>
       <p className={styles.muted}>{c.note}</p>
       {state === "offline" && (
-        <Notice tone="neutral" title={c.offlineTitle} live="status">
+        <Notice tone="neutral" title={c.offlineTitle}>
           <p>{c.offlineBody}</p>
         </Notice>
       )}
