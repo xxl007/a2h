@@ -1,0 +1,66 @@
+{
+  "realm": "a2h-test",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": true,
+  "verifyEmail": false,
+  "requiredActions": [
+    { "alias": "VERIFY_PROFILE", "name": "Verify Profile", "providerId": "VERIFY_PROFILE", "enabled": false, "defaultAction": false, "priority": 90 }
+  ],
+  "clients": [
+    {
+      "clientId": "a2h-test",
+      "name": "A2H test install",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "a2h-test-client-secret-not-a-real-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:3000/api/auth/callback/idp"],
+      "webOrigins": [],
+      "attributes": { "pkce.code.challenge.method": "S256" }
+    }
+  ],
+  "users": [
+    {
+      "username": "verified",
+      "enabled": true,
+      "email": "verified.person@a2h-test.example",
+      "emailVerified": true,
+      "firstName": "Vera",
+      "lastName": "Verified",
+      "credentials": [{ "type": "password", "value": "test-password-verified", "temporary": false }]
+    },
+    {
+      "username": "unverified",
+      "enabled": true,
+      "email": "unverified.person@a2h-test.example",
+      "emailVerified": false,
+      "firstName": "Ugo",
+      "lastName": "Unverified",
+      "credentials": [{ "type": "password", "value": "test-password-unverified", "temporary": false }]
+    },
+    {
+      "username": "noemail",
+      "enabled": true,
+      "firstName": "Nora",
+      "lastName": "Noemail",
+      "credentials": [{ "type": "password", "value": "test-password-noemail", "temporary": false }]
+    },
+    {
+      "username": "reassigned",
+      "enabled": true,
+      "email": "verified.person@a2h-test.example",
+      "emailVerified": true,
+      "firstName": "Rita",
+      "lastName": "Reassigned",
+      "credentials": [{ "type": "password", "value": "test-password-reassigned", "temporary": false }]
+    }
+  ]
+}
