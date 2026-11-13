@@ -128,6 +128,18 @@ export function createAuth(deps: AuthDeps) {
     secret: config.secret,
     database: drizzleAdapter(deps.db, { provider: "pg", schema: authSchema }),
     emailAndPassword: { enabled: false },
+    // m2-org-sign-in design D6, D7: the access state, the administrator flag
+    // and the time of the last sign-in at the organisation's identity
+    // provider are columns of `user` (packages/db/src/auth-schema.ts is
+    // generated from this configuration). Never set from a request body
+    // (`input: false`): only the queries of @a2h/db write them.
+    user: {
+      additionalFields: {
+        accessRemovedAt: { type: "date", required: false, input: false },
+        isAdministrator: { type: "boolean", required: true, defaultValue: false, input: false },
+        lastIdpSignInAt: { type: "date", required: false, input: false },
+      },
+    },
     // `/token` is the jwt plugin's session-to-JWT endpoint: OAuth clients get
     // tokens from /oauth2/token only. `/sign-in/magic-link` is reached through
     // the sign-in server action only (allow-list first).

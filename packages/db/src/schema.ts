@@ -14,6 +14,9 @@
 //   are append-only, and
 //   `signing_keys` only moves forward (active → rotated → revoked); triggers in
 //   migrations/0001_append_only.sql refuse anything else.
+// - `administrator_actions` (m2-org-sign-in D7) is append-only too; its
+//   triggers are in the migration that creates it. It names accounts by id
+//   only: no name, no address, no free text.
 // - `principals`, `principal_policies` and `rate_limit_windows` (m1-hosted-
 //   connector D4, D5) are not append-only: a policy is edited in place by
 //   design and a window is a counter; neither is a money movement.
@@ -58,6 +61,7 @@ import {
   transition,
 } from "@a2h/protocol";
 import { type SQL, sql } from "drizzle-orm";
+import { user } from "./auth-schema.ts";
 import {
   type AnyPgColumn,
   bigint,
@@ -560,13 +564,16 @@ export const answers = pgTable(
 const IDENTITY_MODES = PrincipalSchema.shape.identity_mode.options;
 
 /**
- * How a principal's `verified` flag was established (decision 8). M1 has one
- * method: sign-in requires an owner-listed address and control of its mailbox,
- * so a principal created at consent is verified by the owner's allow-list. A
- * later identity check finds the principals verified this way by this value.
- * Stored only, not part of the protocol Principal.
+ * How a principal's `verified` flag was established (decision 8), by the
+ * sign-in that led to its first consent:
+ * - `owner_allowlist`: a magic link to an owner-listed address (development
+ *   stages only since m2-org-sign-in);
+ * - `organisation_idp`: the organisation's identity provider authenticated
+ *   the person for this install with a verified address (m2-org-sign-in D9).
+ * A later identity check finds the principals verified each way by this
+ * value. Stored only, not part of the protocol Principal.
  */
-export const PRINCIPAL_VERIFICATION_METHODS = ["owner_allowlist"] as const;
+export const PRINCIPAL_VERIFICATION_METHODS = ["owner_allowlist", "organisation_idp"] as const;
 export type PrincipalVerificationMethod = (typeof PRINCIPAL_VERIFICATION_METHODS)[number];
 
 /**
@@ -648,6 +655,39 @@ export const rateLimitWindows = pgTable(
     ),
     check("rate_limit_windows_count_non_negative", sql`${t.count} >= 0`),
     index("rate_limit_windows_start_idx").on(t.window_start),
+  ],
+);
+
+// ---- administrators (m2-org-sign-in design D7) ------------------------------
+
+/** What an administrator can do to a person's access (spec platform/administration). */
+export const ADMINISTRATOR_ACTIONS = ["remove_access", "restore_access", "grant_administrator", "withdraw_administrator"] as const;
+export type AdministratorAction = (typeof ADMINISTRATOR_ACTIONS)[number];
+
+/**
+ * The record of administrator actions: who did what to whom, and when (spec
+ * platform/administration "Administrator actions are recorded"). Written in
+ * the transaction of the action it records (`queries/access.ts`); a refused
+ * action writes nothing. Append-only. Actor and subject are accounts (Better
+ * Auth `user`), referenced without cascade: accounts are never deleted, and
+ * the record shows each person's current name and address by joining them.
+ */
+export const administratorActions = pgTable(
+  "administrator_actions",
+  {
+    id: bigint("id", { mode: "number" }).primaryKey().generatedAlwaysAsIdentity(),
+    actor_user_id: text("actor_user_id")
+      .notNull()
+      .references(() => user.id),
+    subject_user_id: text("subject_user_id")
+      .notNull()
+      .references(() => user.id),
+    action: code("action", ADMINISTRATOR_ACTIONS).notNull(),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("administrator_actions_action_known", oneOf(t.action, ADMINISTRATOR_ACTIONS)),
+    index("administrator_actions_at_idx").on(t.at),
   ],
 );
 

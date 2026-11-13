@@ -74,7 +74,7 @@ describe("database constraints (Postgres 17)", { skip }, () => {
     assert.deepEqual(rows.map((r: { schema: string }) => r.schema), [SCHEMA]);
     const tables = await db.query(`SELECT tablename FROM pg_tables WHERE schemaname = $1 ORDER BY 1`, [SCHEMA]);
     assert.deepEqual(tables.rows.map((r: { tablename: string }) => r.tablename), [
-      "account", "answers", "blocked_manifests", "jwks", "oauth_access_token", "oauth_client", "oauth_client_assertion",
+      "account", "administrator_actions", "answers", "blocked_manifests", "jwks", "oauth_access_token", "oauth_client", "oauth_client_assertion",
       "oauth_client_resource", "oauth_consent", "oauth_refresh_token", "oauth_resource", "participants", "principal_policies",
       "principals", "profiles", "rate_limit_windows", "request_deliveries", "request_events", "request_files", "requests", "rule_types", "rules",
       "schema_migrations", "session", "signing_keys", "simulated_personas", "user", "verification",
@@ -309,7 +309,7 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       assert.ok(rows[0]?.created_at instanceof Date);
       await db.query("ROLLBACK TO SAVEPOINT p");
     });
-    test("verification method (decision 8): null by default, owner_allowlist accepted, any other value refused", async () => {
+    test("verification method (decision 8; m2-org-sign-in D9): null by default, owner_allowlist and organisation_idp accepted, any other value refused", async () => {
       await db.query("SAVEPOINT p");
       await accepts(`INSERT INTO principals (principal_id) VALUES ($1)`, [P]);
       const { rows } = await db.query<{ verification_method: string | null }>(`SELECT verification_method FROM principals WHERE principal_id = $1`, [P]);
@@ -319,6 +319,11 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       await db.query("SAVEPOINT p");
       await accepts(ins, [P, "owner_allowlist"]);
       await db.query("ROLLBACK TO SAVEPOINT p");
+      // m2-org-sign-in design D9: verified by the organisation's identity provider.
+      await db.query("SAVEPOINT p");
+      await accepts(ins, [P, "organisation_idp"]);
+      await db.query("ROLLBACK TO SAVEPOINT p");
+      await rejects(ins, [P, "organisation_sso"], /principals_verification_method_known/);
       await rejects(ins, [P, "self_declared"], /principals_verification_method_known/);
       await rejects(ins, [P, ""], /principals_verification_method_known/);
     });
@@ -423,6 +428,41 @@ describe("database constraints (Postgres 17)", { skip }, () => {
       await rejects(`INSERT INTO simulated_personas (persona, delay_seconds) VALUES ('chatty', 10)`);
       await rejects(`INSERT INTO simulated_personas (persona, delay_seconds, decline_reason_code) VALUES ('slow', 90, 'outside_expertise')`);
       await accepts(`INSERT INTO simulated_personas (persona, delay_seconds) VALUES ('slow', 90)`);
+    });
+  });
+  // m2-org-sign-in task 3.2 (design D7; spec platform/administration
+  // "Administrator actions are recorded").
+  describe("administrator_actions and the user's access columns", () => {
+    const ins = `INSERT INTO administrator_actions (actor_user_id, subject_user_id, action) VALUES ($1, $2, $3)`;
+    before(async () => {
+      await db.query(`INSERT INTO "user" (id, name, email) VALUES ('u_admin', 'Ada', 'ada@a2h.test'), ('u_person', 'Per', 'per@a2h.test')`);
+      await db.query(ins, ["u_admin", "u_person", "remove_access"]);
+    });
+    test("a new account has access, is not an administrator and has no provider sign-in time", async () => {
+      const { rows } = await db.query(`SELECT access_removed_at, is_administrator, last_idp_sign_in_at FROM "user" WHERE id = 'u_person'`);
+      assert.deepEqual(rows[0], { access_removed_at: null, is_administrator: false, last_idp_sign_in_at: null });
+    });
+    test("each of the four actions is accepted with its time recorded; any other is refused", async () => {
+      for (const a of ["remove_access", "restore_access", "grant_administrator", "withdraw_administrator"]) await accepts(ins, ["u_admin", "u_person", a]);
+      const { rows } = await db.query<{ at: unknown }>(`SELECT at FROM administrator_actions`);
+      assert.ok(rows.every((r) => r.at instanceof Date));
+      await rejects(ins, ["u_admin", "u_person", "access_removed"], /administrator_actions_action_known/);
+      await rejects(ins, ["u_admin", "u_person", "delete_person"], /administrator_actions_action_known/);
+    });
+    test("actor and subject must be accounts", async () => {
+      await rejects(ins, ["u_nobody", "u_person", "remove_access"], /foreign key/);
+      await rejects(ins, ["u_admin", "u_nobody", "remove_access"], /foreign key/);
+      await rejects(ins, [null, "u_person", "remove_access"], /not-null/);
+    });
+    test("Scenario: Action recorded: no administrator can change or delete an entry (UPDATE, DELETE, TRUNCATE refused)", async () => {
+      await rejects(`UPDATE administrator_actions SET action = 'restore_access'`, [], /append-only/);
+      await rejects(`UPDATE administrator_actions SET actor_user_id = 'u_person'`, [], /append-only/);
+      await rejects(`DELETE FROM administrator_actions`, [], /append-only/);
+      await rejects(`TRUNCATE administrator_actions`, [], /append-only/);
+    });
+    test("an account named in the record cannot be deleted from under it (no cascade)", async () => {
+      await rejects(`DELETE FROM "user" WHERE id = 'u_person'`, [], /foreign key|append-only/);
+      await rejects(`DELETE FROM "user" WHERE id = 'u_admin'`, [], /foreign key|append-only/);
     });
   });
 });
