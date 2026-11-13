@@ -8,6 +8,7 @@
 import { after, before, beforeEach, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
+import { createServer, type Server } from "node:http";
 import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, decodeProtectedHeader, errors, jwtVerify, type JSONWebKeySet, type JWTPayload } from "jose";
 import {
   FAULTS,
@@ -145,6 +146,11 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
   return assert.fail("expected a rejection");
 }
 
+/** The fake's own refusals since the last look, acknowledged: "endpoint error". */
+function refusalsOf(idp: FakeIssuer): string[] {
+  return idp.takeRefusals().map((r) => `${r.endpoint} ${r.error}`);
+}
+
 const alpha = PEOPLE.alpha;
 const bravo = PEOPLE.bravo;
 
@@ -246,6 +252,7 @@ describe("fake issuer", () => {
       assert.equal(anonymous.status, 401);
       const forged = await fetch(d.userinfo_endpoint, { headers: { authorization: "Bearer not-a-token" } });
       assert.equal(forged.status, 401);
+      assert.deepEqual(refusalsOf(idp), ["userinfo invalid_token", "userinfo invalid_token"]);
     });
 
     test("the selection holds until changed, and each sign-in is recorded with its tokens", async () => {
@@ -265,6 +272,7 @@ describe("fake issuer", () => {
       const res = await fetch(attempt(d).url, { redirect: "manual" });
       assert.equal(res.status, 500);
       assert.match(await res.text(), /signInAs/);
+      assert.deepEqual(refusalsOf(idp), ["authorize no_person_selected"]);
     });
 
     test("every request is recorded by method and path, without its query", async () => {
@@ -281,7 +289,8 @@ describe("fake issuer", () => {
       const a = attempt(await discover(idp));
       const cb = await idp.authorize(a.url);
       assert.equal(cb.searchParams.get("state"), a.state);
-      await assert.rejects(idp.authorize(`${idp.issuer}/authorize?client_id=someone-else`), /400/);
+      await assert.rejects(idp.authorize(`${idp.issuer}/authorize?client_id=someone-else`), /refused.*unknown_client/);
+      assert.deepEqual(refusalsOf(idp), ["authorize unknown_client"]);
       await assert.rejects(idp.authorize("https://elsewhere.example/authorize"), /not this issuer/);
     });
   });
@@ -310,6 +319,7 @@ describe("fake issuer", () => {
       const again = await freshCode();
       assert.deepEqual(await refusedAtToken({ grant_type: "authorization_code", code: again.code, redirect_uri: REDIRECT }), { status: 400, error: "invalid_grant" });
       assert.equal(idp.issued.length, 0);
+      assert.deepEqual(refusalsOf(idp), ["token invalid_grant", "token invalid_grant"]);
     });
 
     test("PKCE: the authorization endpoint refuses a request without an S256 challenge", async () => {
@@ -322,12 +332,14 @@ describe("fake issuer", () => {
         assert.equal(cb.searchParams.get("state"), a.state);
         assert.equal(cb.searchParams.get("code"), null);
       }
+      assert.deepEqual(refusalsOf(idp), ["authorize invalid_request", "authorize invalid_request"]);
     });
 
     test("a code works once", async () => {
       const { a, code } = await freshCode();
       await exchange(await discover(idp), a, code);
       assert.deepEqual(await refusedAtToken({ grant_type: "authorization_code", code, redirect_uri: REDIRECT, code_verifier: a.verifier }), { status: 400, error: "invalid_grant" });
+      assert.deepEqual(refusalsOf(idp), ["token invalid_grant"]);
     });
 
     test("the client authenticates with its secret, by Basic or in the body", async () => {
@@ -337,6 +349,7 @@ describe("fake issuer", () => {
       assert.deepEqual(await refusedAtToken(body, "none"), { status: 401, error: "invalid_client" });
       const res = await tokenRequest(await discover(idp), body, "post");
       assert.equal(res.status, 200, "a refused client authentication does not burn the code");
+      assert.deepEqual(refusalsOf(idp), ["token invalid_client", "token invalid_client"]);
     });
 
     test("the redirect address at the token endpoint is the one of the authorization request", async () => {
@@ -345,10 +358,12 @@ describe("fake issuer", () => {
         await refusedAtToken({ grant_type: "authorization_code", code, redirect_uri: "http://localhost:3000/elsewhere", code_verifier: a.verifier }),
         { status: 400, error: "invalid_grant" },
       );
+      assert.deepEqual(refusalsOf(idp), ["token invalid_grant"]);
     });
 
     test("only the authorization code grant", async () => {
       assert.deepEqual(await refusedAtToken({ grant_type: "refresh_token", refresh_token: "x" }), { status: 400, error: "unsupported_grant_type" });
+      assert.deepEqual(refusalsOf(idp), ["token unsupported_grant_type"]);
     });
 
     test("an unknown client or an unregistered redirect address gets a page, never a redirect", async () => {
@@ -359,6 +374,7 @@ describe("fake issuer", () => {
         assert.equal(res.status, 400);
         assert.equal(res.headers.get("location"), null);
       }
+      assert.deepEqual(refusalsOf(idp), ["authorize unknown_client", "authorize unregistered_redirect_uri"]);
     });
 
     test("without registered redirect addresses any is accepted", async () => {
@@ -377,6 +393,7 @@ describe("fake issuer", () => {
       const d = await discover(idp);
       assert.equal((await callbackOf(attempt(d, { set: { response_type: "token" } }))).searchParams.get("error"), "unsupported_response_type");
       assert.equal((await callbackOf(attempt(d, { set: { scope: "email" } }))).searchParams.get("error"), "invalid_scope");
+      assert.deepEqual(refusalsOf(idp), ["authorize unsupported_response_type", "authorize invalid_scope"]);
     });
   });
 
@@ -592,7 +609,9 @@ describe("fake issuer", () => {
       assert.deepEqual(idp.requests, []);
       assert.deepEqual(idp.issued, []);
       assert.equal(idp.lastCallback, undefined);
+      assert.deepEqual(idp.delivered, []);
       assert.equal((await fetch(attempt(d).url, { redirect: "manual" })).status, 500);
+      assert.deepEqual(refusalsOf(idp), ["authorize no_person_selected"]);
     });
 
     test("close() is final and can be called twice", async () => {
@@ -651,6 +670,220 @@ describe("fake issuer", () => {
       const forged = await idp.mintIdToken(bravo, { fault: "wrong_key" });
       assert.ok((await rejection(verify(idp, forged))) instanceof errors.JWSSignatureVerificationFailed);
       assert.equal(idp.issued.length, 0, "only sign-ins through the flow are recorded");
+    });
+  });
+
+  describe("its own refusals are loud: a test cannot pass on a refusal it did not ask for", () => {
+    // A relying party that sends something the fake rejects gets an error at
+    // its callback, which looks like "cancelled" to the application. Without
+    // these guards every refusal test would pass with its fault undelivered.
+    const NO_PKCE = { omit: ["code_challenge", "code_challenge_method"] };
+
+    test("a refusal is recorded with its endpoint, code and reason, and is marked in what the application receives", async () => {
+      idp.signInAs(alpha, "wrong_audience");
+      const d = await discover(idp);
+      const cb = await callbackOf(attempt(d, NO_PKCE));
+      assert.equal(cb.searchParams.get("error"), "invalid_request");
+      assert.match(cb.searchParams.get("error_description") ?? "", /^fake issuer refused: /);
+      assert.deepEqual(idp.refusals, [{ endpoint: "authorize", error: "invalid_request", description: "PKCE with S256 is required" }]);
+      const res = await tokenRequest(d, { grant_type: "authorization_code", code: "nope", redirect_uri: REDIRECT, code_verifier: "x" });
+      assert.match(((await res.json()) as { error_description: string }).error_description, /^fake issuer refused: /);
+      assert.deepEqual(refusalsOf(idp), ["authorize invalid_request", "token invalid_grant"]);
+      assert.deepEqual(idp.refusals, [], "taken once");
+    });
+
+    test("a requested fault is not a refusal: cancelled and provider_error carry no such mark", async () => {
+      const d = await discover(idp);
+      for (const fault of ["cancelled", "provider_error"] as const) {
+        idp.signInAs(alpha, fault);
+        const cb = await callbackOf(attempt(d));
+        assert.equal(cb.searchParams.get("error_description"), null);
+      }
+      assert.deepEqual(idp.refusals, []);
+    });
+
+    test("authorize() throws on a refusal instead of handing its redirect to the application", async () => {
+      idp.signInAs(alpha, "cancelled");
+      const d = await discover(idp);
+      await assert.rejects(idp.authorize(attempt(d, NO_PKCE).url), /fake issuer refused.*invalid_request.*PKCE/);
+      await assert.rejects(idp.authorize(attempt(d, { set: { scope: "email" } }).url), /fake issuer refused.*invalid_scope/);
+      idp.takeRefusals();
+      const cb = await idp.authorize(attempt(d).url);
+      assert.equal(cb.searchParams.get("error"), "access_denied", "the requested fault still comes back as a redirect");
+    });
+
+    test("expectDelivered passes only when that fault was the last answer given and nothing was refused", async () => {
+      const d = await discover(idp);
+      assert.throws(() => idp.expectDelivered("wrong_audience"), /nothing was delivered/);
+
+      // A token fault counts when the token response left, not when the code did.
+      idp.signInAs(alpha, "wrong_audience");
+      const a = attempt(d);
+      const code = (await callbackOf(a)).searchParams.get("code")!;
+      assert.throws(() => idp.expectDelivered("wrong_audience"), /nothing was delivered/);
+      await exchange(d, a, code);
+      idp.expectDelivered("wrong_audience");
+      assert.throws(() => idp.expectDelivered("wrong_issuer"), /wrong_audience.*not.*wrong_issuer|wrong_issuer/);
+      assert.throws(() => idp.expectDelivered(), /wrong_audience/);
+      assert.deepEqual(idp.delivered, [{ person: alpha, fault: "wrong_audience", at: "token" }]);
+
+      // Callback faults count when the redirect left.
+      for (const fault of ["cancelled", "provider_error", "wrong_state"] as const) {
+        idp.signInAs(bravo, fault);
+        await callbackOf(attempt(d));
+        idp.expectDelivered(fault);
+        assert.deepEqual(idp.delivered.at(-1), { person: bravo, fault, at: "callback" });
+      }
+
+      // No fault: the good answer was delivered.
+      idp.signInAs(alpha);
+      await signIn(idp);
+      idp.expectDelivered();
+      assert.throws(() => idp.expectDelivered("cancelled"), /no fault/);
+    });
+
+    test("the masking case: a refusal test whose request the fake rejected fails at expectDelivered", async () => {
+      // What a broken relying party produces: no PKCE. The application sees an
+      // error at its callback and shows its sign-in page, exactly as for "cancelled".
+      idp.signInAs(alpha, "cancelled");
+      const cb = await callbackOf(attempt(await discover(idp), NO_PKCE));
+      assert.ok(cb.searchParams.get("error"), "looks like the fault to the application");
+      assert.throws(() => idp.expectDelivered("cancelled"), /refused.*authorize invalid_request.*PKCE/s);
+      idp.takeRefusals();
+    });
+
+    test("a refusal after a delivered fault still fails expectDelivered", async () => {
+      idp.signInAs(alpha, "no_email");
+      const { tokens } = await signIn(idp);
+      idp.expectDelivered("no_email");
+      await fetch((await discover(idp)).userinfo_endpoint, { headers: { authorization: `Bearer ${tokens.access_token}x` } });
+      assert.throws(() => idp.expectDelivered("no_email"), /refused.*userinfo invalid_token/s);
+      idp.takeRefusals();
+    });
+
+    test("an endpoint the fake does not have is a refusal too (a relying party calling revocation or logout)", async () => {
+      const res = await fetch(`${idp.issuer}/revoke`, { method: "POST" });
+      assert.equal(res.status, 404);
+      assert.match(await res.text(), /^fake issuer refused: /);
+      assert.deepEqual(idp.refusals, [{ endpoint: "other", error: "unknown_endpoint", description: "POST /revoke" }]);
+      assert.throws(() => idp.expectDelivered(), /refused.*other unknown_endpoint.*POST \/revoke/s);
+      idp.takeRefusals();
+    });
+
+    test("reset() and close() fail on refusals nobody looked at, after doing their work", async () => {
+      const d = await discover(idp);
+      idp.signInAs(alpha);
+      await callbackOf(attempt(d, NO_PKCE));
+      await assert.rejects(idp.reset(), /1 refusal.*no test asked for.*authorize invalid_request/s);
+      assert.deepEqual(idp.refusals, [], "the reset happened: the next test starts clean");
+      await idp.reset();
+
+      const other = await startFakeIssuer({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
+      await fetch(`${other.issuer}/authorize?client_id=someone-else`);
+      await assert.rejects(other.close(), /1 refusal.*no test asked for.*authorize unknown_client/s);
+      await assert.rejects(fetch(other.discoveryUrl), "closed all the same");
+      await other.close();
+    });
+  });
+
+  describe("a code accepted twice (scenario: an answer already used)", () => {
+    test("allowCodeReuse: the second exchange succeeds, so a replayed callback is stopped by the application or by nothing", async () => {
+      idp.signInAs(alpha);
+      idp.allowCodeReuse();
+      const d = await discover(idp);
+      const a = attempt(d);
+      const code = (await callbackOf(a)).searchParams.get("code")!;
+      const first = await exchange(d, a, code);
+      const second = await exchange(d, a, code);
+      assert.equal((await verify(idp, second.id_token)).sub, alpha.sub);
+      assert.notEqual(second.access_token, first.access_token);
+      assert.equal(idp.issued.length, 2);
+      assert.deepEqual(idp.refusals, []);
+      // PKCE and the redirect address are still checked on every exchange.
+      const res = await tokenRequest(d, { grant_type: "authorization_code", code, redirect_uri: REDIRECT, code_verifier: "wrong" });
+      assert.equal(res.status, 400);
+      assert.deepEqual(refusalsOf(idp), ["token invalid_grant"]);
+    });
+
+    test("reset() makes codes single-use again", async () => {
+      idp.allowCodeReuse();
+      await idp.reset();
+      idp.signInAs(alpha);
+      const d = await discover(idp);
+      const a = attempt(d);
+      const code = (await callbackOf(a)).searchParams.get("code")!;
+      await exchange(d, a, code);
+      const res = await tokenRequest(d, { grant_type: "authorization_code", code, redirect_uri: REDIRECT, code_verifier: a.verifier });
+      assert.equal(res.status, 400);
+      assert.deepEqual(refusalsOf(idp), ["token invalid_grant"]);
+    });
+  });
+
+  describe("recover() when the port was taken meanwhile", () => {
+    function squat(port: number): Promise<Server> {
+      return new Promise((resolve, reject) => {
+        const squatter = createServer();
+        squatter.once("error", reject);
+        squatter.listen(port, "127.0.0.1", () => resolve(squatter));
+      });
+    }
+    const release = (squatter: Server): Promise<void> => new Promise((resolve) => squatter.close(() => resolve()));
+
+    test("it retries until the port is free again", async () => {
+      await idp.outage("refused");
+      const squatter = await squat(Number(new URL(idp.issuer).port));
+      setTimeout(() => void release(squatter), 200);
+      await idp.recover();
+      assert.equal((await discover(idp)).issuer, idp.issuer);
+    });
+
+    test("it gives up with a message that names the port, and can be tried again", async () => {
+      const port = new URL(idp.issuer).port;
+      await idp.outage("refused");
+      const squatter = await squat(Number(port));
+      try {
+        await assert.rejects(idp.recover(), new RegExp(`port ${port} .*in use`));
+      } finally {
+        await release(squatter);
+      }
+      await idp.recover();
+      assert.equal((await discover(idp)).issuer, idp.issuer);
+    });
+  });
+
+  describe("claims set by hand on a person (the verified claim independently of email_verified)", () => {
+    test("email_verified true with xms_edov false, and the reverse, in the token and in userinfo", async () => {
+      const d = await discover(idp);
+      for (const [emailVerified, edov] of [[true, false], [false, true]] as const) {
+        idp.signInAs({ ...alpha, claims: { email_verified: emailVerified, xms_edov: edov } });
+        const { tokens } = await signIn(idp);
+        const claims = await verify(idp, tokens.id_token);
+        assert.equal(claims.email_verified, emailVerified);
+        assert.equal(claims.xms_edov, edov);
+        assert.equal(claims.email, alpha.email);
+        const info = await userinfo(d, tokens.access_token);
+        assert.equal(info.email_verified, emailVerified);
+        assert.equal(info.xms_edov, edov);
+      }
+    });
+
+    test("an undefined value removes a claim; faults still apply to the configured claim first", async () => {
+      idp.signInAs({ ...alpha, claims: { name: undefined, department: "Testing" } });
+      const plain = (await signIn(idp)).claims;
+      assert.equal("name" in plain, false);
+      assert.equal(plain.department, "Testing");
+      idp.signInAs({ ...alpha, claims: { xms_edov: true } }, "email_unverified");
+      const mixed = (await signIn(idp)).claims;
+      assert.equal(mixed.email_verified, false);
+      assert.equal(mixed.xms_edov, true);
+    });
+
+    test("the protocol claims cannot be overridden this way: the token faults are the only way to bend them", async () => {
+      idp.signInAs({ ...alpha, claims: { iss: "https://elsewhere.example", aud: "x", exp: 1, nonce: "x", sub: "x" } });
+      const { tokens, attempt: a } = await signIn(idp);
+      const claims = await verify(idp, tokens.id_token);
+      assert.equal(claims.sub, alpha.sub);
+      assert.equal(claims.nonce, a.nonce);
     });
   });
 

@@ -26,6 +26,8 @@ const idp = await startFakeIssuer({ clientId, clientSecret, redirectUris: [`${BA
 idp.signInAs(PEOPLE.alpha);                     // sign-ins succeed as alpha until changed
 idp.signInAs(PEOPLE.alpha, "wrong_audience");   // ... or carry one fault
 const callback = await idp.authorize(authorizationUrl); // the browser's part: the redirect back, to hand to the callback route
+// ... the application refuses the sign-in ...
+idp.expectDelivered("wrong_audience");          // REQUIRED in every refusal test: the fault actually left the issuer
 await idp.outage("refused");                    // or "hang"; await idp.recover()
 await idp.reset();                              // between tests
 await idp.close();
@@ -35,14 +37,24 @@ await idp.close();
 |---|---|
 | First sign-in creates the account | `signInAs(person)` |
 | Returning person is recognised by the provider's identifier | `signInAs(withChangedEmail(person, address))`: same subject, another address |
-| Email address not verified | faults `no_email`, `email_unverified`, `no_verified_claim`; `{ ...person, emailVerified: false }`; the claim's name with the option `emailVerifiedClaim` (`xms_edov` for Microsoft Entra ID) |
-| Answer not meant for this install | faults `wrong_issuer`, `wrong_audience`, `expired`, `wrong_key` (another key under the published key id), `wrong_nonce`, `wrong_state`; an answer already used: replay `idp.lastCallback` |
+| Email address not verified | faults `no_email`, `email_unverified`, `no_verified_claim`; `{ ...person, emailVerified: false }`; the claim's name with the option `emailVerifiedClaim` (`xms_edov` for Microsoft Entra ID); the two assertions set independently with `{ ...person, claims: { email_verified: true, xms_edov: false } }` (or the reverse) |
+| Answer not meant for this install | faults `wrong_issuer`, `wrong_audience`, `expired`, `wrong_key` (another key under the published key id), `wrong_nonce`, `wrong_state`; an answer already used: replay `idp.lastCallback` after `idp.allowCodeReuse()`, so the fake accepts the code again and only the application's own single-use check can stop it |
 | Email address already used by another account | `signInAs(withChangedEmail(person, otherPerson.email))` |
 | Never matched by email address alone | `signInAs(sameEmailNewSubject(person))`: a new subject with that person's address |
 | Provider cannot be reached | `outage("refused")` (nothing listens) or `outage("hang")` (accepted, never answered), before or during a sign-in |
 | Person cancels or the provider refuses | faults `cancelled` (`access_denied`), `provider_error` (`server_error`) |
 
-Also: `idp.issued` keeps the ID and access token of every sign-in (to prove that neither reached a log line or the `account` row), `idp.requests` the method and path of every request (to prove, say, that discovery was fetched once), `idp.mintIdToken(person, { nonce, fault })` an ID token outside any flow (for posting a raw token to `/sign-in/social`).
+### Every refusal test proves its fault was delivered
+
+The fake refuses what a provider would refuse: no PKCE S256 challenge, no `openid` scope, a wrong client secret or redirect address, an unknown or used code, a bad access token at userinfo, a path it does not serve. Such a refusal reaches the application as an error, often at the callback, exactly like the `cancelled` fault. A test that expects the application to refuse a sign-in would then pass even if its fault never left the issuer, because the sign-in library sent something the fake rejected. So:
+
+- **Every test that expects a sign-in to be refused calls `idp.expectDelivered(fault)`** after the application's refusal is observed (for the people cases and `outage`, `idp.expectDelivered()` for the good answer, or an assertion on `idp.requests` that the issuer was reached). It throws unless the last answer the issuer gave (`idp.delivered.at(-1)`) carried that fault and the fake refused nothing. Asserting on `idp.issued.at(-1)?.fault` is not enough on its own: callback faults (`cancelled`, `provider_error`, `wrong_state`) never reach the token endpoint.
+- Each of the fake's own refusals is recorded in `idp.refusals` (endpoint, error, reason) and marked `fake issuer refused: ...` in the error description or body the application receives. `idp.authorize()` throws on one instead of returning its redirect.
+- `idp.reset()` and `idp.close()` throw (after doing their work) when a refusal was left that no test took with `idp.takeRefusals()`, so the suite goes red even in a test that forgot `expectDelivered`. A test that provokes a refusal on purpose takes it with `takeRefusals()` and asserts on it.
+
+`lib/fake-issuer.test.ts`, "its own refusals are loud", proves each of these: a request without PKCE under the `cancelled` fault fails `expectDelivered("cancelled")`, and an untaken refusal fails `reset()`.
+
+Also: `idp.issued` keeps the ID and access token of every sign-in (to prove that neither reached a log line or the `account` row), `idp.requests` the method and path of every request (to prove, say, that discovery was fetched once), `idp.mintIdToken(person, { nonce, fault })` an ID token outside any flow (for posting a raw token to `/sign-in/social`). `recover()` listens again on the same port; if another process took it during a `refused` outage, it retries for a second and then throws a message naming the port (it can be called again).
 
 ## Running the live suites
 

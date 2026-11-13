@@ -8,6 +8,7 @@
 //   const idp = await startFakeIssuer({ clientId, clientSecret, redirectUris });
 //   idp.signInAs(PEOPLE.alpha);                    // the next sign-ins succeed as alpha
 //   idp.signInAs(PEOPLE.alpha, "wrong_audience");  // ... or carry exactly one fault
+//   idp.expectDelivered("wrong_audience");         // REQUIRED in every refusal test, see below
 //   await idp.outage("refused" | "hang");          // the provider cannot be reached
 //   await idp.reset();                             // between tests
 //   await idp.close();
@@ -15,6 +16,20 @@
 // Each fault changes one thing and leaves the rest of the answer good, so a
 // test that is refused under a fault is refused for that reason
 // (fake-issuer.test.ts proves it by verifying the tokens with jose).
+//
+// The fake refuses what a provider would refuse (no PKCE S256 challenge, no
+// `openid` scope, a wrong client secret or redirect address, a used code). To
+// the application such a refusal looks like a fault ("cancelled" is also an
+// error at the callback), so a refusal test could pass without its fault ever
+// being delivered. Therefore the fake's own refusals are loud:
+// - each is recorded in `refusals` and marked "fake issuer refused: ..." in
+//   the error description the application receives;
+// - `authorize()` throws instead of returning a refusal's redirect;
+// - `expectDelivered(fault)` throws unless that fault was the last answer
+//   actually given and nothing was refused;
+// - `reset()` and `close()` throw when refusals are left that no test took
+//   with `takeRefusals()`.
+// Every refusal test must call `expectDelivered` (tests/README.md).
 //
 // This file imports only Node and jose (pinned to the same version in
 // apps/web and here) and no sibling file, so apps/web tests import it by
@@ -35,6 +50,14 @@ export interface TestPerson {
   name: string;
   /** What the provider asserts about the address. Default true; "true" is the string form Google's documentation shows. */
   emailVerified?: boolean | string;
+  /**
+   * Claims set by hand, in the ID token and at userinfo, after everything
+   * else: `{ email_verified: true, xms_edov: false }` sets the two assertions
+   * independently of the configured claim name; `undefined` removes a claim.
+   * The protocol claims (iss, sub, aud, exp, iat, auth_time, nonce) are not
+   * affected: bend those with a fault.
+   */
+  claims?: Record<string, unknown>;
 }
 
 const DOMAIN = "a2h-fake-idp.example";
@@ -119,6 +142,23 @@ export interface IssuedSignIn {
   accessToken: string;
 }
 
+/** Something the fake itself rejected: never a fault a test asked for. */
+export interface Refusal {
+  /** "other": a path the fake does not serve, or a request it could not handle. */
+  endpoint: "authorize" | "token" | "userinfo" | "other";
+  /** The OAuth error code, or `unknown_client`, `unregistered_redirect_uri`, `no_person_selected` for the pages of the authorization endpoint, or `unknown_endpoint`, `internal_error`. */
+  error: string;
+  description: string;
+}
+
+/** An answer that actually left the issuer for the selected person. */
+export interface Delivered {
+  person: TestPerson;
+  fault: Fault | undefined;
+  /** "callback": the redirect of `cancelled`, `provider_error`, `wrong_state`. "token": the token response, for every other fault and for none. */
+  at: "callback" | "token";
+}
+
 export interface SeenRequest {
   method: string;
   /** Path only: a query can carry a code or a state. */
@@ -140,19 +180,33 @@ export interface FakeIssuer {
   readonly issued: readonly IssuedSignIn[];
   /** The last redirect the authorization endpoint answered with, for replaying a callback. */
   readonly lastCallback: string | undefined;
+  /** What the fake itself rejected since the last reset or `takeRefusals()`. */
+  readonly refusals: readonly Refusal[];
+  /** Every answer given since the last reset, in order. */
+  readonly delivered: readonly Delivered[];
+  /** The refusals, acknowledged: for a test that provoked them on purpose. */
+  takeRefusals(): Refusal[];
+  /**
+   * Throws unless the last answer given carried this fault (none: the good
+   * answer) and the fake refused nothing. Every refusal test calls it, so it
+   * cannot pass on a refusal of the fake's own or on an undelivered fault.
+   */
+  expectDelivered(fault?: Fault): void;
+  /** From now until reset, a code can be exchanged again (client, redirect address and PKCE still checked): a replay test then isolates the application's own single-use check. */
+  allowCodeReuse(): void;
   /** Who the authorization endpoint signs in from now on, and with which fault. Holds until changed or reset. */
   signInAs(person: TestPerson, fault?: Fault): void;
-  /** The browser's part without a browser: GET an authorization URL of this issuer and return the redirect back to the relying party. */
+  /** The browser's part without a browser: GET an authorization URL of this issuer and return the redirect back to the relying party. Throws when the fake refused the request. */
   authorize(authorizationUrl: string): Promise<URL>;
   /** An ID token outside any flow (for posting a raw token to an endpoint that must refuse it). Not recorded in `issued`. */
   mintIdToken(person: TestPerson, options?: { nonce?: string; fault?: TokenFault }): Promise<string>;
   /** "refused": nothing listens on the port. "hang": connections are accepted and never answered (callers need their own timeout). */
   outage(kind: "refused" | "hang"): Promise<void>;
-  /** End an outage: same port, same keys. Requests held by a "hang" are dropped. */
+  /** End an outage: same port, same keys. Requests held by a "hang" are dropped. If another process took the port meanwhile, retries for a second, then throws; it can be called again. */
   recover(): Promise<void>;
-  /** Between tests: ends an outage and forgets the selection, the records, the codes and the access tokens. Keys and port stay. */
+  /** Between tests: ends an outage and forgets the selection, the records, the codes and the access tokens. Keys and port stay. Throws, after resetting, when refusals were left untaken. */
   reset(): Promise<void>;
-  /** Stop for good. */
+  /** Stop for good. Throws, after stopping, when refusals were left untaken. */
   close(): Promise<void>;
 }
 
@@ -161,6 +215,10 @@ const LIFETIME_SECONDS = 300;
 const HOST = "127.0.0.1";
 const OTHER_ISSUER = `https://another-issuer.${DOMAIN}`;
 const OTHER_AUDIENCE = "another-client";
+const REFUSED = "fake issuer refused: ";
+const PROTOCOL_CLAIMS = ["iss", "sub", "aud", "exp", "iat", "auth_time", "nonce"];
+const RELISTEN_TRIES = 20;
+const RELISTEN_WAIT_MS = 50;
 
 interface Grant {
   person: TestPerson;
@@ -214,6 +272,9 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
   let requests: SeenRequest[] = [];
   let issued: IssuedSignIn[] = [];
   let lastCallback: string | undefined;
+  let refusals: Refusal[] = [];
+  let delivered: Delivered[] = [];
+  let codesReusable = false;
   const grants = new Map<string, Grant>();
   const accessTokens = new Map<string, Record<string, unknown>>();
 
@@ -225,11 +286,33 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
   /** The person as the provider describes them, in the ID token and at userinfo alike. */
   function personClaims(person: TestPerson, fault: Fault | undefined): Record<string, unknown> {
     const claims: Record<string, unknown> = { sub: person.sub, name: person.name };
-    if (fault === "no_email") return claims;
-    claims.email = person.email;
-    if (fault === "no_verified_claim") return claims;
-    claims[verifiedClaim] = fault === "email_unverified" ? false : (person.emailVerified ?? true);
+    if (fault !== "no_email") {
+      claims.email = person.email;
+      if (fault !== "no_verified_claim") claims[verifiedClaim] = fault === "email_unverified" ? false : (person.emailVerified ?? true);
+    }
+    for (const [name, value] of Object.entries(person.claims ?? {})) {
+      if (PROTOCOL_CLAIMS.includes(name)) continue;
+      if (value === undefined) delete claims[name];
+      else claims[name] = value;
+    }
     return claims;
+  }
+
+  function refuse(endpoint: Refusal["endpoint"], error: string, description: string): Refusal {
+    const refusal = { endpoint, error, description };
+    refusals.push(refusal);
+    return refusal;
+  }
+
+  function describeRefusals(): string {
+    return refusals.map((r) => `${r.endpoint} ${r.error} (${r.description})`).join("; ");
+  }
+
+  /** Thrown by reset() and close() once their work is done. */
+  function failOnUntakenRefusals(left: Refusal[]): void {
+    if (left.length === 0) return;
+    const list = left.map((r) => `${r.endpoint} ${r.error} (${r.description})`).join("; ");
+    throw new Error(`fake issuer: ${left.length} refusal(s) no test asked for: ${list}. The relying party sent something a provider rejects, or a test forgot takeRefusals().`);
   }
 
   async function idToken(person: TestPerson, fault: Fault | undefined, nonce: string | undefined): Promise<string> {
@@ -254,9 +337,13 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
     const q = url.searchParams;
     const redirectUri = q.get("redirect_uri");
     // Client and redirect address first: with either wrong, a provider shows a page and redirects nowhere.
-    if (q.get("client_id") !== options.clientId) return text(res, 400, "fake issuer: unknown client_id");
+    const page = (status: number, error: string, description: string): void => {
+      refuse("authorize", error, description);
+      text(res, status, `${REFUSED}${error}: ${description}`);
+    };
+    if (q.get("client_id") !== options.clientId) return page(400, "unknown_client", "client_id is not this install's");
     if (!redirectUri || (options.redirectUris && !options.redirectUris.includes(redirectUri))) {
-      return text(res, 400, "fake issuer: redirect_uri is not registered for this client");
+      return page(400, "unregistered_redirect_uri", "redirect_uri is not registered for this client");
     }
     const state = q.get("state");
     const back = (params: Record<string, string>, sentState: string | null = state): void => {
@@ -267,19 +354,25 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
       res.writeHead(302, { location: lastCallback, "cache-control": "no-store" });
       res.end();
     };
-    if (q.get("response_type") !== "code") return back({ error: "unsupported_response_type" });
+    // The fake's own refusal: an error at the callback like a provider's, but recorded and marked.
+    const refused = (error: string, description: string): void => {
+      refuse("authorize", error, description);
+      back({ error, error_description: `${REFUSED}${description}` });
+    };
+    if (q.get("response_type") !== "code") return refused("unsupported_response_type", "only response_type=code");
     const scope = q.get("scope") ?? "";
-    if (!scope.split(" ").includes("openid")) return back({ error: "invalid_scope" });
+    if (!scope.split(" ").includes("openid")) return refused("invalid_scope", "the openid scope is required");
     const challenge = q.get("code_challenge");
-    if (!challenge || q.get("code_challenge_method") !== "S256") {
-      return back({ error: "invalid_request", error_description: "PKCE with S256 is required" });
-    }
-    if (!selected) return text(res, 500, "fake issuer: no person selected; call signInAs(person) before starting a sign-in");
+    if (!challenge || q.get("code_challenge_method") !== "S256") return refused("invalid_request", "PKCE with S256 is required");
+    if (!selected) return page(500, "no_person_selected", "call signInAs(person) before starting a sign-in");
     const { person, fault } = selected;
-    if (fault === "cancelled") return back({ error: "access_denied" });
-    if (fault === "provider_error") return back({ error: "server_error" });
+    if (fault === "cancelled" || fault === "provider_error") {
+      delivered.push({ person, fault, at: "callback" });
+      return back({ error: fault === "cancelled" ? "access_denied" : "server_error" });
+    }
     const code = randomBytes(24).toString("base64url");
     grants.set(code, { person, fault, nonce: q.get("nonce") ?? undefined, challenge, redirectUri, scope });
+    if (fault === "wrong_state") delivered.push({ person, fault, at: "callback" });
     back({ code }, fault === "wrong_state" ? `not-your-state-${randomBytes(8).toString("hex")}` : state);
   }
 
@@ -295,31 +388,39 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
       clientId = decodeURIComponent(decoded.slice(0, Math.max(colon, 0)));
       clientSecret = decodeURIComponent(decoded.slice(colon + 1));
     }
+    const refused = (status: number, error: string, description: string, headers: Record<string, string> = {}): void => {
+      refuse("token", error, description);
+      json(res, status, { error, error_description: `${REFUSED}${description}` }, headers);
+    };
     if (clientId !== options.clientId || clientSecret === null || !same(clientSecret, options.clientSecret)) {
-      return json(res, 401, { error: "invalid_client" }, { "www-authenticate": 'Basic realm="fake-issuer"' });
+      return refused(401, "invalid_client", "wrong client id or secret", { "www-authenticate": 'Basic realm="fake-issuer"' });
     }
-    if (form.get("grant_type") !== "authorization_code") return json(res, 400, { error: "unsupported_grant_type" });
+    if (form.get("grant_type") !== "authorization_code") return refused(400, "unsupported_grant_type", "only the authorization code grant");
     const code = form.get("code") ?? "";
     const grant = grants.get(code);
-    // Single use: a code presented by the client is spent, whatever follows.
-    grants.delete(code);
-    if (!grant) return json(res, 400, { error: "invalid_grant", error_description: "unknown or used code" });
-    if (form.get("redirect_uri") !== grant.redirectUri) return json(res, 400, { error: "invalid_grant", error_description: "redirect_uri mismatch" });
+    // Single use: a code presented by the client is spent, whatever follows (unless allowCodeReuse()).
+    if (!codesReusable) grants.delete(code);
+    if (!grant) return refused(400, "invalid_grant", "unknown or used code");
+    if (form.get("redirect_uri") !== grant.redirectUri) return refused(400, "invalid_grant", "redirect_uri is not the one of the authorization request");
     const verifier = form.get("code_verifier");
     if (!verifier || !same(createHash("sha256").update(verifier).digest("base64url"), grant.challenge)) {
-      return json(res, 400, { error: "invalid_grant", error_description: "PKCE verification failed" });
+      return refused(400, "invalid_grant", "PKCE verification failed");
     }
     const accessToken = randomBytes(24).toString("base64url");
     accessTokens.set(accessToken, personClaims(grant.person, grant.fault));
     const token = await idToken(grant.person, grant.fault, grant.nonce);
     issued.push({ person: grant.person, fault: grant.fault, idToken: token, accessToken });
+    delivered.push({ person: grant.person, fault: grant.fault, at: "token" });
     json(res, 200, { access_token: accessToken, token_type: "Bearer", expires_in: LIFETIME_SECONDS, id_token: token, scope: grant.scope });
   }
 
   function userinfoEndpoint(req: IncomingMessage, res: ServerResponse): void {
     const bearer = /^Bearer (.+)$/i.exec(req.headers.authorization ?? "");
     const claims = bearer ? accessTokens.get(bearer[1]!) : undefined;
-    if (!claims) return json(res, 401, { error: "invalid_token" }, { "www-authenticate": 'Bearer error="invalid_token"' });
+    if (!claims) {
+      refuse("userinfo", "invalid_token", "missing or unknown access token");
+      return json(res, 401, { error: "invalid_token", error_description: `${REFUSED}missing or unknown access token` }, { "www-authenticate": 'Bearer error="invalid_token"' });
+    }
     json(res, 200, claims);
   }
 
@@ -360,26 +461,55 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
     if (route === "GET /authorize") return authorizeEndpoint(url, res);
     if (route === "POST /token") return tokenEndpoint(req, res);
     if (route === "GET /userinfo") return userinfoEndpoint(req, res);
-    text(res, 404, "fake issuer: no such endpoint");
+    // A relying party calling revocation, logout or a mistyped path fails here: loud too.
+    refuse("other", "unknown_endpoint", route);
+    text(res, 404, `${REFUSED}unknown_endpoint: ${route}`);
   }
 
   const server: Server = createServer((req, res) => {
     handle(req, res).catch(() => {
-      if (!res.headersSent) text(res, 500, "fake issuer: internal error");
+      refuse("other", "internal_error", `${req.method ?? "GET"} ${new URL(req.url ?? "/", issuer).pathname}`);
+      if (!res.headersSent) text(res, 500, `${REFUSED}internal_error`);
       else res.destroy();
     });
   });
 
-  function listen(port: number): Promise<void> {
+  function listenOnce(port: number): Promise<void> {
+    // Both listeners are removed whichever fires: a failed listen() would
+    // otherwise leave its callback behind, to fire on a later success.
     return new Promise((resolve, reject) => {
-      const failed = (error: Error): void => reject(error);
-      server.once("error", failed);
-      server.listen(port, HOST, () => {
+      const failed = (error: Error): void => {
+        server.off("listening", ready);
+        reject(error);
+      };
+      const ready = (): void => {
         server.off("error", failed);
         listening = true;
         resolve();
-      });
+      };
+      server.once("error", failed);
+      server.once("listening", ready);
+      server.listen(port, HOST);
     });
+  }
+
+  /**
+   * While "refused" nothing holds the port (holding it would not be a refused
+   * connection), so another process can take it. Listening again retries for
+   * a second, then says which port instead of a bare EADDRINUSE.
+   */
+  async function listen(port: number): Promise<void> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await listenOnce(port);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") throw error;
+        if (attempt >= RELISTEN_TRIES) {
+          throw new Error(`fake issuer: port ${port} was taken by another process and is still in use after ${RELISTEN_TRIES * RELISTEN_WAIT_MS} ms; call recover() again or start a new issuer`, { cause: error });
+        }
+        await new Promise((resolve) => setTimeout(resolve, RELISTEN_WAIT_MS));
+      }
+    }
   }
 
   function stopListening(): Promise<void> {
@@ -423,6 +553,29 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
     get lastCallback() {
       return lastCallback;
     },
+    get refusals() {
+      return refusals;
+    },
+    get delivered() {
+      return delivered;
+    },
+    takeRefusals() {
+      const taken = refusals;
+      refusals = [];
+      return taken;
+    },
+    expectDelivered(fault) {
+      const wanted = fault ?? "no fault";
+      if (refusals.length > 0) {
+        throw new Error(`fake issuer: expected ${wanted} to be delivered, but the issuer refused: ${describeRefusals()}. The application was refused for that, not for the fault.`);
+      }
+      const last = delivered.at(-1);
+      if (!last) throw new Error(`fake issuer: expected ${wanted} to be delivered, but nothing was delivered: the sign-in never reached the point where the fault applies`);
+      if (last.fault !== fault) throw new Error(`fake issuer: expected ${wanted} to be delivered, but the last answer carried ${last.fault ?? "no fault"}`);
+    },
+    allowCodeReuse() {
+      codesReusable = true;
+    },
     signInAs(person, fault) {
       selected = { person, fault };
     },
@@ -431,7 +584,12 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
       const res = await fetch(authorizationUrl, { redirect: "manual" });
       const location = res.headers.get("location");
       if (res.status !== 302 || !location) throw new Error(`fake issuer: the authorization endpoint answered ${res.status}: ${await res.text()}`);
-      return new URL(location);
+      const callback = new URL(location);
+      const description = callback.searchParams.get("error_description");
+      if (description?.startsWith(REFUSED)) {
+        throw new Error(`${REFUSED}${callback.searchParams.get("error")}: ${description.slice(REFUSED.length)}. The relying party's authorization request is not one a provider accepts.`);
+      }
+      return callback;
     },
     mintIdToken(person, minted = {}) {
       return idToken(person, minted.fault, minted.nonce);
@@ -444,18 +602,26 @@ export async function startFakeIssuer(options: FakeIssuerOptions): Promise<FakeI
     },
     recover,
     async reset() {
-      await recover();
+      const left = refusals;
       selected = undefined;
       requests = [];
       issued = [];
+      refusals = [];
+      delivered = [];
+      codesReusable = false;
       lastCallback = undefined;
       grants.clear();
       accessTokens.clear();
+      await recover();
+      failOnUntakenRefusals(left);
     },
     async close() {
+      const left = refusals;
+      refusals = [];
       closed = true;
       dropHeld();
       await stopListening();
+      failOnUntakenRefusals(left);
     },
   };
 }
